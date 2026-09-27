@@ -5,7 +5,7 @@
 
 static constexpr int SCE_OK = 0;
 static constexpr int SCE_KERNEL_ERROR_ENOMEM = 0x8002000C;
-static constexpr int SCE_KERNEL_ERROR_ETIMEDOUT = 0x80020062;
+static constexpr int SCE_KERNEL_ERROR_ETIMEDOUT = 0x8002003C;
 
 extern "C" {
 
@@ -58,12 +58,19 @@ int APS5_VABI scePthreadCondTimedwait(PthreadCond* cond, PthreadMutex* mutex, un
     auto* c = *cond;
     if (m->_type == MutexType::Recursive) {
         std::unique_lock<std::recursive_timed_mutex> lk(m->_rmtx, std::adopt_lock);
+        const int savedCount = m->_count;
+        m->_count = 0;
+        m->_owner.store(std::thread::id{}, std::memory_order_relaxed);
         auto res = c->_cv.wait_for(lk, std::chrono::microseconds(usec));
+        m->_owner.store(std::this_thread::get_id(), std::memory_order_relaxed);
+        m->_count = savedCount;
         lk.release();
         return res == std::cv_status::timeout ? SCE_KERNEL_ERROR_ETIMEDOUT : SCE_OK;
     }
     std::unique_lock<std::timed_mutex> lk(m->_mtx, std::adopt_lock);
+    m->_owner.store(std::thread::id{}, std::memory_order_relaxed);
     auto res = c->_cv.wait_for(lk, std::chrono::microseconds(usec));
+    m->_owner.store(std::this_thread::get_id(), std::memory_order_relaxed);
     lk.release();
     return res == std::cv_status::timeout ? SCE_KERNEL_ERROR_ETIMEDOUT : SCE_OK;
 }

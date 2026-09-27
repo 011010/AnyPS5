@@ -47,17 +47,22 @@ static void RunThread(std::unique_ptr<ThreadArgs> args) {
     FinishThread(self, entry(arg));
 }
 
-#ifdef _WIN32
 static thread_local PthreadPrivate* currentThread = nullptr;
+static thread_local std::unique_ptr<PthreadPrivate> adoptedThread;
 
 static void ReleaseThread(PthreadPrivate* thread) {
+    if (thread->_adopted)
+        return;
     if (thread->references.fetch_sub(1, std::memory_order_acq_rel) != 1)
         return;
+#ifdef _WIN32
     if (!CloseHandle(thread->nativeHandle))
         throw std::system_error(GetLastError(), std::system_category(), "Closing guest thread handle");
+#endif
     delete thread;
 }
 
+#ifdef _WIN32
 struct NativeThreadArgs {
     std::unique_ptr<ThreadArgs> guest;
     std::future<bool> start;
@@ -136,8 +141,19 @@ int APS5_VABI scePthreadCreate(Pthread* thread, const PthreadAttr* attr, Pthread
     if (detached)
         ReleaseThread(published);
 #else
-    p->_thr = std::thread([args = std::move(args), ready = start.get_future()]() mutable {
-        if (ready.get()) RunThread(std::move(args));
+    auto* self = p.get();
+    p->_thr = std::thread([self, args = std::move(args), ready = start.get_future()]() mutable {
+        if (!ready.get()) return;
+        currentThread = self;
+        self->threadId = std::this_thread::get_id();
+        struct ThreadGuard {
+            PthreadPrivate* self;
+            ~ThreadGuard() {
+                currentThread = nullptr;
+                ReleaseThread(self);
+            }
+        } guard{self};
+        RunThread(std::move(args));
     });
     try {
         if (detached) p->_thr.detach();
@@ -146,8 +162,11 @@ int APS5_VABI scePthreadCreate(Pthread* thread, const PthreadAttr* attr, Pthread
         p->_thr.join();
         throw;
     }
-    *thread = p.release();
+    auto* published = p.release();
+    *thread = published;
     start.set_value(true);
+    if (detached)
+        ReleaseThread(published);
 #endif
     return SCE_OK;
 }
@@ -163,9 +182,11 @@ int APS5_VABI scePthreadJoin(Pthread thread, void** retval) {
     if (retval) *retval = thread->_retval;
     ReleaseThread(thread);
 #else
+    if (thread == currentThread)
+        throw std::runtime_error("scePthreadJoin: cannot join current thread");
     if (thread->_thr.joinable()) thread->_thr.join();
     if (retval) *retval = thread->_retval;
-    delete thread;
+    ReleaseThread(thread);
 #endif
     return SCE_OK;
 }
@@ -178,6 +199,7 @@ int APS5_VABI scePthreadDetach(Pthread thread) {
     ReleaseThread(thread);
 #else
     if (thread->_thr.joinable()) thread->_thr.detach();
+    ReleaseThread(thread);
 #endif
     return SCE_OK;
 }
@@ -192,17 +214,22 @@ void APS5_VABI scePthreadExit(void* retval) {
     ReleaseThread(self);
     _endthreadex(0);
 #else
+    if (!currentThread)
+        throw std::runtime_error("scePthreadExit: current thread is not registered");
+    FinishThread(currentThread, retval);
     pthread_exit(retval);
 #endif
     __builtin_unreachable();
 }
 
 Pthread APS5_VABI scePthreadSelf() {
-#ifdef _WIN32
+    if (currentThread) return currentThread;
+    adoptedThread = std::make_unique<PthreadPrivate>();
+    adoptedThread->_detached = true;
+    adoptedThread->_adopted = true;
+    adoptedThread->threadId = std::this_thread::get_id();
+    currentThread = adoptedThread.get();
     return currentThread;
-#else
-    return nullptr;
-#endif
 }
 
 void APS5_VABI scePthreadYield() {

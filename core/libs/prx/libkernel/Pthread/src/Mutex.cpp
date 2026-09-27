@@ -81,6 +81,8 @@ int APS5_VABI scePthreadMutexUnlock(PthreadMutex* mutex) {
             return SCE_KERNEL_ERROR_EPERM;
     }
     if (m->_type == MutexType::Recursive) {
+        if (m->_owner.load(std::memory_order_acquire) != std::this_thread::get_id() || m->_count == 0)
+            return SCE_KERNEL_ERROR_EPERM;
         if (--m->_count == 0) m->_owner.store(std::thread::id{}, std::memory_order_relaxed);
         m->_rmtx.unlock();
         return SCE_OK;
