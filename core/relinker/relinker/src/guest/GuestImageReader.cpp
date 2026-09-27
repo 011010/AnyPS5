@@ -54,7 +54,7 @@ GuestImage GuestImageReader::Read(const std::filesystem::path& path, std::vector
             dynlib = &header;
         }
         if (header.Type == 7) {
-            if (tls != nullptr || header.FileSize > header.MemorySize || !std::has_single_bit(header.Alignment)) fail("Invalid TLS segment");
+            if (tls != nullptr || header.FileSize > header.MemorySize || (header.Alignment > 1 && !std::has_single_bit(header.Alignment))) fail("Invalid TLS segment");
             tls = &header;
         }
     }
