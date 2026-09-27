@@ -1,13 +1,11 @@
 #include "../include/Pthread.hpp"
 #include "prx/libc/include/General.hpp"
+#include "prx/libkernel/KernelErrors.hpp"
 #include <cerrno>
 #include <chrono>
 #include <stdexcept>
 
 static constexpr int SCE_OK = 0;
-static constexpr int SCE_KERNEL_ERROR_ENOMEM = 0x8002000C;
-static constexpr int SCE_KERNEL_ERROR_EDEADLK = 0x8002000B;
-static constexpr int SCE_KERNEL_ERROR_EPERM = 0x80020001;
 
 extern "C" {
 

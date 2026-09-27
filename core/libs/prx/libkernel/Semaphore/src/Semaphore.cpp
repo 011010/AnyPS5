@@ -27,7 +27,7 @@ int APS5_VABI sceKernelPollSema(KernelSema sem, int need) {
 
  std::lock_guard<std::mutex> lock(sem->mutex);
  if (sem->tokenCount < need) {
-  return KERNEL_SEMA_ERROR_EBUSY;
+  return SCE_KERNEL_ERROR_EBUSY;
  }
  sem->tokenCount -= need;
  return KERNEL_SEMA_OK;
@@ -40,7 +40,7 @@ int APS5_VABI sceKernelSignalSema(KernelSema sem, int count) {
 
  std::lock_guard<std::mutex> lock(sem->mutex);
  if (sem->tokenCount + count > sem->maxCount) {
-  return KERNEL_SEMA_ERROR_EINVAL;
+  return SCE_KERNEL_ERROR_EINVAL;
  }
  sem->tokenCount += count;
  sem->condition.notify_all();
@@ -65,7 +65,7 @@ int APS5_VABI sceKernelWaitSema(KernelSema sem, int need, KernelUseconds* time) 
  if (time == nullptr) {
   sem->condition.wait(lock, [&] { return sem->tokenCount >= need || sem->deleted; });
   if (sem->deleted) {
-   return KERNEL_SEMA_ERROR_EACCES;
+   return SCE_KERNEL_ERROR_EACCES;
   }
   sem->tokenCount -= need;
   return KERNEL_SEMA_OK;
@@ -74,10 +74,10 @@ int APS5_VABI sceKernelWaitSema(KernelSema sem, int need, KernelUseconds* time) 
  auto timeout = std::chrono::microseconds(*time);
  bool acquired = sem->condition.wait_for(lock, timeout, [&] { return sem->tokenCount >= need || sem->deleted; });
  if (sem->deleted) {
-  return KERNEL_SEMA_ERROR_EACCES;
+  return SCE_KERNEL_ERROR_EACCES;
  }
  if (!acquired) {
-  return KERNEL_SEMA_ERROR_ETIMEDOUT;
+  return SCE_KERNEL_ERROR_ETIMEDOUT;
  }
  sem->tokenCount -= need;
  return KERNEL_SEMA_OK;
