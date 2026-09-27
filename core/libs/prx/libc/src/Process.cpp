@@ -58,14 +58,27 @@ extern "C" void LibcRunShutdown_nid_postfix() {
 
 extern "C" {
 
+[[noreturn]] void APS5_VABI _Exit_nid_postfix(int code) {
+    static const bool trace = std::getenv("APS5_TRACE_EXIT") != nullptr;
+    if (trace) {
+        std::fprintf(stderr, "[libc] _Exit(%d) called from %p\n", code, __builtin_return_address(0));
+        std::fflush(stderr);
+    }
+    std::_Exit(code);
+}
+
+[[noreturn]] void LibcExit_nid_no_patch(int code) {
+    LibcRunShutdown_nid_postfix();
+    std::exit(code);
+}
+
 void APS5_VABI exit_nid_postfix(int code) {
     static const bool trace = std::getenv("APS5_TRACE_EXIT") != nullptr;
     if (trace) {
         std::fprintf(stderr, "[libc] exit(%d) called from %p\n", code, __builtin_return_address(0));
         std::fflush(stderr);
     }
-    LibcRunShutdown_nid_postfix();
-    std::exit(code);
+    LibcExit_nid_no_patch(code);
 }
 
 [[noreturn]] void abort_nid_postfix(
@@ -98,5 +111,3 @@ int APS5_VABI atexit_nid_postfix(atexit_func_t func) {
 }
 
 }
-
-#include "prx/libc/src/specifics/linux/PosixProcess.cpp"

@@ -194,6 +194,7 @@ struct Submission {
     // copies it first when a submission still holds it).
     std::shared_ptr<const ShaderRegistry> shaders;
     std::map<std::size_t, std::shared_ptr<IFlipRequest>> flips;
+    std::map<std::size_t, std::shared_ptr<IRenderingWait>> renderingWaits;
     bool suspend = false;
     // Record-order stamp (Driver::eventSerial) taken when the game submitted: a WAIT_REG_MEM of this
     // submission trusts only labels the recorder noted with a newer stamp (see Recorder::NoteLabel).
@@ -508,6 +509,13 @@ public:
             require(accepted != std::numeric_limits<std::uint64_t>::max(), "submission serial overflow");
             for (std::size_t cursor = 0; cursor < submission.commands.size();) {
                 const auto* words = submission.commands.data() + cursor;
+                if (words[0] == RenderingWaitPacketHeader) {
+                    const auto output = outputs.find(words[1]);
+                    require(output != outputs.end(), "rendering wait references an unregistered video output");
+                    auto wait = output->second->CaptureRenderingWait(words[2]);
+                    require(wait != nullptr, "video output returned a null rendering wait");
+                    submission.renderingWaits.emplace(cursor, std::move(wait));
+                }
                 if (words[0] == FlipPacketHeader) {
                     const auto output = outputs.find(words[1]);
                     require(output != outputs.end(), "flip references an unregistered video output");
@@ -5870,7 +5878,7 @@ private:
             }
             traceLabel(packet, submission.queue);
             // Waits do not count as progress; every other packet does, including while it runs.
-            const bool waitPacket = opcode == 0x3c || opcode == 0x93;
+            const bool waitPacket = opcode == 0x3c || opcode == 0x93 || header == RenderingWaitPacketHeader;
             struct Progress {
                 Driver& driver;
                 bool counted;
@@ -5882,7 +5890,9 @@ private:
             } progress{*this, !waitPacket};
             if (!waitPacket) ++packetsInFlight;
             recent.Record(cursor);
-            if (header == FlipPacketHeader) {
+            if (header == RenderingWaitPacketHeader) {
+                timed(&WorkerProfile::waitMs, [&] { submission.renderingWaits.at(cursor)->Wait(); });
+            } else if (header == FlipPacketHeader) {
                 CheckFailure();
                 std::uint64_t batchesAtFlip = 0, unsignaledAtFlip = 0;
                 if (!drains) {

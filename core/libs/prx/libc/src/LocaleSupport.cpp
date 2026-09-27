@@ -1,8 +1,11 @@
+#include <climits>
 #include <cstddef>
+#include <cstdio>
 #include <cstdint>
 #include <cwchar>
 #include <cwctype>
 #include <ios>
+#include <locale>
 #include <mutex>
 #include <atomic>
 #include <cstring>
@@ -100,9 +103,42 @@ constexpr auto g_classificationTable = MakeClassificationTable();
 constexpr auto g_lowerTable = MakeCaseTable(false);
 constexpr auto g_upperTable = MakeCaseTable(true);
 
+void ValidateCharacter(int value) {
+    if (value != EOF && (value < 0 || value > UCHAR_MAX)) throw std::invalid_argument("Invalid character value");
+}
+
+int ClassifyCharacter(int value, std::ctype_base::mask mask) {
+    ValidateCharacter(value);
+    if (value == EOF) return 0;
+    return std::use_facet<std::ctype<char>>(std::locale::classic()).is(mask, static_cast<char>(value));
+}
+
+int ConvertCharacter(int value, bool upper) {
+    ValidateCharacter(value);
+    if (value == EOF) return EOF;
+    const auto& facet = std::use_facet<std::ctype<char>>(std::locale::classic());
+    const auto character = static_cast<char>(value);
+    return static_cast<unsigned char>(upper ? facet.toupper(character) : facet.tolower(character));
+}
+
 }
 
 extern "C" {
+
+int APS5_VABI isupper_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::upper); }
+int APS5_VABI islower_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::lower); }
+int APS5_VABI isalpha_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::alpha); }
+int APS5_VABI isdigit_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::digit); }
+int APS5_VABI isalnum_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::alnum); }
+int APS5_VABI isspace_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::space); }
+int APS5_VABI isblank_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::blank); }
+int APS5_VABI iscntrl_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::cntrl); }
+int APS5_VABI isprint_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::print); }
+int APS5_VABI isgraph_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::graph); }
+int APS5_VABI ispunct_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::punct); }
+int APS5_VABI isxdigit_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::xdigit); }
+int APS5_VABI toupper_nid_postfix(int c) { return ConvertCharacter(c, true); }
+int APS5_VABI tolower_nid_postfix(int c) { return ConvertCharacter(c, false); }
 
 std::uint64_t _ZNSt5ctypeIcE2idE_nid_postfix = 0;
 std::uint64_t _ZNSt5ctypeIwE2idE_nid_postfix = 0;

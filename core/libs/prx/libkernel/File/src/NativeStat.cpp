@@ -24,26 +24,7 @@ static int DoFstat(int fd, NativeStat* st) {
 }
 #endif
 
-namespace File {
-
-static void FillFromNative(const NativeStat& st, FileStat* sb);
-
-void FillFileStat(const std::filesystem::path& nativePath, FileStat* sb) {
-    NativeStat st{};
-    if (DoStat(nativePath, &st) != 0) {
-        throw std::runtime_error(std::string("FillFileStat: stat failed for ") + nativePath.string());
-    }
-    FillFromNative(st, sb);
-}
-
-bool FillFileStatFromDescriptor(int fd, FileStat* sb) {
-    NativeStat st{};
-    if (DoFstat(fd, &st) != 0) return false;
-    FillFromNative(st, sb);
-    return true;
-}
-
-static void FillFromNative(const NativeStat& st, FileStat* sb) {
+static void CopyNativeStat(const NativeStat& st, FileStat* sb) {
     *sb = FileStat{};
     sb->st_mode = static_cast<std::uint16_t>(st.st_mode);
     sb->st_size = static_cast<std::int64_t>(st.st_size);
@@ -89,6 +70,31 @@ static void FillFromNative(const NativeStat& st, FileStat* sb) {
     sb->st_birthtim.tv_nsec = static_cast<std::int64_t>(st.st_birthtim.tv_nsec);
 #endif
 #endif
+}
+
+namespace File {
+
+void FillFileStat(const std::filesystem::path& nativePath, FileStat* sb) {
+    NativeStat st{};
+    if (DoStat(nativePath, &st) != 0) {
+        throw std::runtime_error(std::string("FillFileStat: stat failed for ") + nativePath.string());
+    }
+    CopyNativeStat(st, sb);
+}
+
+void FillFileStat(int nativeDescriptor, FileStat* sb) {
+    NativeStat st{};
+    if (DoFstat(nativeDescriptor, &st) != 0) {
+        throw std::runtime_error(std::string("FillFileStat: fstat failed for fd ") + std::to_string(nativeDescriptor));
+    }
+    CopyNativeStat(st, sb);
+}
+
+bool FillFileStatFromDescriptor(int fd, FileStat* sb) {
+    NativeStat st{};
+    if (DoFstat(fd, &st) != 0) return false;
+    CopyNativeStat(st, sb);
+    return true;
 }
 
 }

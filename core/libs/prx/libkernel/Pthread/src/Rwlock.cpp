@@ -1,4 +1,5 @@
 #include "../include/Pthread.hpp"
+#include "../include/Rwlock.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libkernel/Time/include/TimedWait.hpp"
 #include <chrono>

@@ -97,6 +97,13 @@ double APS5_VABI strtod_nid_postfix(const char* str, char** endptr) {
     return std::strtod(str, endptr);
 }
 
+double APS5_VABI atof_nid_postfix(const char* str) { return std::atof(str); }
+float APS5_VABI strtof_nid_postfix(const char* str, char** endptr) { return std::strtof(str, endptr); }
+long double APS5_VABI strtold_nid_postfix(const char* str, char** endptr) {
+    static_assert(sizeof(long double) == 16, "Guest long double requires x87 extended precision storage");
+    return std::strtold(str, endptr);
+}
+
 int APS5_VABI atoi_nid_postfix(const char* str) {
     return std::atoi(str);
 }
@@ -158,18 +165,6 @@ size_t APS5_VABI strspn_nid_postfix(const char* s, const char* accept) {
     return std::strspn(s, accept);
 }
 
-size_t APS5_VABI strcspn_nid_postfix(const char* s, const char* reject) {
-    return std::strcspn(s, reject);
-}
-
-const char* APS5_VABI strpbrk_nid_postfix(const char* s, const char* accept) {
-    return std::strpbrk(s, accept);
-}
-
-char* APS5_VABI strncat_nid_postfix(char* dest, const char* src, size_t n) {
-    return std::strncat(dest, src, n);
-}
-
 int APS5_VABI strcoll_nid_postfix(const char* s1, const char* s2) {
     return std::strcmp(s1, s2);
 }
@@ -191,14 +186,6 @@ int APS5_VABI strncpy_s_nid_postfix(char* dest, size_t destsz, const char* src, 
     std::memcpy(dest, src, length);
     dest[length] = '\0';
     return 0;
-}
-
-float APS5_VABI strtof_nid_postfix(const char* str, char** endptr) {
-    return std::strtof(str, endptr);
-}
-
-double APS5_VABI atof_nid_postfix(const char* str) {
-    return std::atof(str);
 }
 
 unsigned long long APS5_VABI _Stoull_nid_postfix(const char* str, char** endptr, int base) {

@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <cstddef>
 #include "SceTypes.hpp"
+#include "../include/ThreadLifecycle.hpp"
 #include "prx/libc/include/General.hpp"
 #include "../include/Pthread.hpp"
 #include "Common.hpp"

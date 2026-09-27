@@ -39,6 +39,8 @@ std::uint32_t* APS5_VABI sceAgcCbReleaseMem(CommandBuffer* buf, std::uint8_t act
     } else if (dataSelect == 5) {
         Agc::Command::Require(data == 0, __func__, "GDS release cannot use immediate data");
         value = gdsOffset | (static_cast<std::uint64_t>(gdsSize) << 16u);
+    } else {
+        Agc::Command::Require(gdsOffset == 0 && gdsSize <= 1, __func__, "GDS parameters supplied for a non-GDS release");
     }
     // A null label is accepted: games emit releases whose destination is never read.
     if (dataSelect != 0 && interrupt != 4 && guestAddress != 0) {

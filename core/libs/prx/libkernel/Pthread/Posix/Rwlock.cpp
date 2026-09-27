@@ -3,22 +3,23 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "../include/Pthread.hpp"
+#include "../include/Rwlock.hpp"
 #include <atomic>
 #include <stdexcept>
-
-extern "C" {
-int APS5_VABI scePthreadRwlockInit(PthreadRwlock* rwlock, const PthreadRwlockattr* attr, const char* name);
-int APS5_VABI scePthreadRwlockDestroy(PthreadRwlock* rwlock);
-int APS5_VABI scePthreadRwlockWrlock(PthreadRwlock* rwlock);
-}
+#include <string>
 
 namespace {
 
-int _toErrno(int sceResult) {
-    return sceResult == 0 ? 0 : static_cast<int>(static_cast<std::uint32_t>(sceResult) & 0xFFFFu);
+int toPosix(int result) {
+    if (result == 0)
+        return 0;
+    const auto error = static_cast<std::uint32_t>(result);
+    if ((error & 0xffff0000u) != 0x80020000u)
+        throw std::runtime_error("Unexpected SCE rwlock error");
+    return static_cast<int>(error & 0xffffu);
 }
 
-void _initializeStatic(PthreadRwlock* rwlock, const char* funcName) {
+void initializeStatic(PthreadRwlock* rwlock, const char* funcName) {
     if (!rwlock) throw std::runtime_error(std::string(funcName) + ": null rwlock");
     std::atomic_ref<PthreadRwlock> slot(*rwlock);
     PthreadRwlock current = slot.load(std::memory_order_acquire);
@@ -35,16 +36,26 @@ extern "C" {
 int APS5_VABI pthread_rwlock_destroy_nid_postfix(PthreadRwlock* rwlock) {
     if (!rwlock) throw std::runtime_error("pthread_rwlock_destroy: null rwlock");
     if (*rwlock == nullptr) return 0;
-    return _toErrno(scePthreadRwlockDestroy(rwlock));
+    return toPosix(scePthreadRwlockDestroy(rwlock));
 }
 
 int APS5_VABI pthread_rwlock_init_nid_postfix(PthreadRwlock* rwlock, const PthreadRwlockattr* attr) {
-    return _toErrno(scePthreadRwlockInit(rwlock, attr, nullptr));
+    return toPosix(scePthreadRwlockInit(rwlock, attr, nullptr));
+}
+
+int APS5_VABI pthread_rwlock_rdlock_nid_postfix(PthreadRwlock* rwlock) {
+    initializeStatic(rwlock, __func__);
+    return toPosix(scePthreadRwlockRdlock(rwlock));
+}
+
+int APS5_VABI pthread_rwlock_unlock_nid_postfix(PthreadRwlock* rwlock) {
+    initializeStatic(rwlock, __func__);
+    return toPosix(scePthreadRwlockUnlock(rwlock));
 }
 
 int APS5_VABI pthread_rwlock_wrlock_nid_postfix(PthreadRwlock* rwlock) {
-    _initializeStatic(rwlock, __func__);
-    return _toErrno(scePthreadRwlockWrlock(rwlock));
+    initializeStatic(rwlock, __func__);
+    return toPosix(scePthreadRwlockWrlock(rwlock));
 }
 
 }
