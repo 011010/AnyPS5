@@ -4,6 +4,8 @@ Tool for automatic executables porting to Linux and Windows.
 
 Includes a [relinker](core/relinker) that converts executable to the target system's native format and implementations of [system prx libraries](core/libs/prx) suitable for dynamic linking. No emulation or separate runtime process.
 
+`relinker --to-intel` rewrites the Zen 2-only instructions a title may contain (EXTRQ, INSERTQ, MOVNTSS, MOVNTSD) at relink time, in place when an equal-length Intel encoding exists and otherwise through a jump to a generated stub section, so Intel hosts need no runtime emulation.
+
 Releases will be published after the first full successful launch of at least one game.
 
 ## Status
