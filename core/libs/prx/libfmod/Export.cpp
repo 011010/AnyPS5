@@ -1,13 +1,28 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <cmath>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
+#include "SDL.h"
+
+// FMOD_MODE bits (subset, from fmod_common.h) — used to detect memory buffers.
+constexpr unsigned FMOD_LOOP_OFF = 0x00000001u;
+constexpr unsigned FMOD_LOOP_NORMAL = 0x00000002u;
+constexpr unsigned FMOD_LOOP_BIDI = 0x00000004u;
+constexpr unsigned FMOD_2D_FLAG = 0x00000008u;
+constexpr unsigned FMOD_3D_FLAG = 0x00000010u;
+constexpr unsigned FMOD_CREATESTREAM_FLAG = 0x00000080u;
+constexpr unsigned FMOD_OPENMEMORY_FLAG = 0x00000800u;
+constexpr unsigned FMOD_OPENMEMORY_POINT_FLAG = 0x10000000u;
+constexpr unsigned FMOD_OPENRAW_FLAG = 0x00001000u;
+constexpr unsigned FMOD_NONBLOCKING_FLAG = 0x00010000u;
 
 enum FMOD_OUTPUTTYPE {
     FMOD_OUTPUTTYPE_AUTODETECT = 0,
@@ -424,6 +439,149 @@ std::mutex gFmodMutex;
 constexpr int FMOD_OK = 0;
 constexpr unsigned FMOD_VERSION_CURRENT = 0x00020206;
 
+// ---- Real-audio backend (SDL queue, mirrors libSceAudioOut) ----
+// Silent fallback is kept via ANYPS5_FMOD_SILENT=1 or NOSOUND output type
+// or when SDL cannot be opened. When silent, update() is a no-op and
+// isPlaying() keeps the previous sticky behaviour so the old smoke test
+// (playSound(nullptr) -> playing==true) still passes.
+constexpr int kFmodOutRate = 48000;
+constexpr int kFmodOutCh = 2;
+constexpr int kFmodMixFrames = 1024;
+
+static SDL_AudioDeviceID gFmodDevice = 0;
+static SDL_AudioSpec gFmodSpec = {};
+static bool gFmodSdlTried = false;
+static bool gFmodSilent = false;
+
+static bool FmodSilentRequested() {
+    const char* s = std::getenv("ANYPS5_FMOD_SILENT");
+    if (s && (s[0] == '1' || s[0] == 'y' || s[0] == 'Y')) return true;
+    s = std::getenv("ANYPS5_FMOD_NOSOUND");
+    if (s && (s[0] == '1' || s[0] == 'y' || s[0] == 'Y')) return true;
+    return false;
+}
+
+static bool FmodEnsureDevice() {
+    if (gFmodDevice != 0) return true;
+    if (gFmodSdlTried) return gFmodDevice != 0;
+    gFmodSdlTried = true;
+    if (FmodSilentRequested()) {
+        gFmodSilent = true;
+        return false;
+    }
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) {
+        gFmodSilent = true;
+        return false;
+    }
+    SDL_AudioSpec desired{};
+    desired.freq = kFmodOutRate;
+    desired.format = AUDIO_F32SYS;
+    desired.channels = static_cast<Uint8>(kFmodOutCh);
+    desired.samples = 1024;
+    desired.callback = nullptr;
+    SDL_AudioSpec obtained{};
+    gFmodDevice = SDL_OpenAudioDevice(nullptr, 0, &desired, &obtained, SDL_AUDIO_ALLOW_ANY_CHANGE);
+    if (gFmodDevice == 0) {
+        gFmodSilent = true;
+        return false;
+    }
+    gFmodSpec = obtained;
+    SDL_PauseAudioDevice(gFmodDevice, 0);
+    return true;
+}
+
+static void FmodMakeSine(std::vector<float>& out, int rate, int ch, float freqHz, float seconds) {
+    const size_t frames = static_cast<size_t>(rate * seconds);
+    out.resize(frames * static_cast<size_t>(ch));
+    const float phaseInc = 2.0f * 3.14159265358979323846f * freqHz / static_cast<float>(rate);
+    float phase = 0.0f;
+    for (size_t f = 0; f < frames; f++) {
+        const float s = std::sin(phase) * 0.25f;
+        phase += phaseInc;
+        for (int c = 0; c < ch; c++) out[f * static_cast<size_t>(ch) + static_cast<size_t>(c)] = s;
+    }
+}
+
+// Minimal WAV (RIFF/WAVE) parser -> float stereo 48k. Returns false if not WAV.
+static bool FmodParseWav(const uint8_t* data, size_t len, std::vector<float>& outPcm, int& outRate, int& outCh) {
+    if (len < 44 || std::memcmp(data, "RIFF", 4) != 0 || std::memcmp(data + 8, "WAVE", 4) != 0) return false;
+    uint16_t audioFmt = 0, numCh = 0, bitsPerSample = 0;
+    uint32_t sampleRate = 0;
+    const uint8_t* snd = nullptr;
+    size_t sndLen = 0;
+    size_t off = 12;
+    auto rd16 = [](const uint8_t* p) -> uint16_t { return static_cast<uint16_t>(p[0] | (p[1] << 8)); };
+    auto rd32 = [](const uint8_t* p) -> uint32_t { return static_cast<uint32_t>(p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24)); };
+    while (off + 8 <= len) {
+        const uint8_t* chunk = data + off;
+        uint32_t chunkLen = rd32(chunk + 4);
+        if (off + 8 + chunkLen > len) break;
+        if (std::memcmp(chunk, "fmt ", 4) == 0 && chunkLen >= 16) {
+            audioFmt = rd16(chunk + 8);
+            numCh = rd16(chunk + 10);
+            sampleRate = rd32(chunk + 12);
+            bitsPerSample = rd16(chunk + 22);
+        } else if (std::memcmp(chunk, "data", 4) == 0) {
+            snd = chunk + 8;
+            sndLen = chunkLen;
+        }
+        off += 8 + ((chunkLen + 1) & ~static_cast<size_t>(1));
+    }
+    if (!snd || sndLen == 0 || numCh == 0 || sampleRate == 0) return false;
+    if (audioFmt != 1 && audioFmt != 3) return false; // PCM or FLOAT
+    int bytesPerSamp = bitsPerSample / 8;
+    if (bytesPerSamp <= 0) return false;
+    size_t frames = sndLen / (static_cast<size_t>(numCh) * static_cast<size_t>(bytesPerSamp));
+    if (frames == 0) return false;
+    if (frames > 48000u * 30u) frames = 48000u * 30u; // cap 30s
+    std::vector<float> tmp;
+    tmp.reserve(frames * 2);
+    for (size_t f = 0; f < frames; f++) {
+        float l = 0.0f, r = 0.0f;
+        for (int c = 0; c < numCh && c < 8; c++) {
+            const uint8_t* p = snd + (f * numCh + c) * bytesPerSamp;
+            float s = 0.0f;
+            if (audioFmt == 1) {
+                if (bitsPerSample == 8) s = (static_cast<int>(p[0]) - 128) / 128.0f;
+                else if (bitsPerSample == 16) { int16_t v; std::memcpy(&v, p, 2); s = v / 32768.0f; }
+                else if (bitsPerSample == 24) { int32_t v = (p[0] | (p[1] << 8) | (p[2] << 16)); if (v & 0x800000) v |= ~0xFFFFFF; s = v / 8388608.0f; }
+                else if (bitsPerSample == 32) { int32_t v; std::memcpy(&v, p, 4); s = v / 2147483648.0f; }
+                else return false;
+            } else {
+                if (bitsPerSample == 32) { float v; std::memcpy(&v, p, 4); s = v; }
+                else return false;
+            }
+            if (c == 0) l = s;
+            else if (c == 1) r = s;
+            else { l += s; r += s; }
+        }
+        if (numCh == 1) r = l;
+        tmp.push_back(l);
+        tmp.push_back(r);
+    }
+    // Resample to 48k if needed (linear).
+    if (sampleRate != static_cast<uint32_t>(kFmodOutRate)) {
+        const size_t inFrames = tmp.size() / 2;
+        const size_t outFrames = static_cast<size_t>((static_cast<double>(inFrames) * kFmodOutRate) / sampleRate);
+        std::vector<float> rs;
+        rs.reserve(outFrames * 2);
+        for (size_t i = 0; i < outFrames; i++) {
+            double pos = (static_cast<double>(i) * sampleRate) / kFmodOutRate;
+            size_t i0 = static_cast<size_t>(pos);
+            size_t i1 = i0 + 1 < inFrames ? i0 + 1 : i0;
+            float t = static_cast<float>(pos - i0);
+            rs.push_back(tmp[i0 * 2] * (1 - t) + tmp[i1 * 2] * t);
+            rs.push_back(tmp[i0 * 2 + 1] * (1 - t) + tmp[i1 * 2 + 1] * t);
+        }
+        outPcm.swap(rs);
+    } else {
+        outPcm.swap(tmp);
+    }
+    outRate = kFmodOutRate;
+    outCh = 2;
+    return true;
+}
+
 }
 
 namespace FMOD {
@@ -448,11 +606,11 @@ public:
     float maxDistance = 10000.0f;
     SoundGroup* soundGroup = nullptr;
     void* userData = nullptr;
-    int APS5_VABI release() {
-        std::lock_guard<std::mutex> lock(gFmodMutex);
-        delete this;
-        return FMOD_OK;
-    }
+    // Real-audio decoded PCM (float stereo 48k, interleaved). Empty = silent/placeholder.
+    std::vector<float> pcm;
+    int pcmRate = kFmodOutRate;
+    int pcmCh = 2;
+    int APS5_VABI release();
     int APS5_VABI getSystemObject(System** system);
     int APS5_VABI setMode(unsigned mode) {
         std::lock_guard<std::mutex> lock(gFmodMutex);
@@ -476,13 +634,29 @@ public:
         return FMOD_OK;
     }
     int APS5_VABI getLength(unsigned* length, unsigned lengthtype) {
-        (void)lengthtype;
         std::lock_guard<std::mutex> lock(gFmodMutex);
-        if (length) *length = this->length;
+        if (!length) return FMOD_OK;
+        if (!pcm.empty()) {
+            const unsigned frames = static_cast<unsigned>(pcm.size() / 2);
+            // FMOD_TIMEUNIT: MS=1, PCM=2, PCMBYTES=4, RAWBYTES=8
+            if (lengthtype == 1) *length = (frames * 1000u) / static_cast<unsigned>(kFmodOutRate);
+            else if (lengthtype == 2) *length = frames;
+            else if (lengthtype == 4 || lengthtype == 8) *length = frames * 2u * sizeof(float);
+            else *length = frames;
+            return FMOD_OK;
+        }
+        *length = this->length;
         return FMOD_OK;
     }
     int APS5_VABI getFormat(FMOD_SOUND_TYPE* type, FMOD_SOUND_FORMAT* format, int* channels, int* bits) {
         std::lock_guard<std::mutex> lock(gFmodMutex);
+        if (!pcm.empty()) {
+            if (type) *type = FMOD_SOUND_TYPE_UNKNOWN;
+            if (format) *format = FMOD_SOUND_FORMAT_PCMFLOAT;
+            if (channels) *channels = 2;
+            if (bits) *bits = 32;
+            return FMOD_OK;
+        }
         if (type) *type = FMOD_SOUND_TYPE_UNKNOWN;
         if (format) *format = FMOD_SOUND_FORMAT_PCM16;
         if (channels) *channels = 2;
@@ -711,6 +885,12 @@ public:
     unsigned mode = 0;
     bool volumeRamp = false;
     void* userData = nullptr;
+    // Mixer state for real-audio backend (used when this control is a Channel
+    // with decoded PCM; groups keep mixHasData==false and use sticky flag).
+    size_t mixCursor = 0;
+    size_t mixTotal = 0;
+    bool mixHasData = false;
+    bool mixLoop = false;
     int APS5_VABI setVolume(float volume) {
         std::lock_guard<std::mutex> lock(gFmodMutex);
         this->volume = volume;
@@ -758,7 +938,12 @@ public:
     }
     int APS5_VABI isPlaying(bool* isplaying) {
         std::lock_guard<std::mutex> lock(gFmodMutex);
-        if (isplaying) *isplaying = playing && !paused;
+        if (!isplaying) return FMOD_OK;
+        if (mixHasData) {
+            *isplaying = playing && !paused && (mixLoop || mixCursor < mixTotal);
+        } else {
+            *isplaying = playing && !paused;
+        }
         return FMOD_OK;
     }
     int APS5_VABI setMode(unsigned mode) {
@@ -860,6 +1045,7 @@ public:
     int priority = 128;
     unsigned position = 0;
     int loopCount = 0;
+    System* owner = nullptr;
     int APS5_VABI setPriority(int priority) {
         std::lock_guard<std::mutex> lock(gFmodMutex);
         this->priority = priority;
@@ -884,12 +1070,15 @@ public:
         (void)postype;
         std::lock_guard<std::mutex> lock(gFmodMutex);
         this->position = position;
+        // Keep mixer cursor in sync (PCM frames). postype==2 (PCM) assumed.
+        mixCursor = static_cast<size_t>(position);
+        if (mixHasData && mixCursor > mixTotal) mixCursor = mixTotal;
         return FMOD_OK;
     }
     int APS5_VABI getPosition(unsigned* position, unsigned postype) {
         (void)postype;
         std::lock_guard<std::mutex> lock(gFmodMutex);
-        if (position) *position = this->position;
+        if (position) *position = static_cast<unsigned>(mixHasData ? mixCursor : this->position);
         return FMOD_OK;
     }
     int APS5_VABI setChannelGroup(ChannelGroup* channelgroup) {
@@ -1023,6 +1212,23 @@ public:
     }
 };
 
+static std::vector<Channel*> gFmodChannels;
+
+static int APS5_VABI SoundReleaseImpl(Sound* self) {
+    std::lock_guard<std::mutex> lock(gFmodMutex);
+    for (Channel* ch : gFmodChannels) {
+        if (ch && ch->sound == self) {
+            ch->playing = false;
+            ch->sound = nullptr;
+            ch->mixHasData = false;
+        }
+    }
+    delete self;
+    return FMOD_OK;
+}
+
+int APS5_VABI Sound::release() { return SoundReleaseImpl(this); }
+
 class System {
 public:
     bool initialized = false;
@@ -1050,6 +1256,16 @@ public:
     }
     int APS5_VABI release() {
         std::lock_guard<std::mutex> lock(gFmodMutex);
+        // Drop channels owned by this system (game holds raw pointers; mark
+        // them stopped and free to avoid unbounded growth).
+        for (auto it = gFmodChannels.begin(); it != gFmodChannels.end();) {
+            if (*it && (*it)->owner == this) {
+                delete *it;
+                it = gFmodChannels.erase(it);
+            } else {
+                ++it;
+            }
+        }
         delete masterChannelGroup;
         delete masterSoundGroup;
         masterChannelGroup = nullptr;
@@ -1065,6 +1281,21 @@ public:
         initialized = true;
         if (!masterChannelGroup) masterChannelGroup = new ChannelGroup();
         if (!masterSoundGroup) masterSoundGroup = new SoundGroup();
+        // Real-audio: try SDL unless NOSOUND output or env requests silent.
+        // Keep silent backend as fallback (no failure returned).
+        bool wantSilent = FmodSilentRequested() ||
+            output == FMOD_OUTPUTTYPE_NOSOUND ||
+            output == FMOD_OUTPUTTYPE_NOSOUND_NRT;
+        if (!wantSilent) {
+            // Unlock during SDL open (SDL may call back)? FmodEnsureDevice uses
+            // no FMOD lock internally except SDL, so we can call with lock held
+            // for simplicity; SDL_OpenAudioDevice does not call into FMOD.
+            if (!FmodEnsureDevice()) {
+                APS5_LOG_ERR("%s", "FMOD: SDL audio unavailable, silent fallback");
+            } else {
+                APS5_LOG_OUT("%s", "FMOD: SDL audio output active (48k stereo)");
+            }
+        }
         return FMOD_OK;
     }
     int APS5_VABI close() {
@@ -1072,10 +1303,119 @@ public:
         initialized = false;
         return FMOD_OK;
     }
-    int APS5_VABI update() { return FMOD_OK; }
+    int APS5_VABI update() {
+        std::lock_guard<std::mutex> lock(gFmodMutex);
+        if (!initialized) return FMOD_OK;
+        if (gFmodSilent || gFmodDevice == 0) return FMOD_OK; // silent fallback
+        // Throttle like libSceAudioOut: avoid unbounded queue growth.
+        Uint32 queued = SDL_GetQueuedAudioSize(gFmodDevice);
+        const Uint32 oneBuf = static_cast<Uint32>(kFmodMixFrames * kFmodOutCh * sizeof(float));
+        if (queued > oneBuf * 8u) return FMOD_OK;
+        float mix[kFmodMixFrames * 2] = {};
+        bool anyActive = false;
+        for (Channel* ch : gFmodChannels) {
+            if (!ch || ch->owner != this) continue;
+            if (!ch->playing || ch->paused || ch->mute) continue;
+            if (!ch->mixHasData || !ch->sound || ch->sound->pcm.empty()) continue;
+            Sound* s = ch->sound;
+            const size_t total = ch->mixTotal;
+            if (total == 0) continue;
+            size_t cur = ch->mixCursor;
+            const float vol = ch->volume;
+            if (vol <= 0.0f) {
+                // Still advance cursor so silent channels finish.
+                size_t adv = kFmodMixFrames;
+                if (!ch->mixLoop) {
+                    if (cur + adv >= total) { cur = total; ch->playing = false; }
+                    else cur += adv;
+                } else {
+                    cur = (cur + adv) % (total ? total : 1);
+                }
+                ch->mixCursor = cur;
+                ch->position = static_cast<unsigned>(cur);
+                continue;
+            }
+            anyActive = true;
+            const float* pcm = s->pcm.data();
+            size_t pos = cur;
+            for (int i = 0; i < kFmodMixFrames; i++) {
+                if (pos >= total) {
+                    if (ch->mixLoop || s->loopCount != 0 ||
+                        (s->mode & FMOD_LOOP_NORMAL) != 0) {
+                        pos = 0;
+                    } else {
+                        break;
+                    }
+                }
+                mix[i * 2] += pcm[pos * 2] * vol;
+                mix[i * 2 + 1] += pcm[pos * 2 + 1] * vol;
+                pos++;
+            }
+            // Advance cursor by frames consumed (approx, ignoring loop wrap details above).
+            size_t adv = static_cast<size_t>(kFmodMixFrames);
+            if (!ch->mixLoop && s->loopCount == 0 && (s->mode & FMOD_LOOP_NORMAL) == 0) {
+                if (cur + adv >= total) {
+                    cur = total;
+                    ch->playing = false;
+                } else {
+                    cur += adv;
+                }
+            } else {
+                cur = total ? ((cur + adv) % total) : 0;
+            }
+            ch->mixCursor = cur;
+            ch->position = static_cast<unsigned>(cur);
+        }
+        if (!anyActive) {
+            // Still queue silence rarely to keep device alive? No — skip to
+            // avoid filling queue with silence when nothing plays.
+            return FMOD_OK;
+        }
+        for (int i = 0; i < kFmodMixFrames * 2; i++) {
+            if (mix[i] > 1.0f) mix[i] = 1.0f;
+            else if (mix[i] < -1.0f) mix[i] = -1.0f;
+        }
+        // Convert to device format if needed.
+        if (gFmodSpec.format == AUDIO_F32SYS || gFmodSpec.format == 0) {
+            if (SDL_QueueAudio(gFmodDevice, mix, sizeof(mix)) < 0) {
+                APS5_LOG_ERR("%s", "FMOD: SDL_QueueAudio failed");
+            }
+        } else {
+            int16_t tmp[kFmodMixFrames * 2];
+            for (int i = 0; i < kFmodMixFrames * 2; i++) {
+                float v = mix[i] * 32767.0f;
+                if (v > 32767.0f) v = 32767.0f;
+                if (v < -32768.0f) v = -32768.0f;
+                tmp[i] = static_cast<int16_t>(v);
+            }
+            // Resample/format convert via SDL if spec differs (channels/rate).
+            // For minimal path, queue directly when spec is S16 stereo 48k;
+            // otherwise use SDL_ConvertAudio.
+            if (gFmodSpec.channels == 2 && gFmodSpec.freq == kFmodOutRate &&
+                (gFmodSpec.format == AUDIO_S16SYS)) {
+                SDL_QueueAudio(gFmodDevice, tmp, sizeof(tmp));
+            } else {
+                SDL_AudioCVT cvt{};
+                if (SDL_BuildAudioCVT(&cvt, AUDIO_F32SYS, 2, kFmodOutRate,
+                                      gFmodSpec.format, gFmodSpec.channels, gFmodSpec.freq) >= 0) {
+                    std::vector<uint8_t> buf(sizeof(mix) * 4u);
+                    std::memcpy(buf.data(), mix, sizeof(mix));
+                    cvt.buf = buf.data();
+                    cvt.len = static_cast<int>(sizeof(mix));
+                    if (SDL_ConvertAudio(&cvt) == 0) {
+                        SDL_QueueAudio(gFmodDevice, cvt.buf, static_cast<Uint32>(cvt.len_cvt));
+                    }
+                }
+            }
+        }
+        return FMOD_OK;
+    }
     int APS5_VABI setOutput(FMOD_OUTPUTTYPE output) {
         std::lock_guard<std::mutex> lock(gFmodMutex);
         this->output = output;
+        if (output == FMOD_OUTPUTTYPE_NOSOUND || output == FMOD_OUTPUTTYPE_NOSOUND_NRT) {
+            gFmodSilent = true;
+        }
         return FMOD_OK;
     }
     int APS5_VABI getOutput(FMOD_OUTPUTTYPE* output) {
@@ -1092,7 +1432,7 @@ public:
         (void)id;
         std::lock_guard<std::mutex> lock(gFmodMutex);
         if (name && namelen > 0) {
-            const char* driverName = "AnyPS5 Null Output";
+            const char* driverName = (gFmodDevice != 0 && !gFmodSilent) ? "AnyPS5 FMOD Output" : "AnyPS5 Null Output";
             std::strncpy(name, driverName, static_cast<std::size_t>(namelen - 1));
             name[namelen - 1] = '\0';
         }
@@ -1152,8 +1492,13 @@ public:
         if (settings) std::memset(settings, 0, sizeof(*settings));
         return FMOD_OK;
     }
-    int APS5_VABI setCallback(FMOD_SYSTEM_CALLBACK callback, FMOD_SYSTEM_CALLBACK_TYPE callbackmask, void* userdata) {
-        (void)callback; (void)callbackmask; (void)userdata;
+    int APS5_VABI setCallback(FMOD_SYSTEM_CALLBACK callback, FMOD_SYSTEM_CALLBACK_TYPE callbackmask) {
+        (void)callback; (void)callbackmask;
+        return FMOD_OK;
+    }
+    int APS5_VABI setFileSystem(void* useropen, void* userclose, void* userread, void* userseek, void* userasyncread, void* userasynccancel, int blockalign) {
+        (void)useropen; (void)userclose; (void)userread; (void)userseek;
+        (void)userasyncread; (void)userasynccancel; (void)blockalign;
         return FMOD_OK;
     }
     int APS5_VABI setPluginPath(const char* pluginpath) {
@@ -1178,8 +1523,18 @@ public:
     }
     int APS5_VABI getChannelsPlaying(int* channels, int* realchannels) {
         std::lock_guard<std::mutex> lock(gFmodMutex);
-        if (channels) *channels = 0;
-        if (realchannels) *realchannels = 0;
+        int active = 0;
+        for (Channel* ch : gFmodChannels) {
+            if (!ch || ch->owner != this) continue;
+            if (!ch->playing || ch->paused) continue;
+            if (ch->mixHasData) {
+                if (ch->mixLoop || ch->mixCursor < ch->mixTotal) active++;
+            }
+            // Null/empty sounds (smoke test) are not counted to preserve old
+            // behaviour (previously always returned 0).
+        }
+        if (channels) *channels = active;
+        if (realchannels) *realchannels = active;
         return FMOD_OK;
     }
     int APS5_VABI getCPUUsage(FMOD_CPU_USAGE* usage) {
@@ -1210,9 +1565,93 @@ public:
         std::lock_guard<std::mutex> lock(gFmodMutex);
         if (!sound) return FMOD_OK;
         Sound* created = new Sound();
-        if (name_or_data) created->name = name_or_data;
         created->mode = mode;
-        if (exinfo) created->length = exinfo->length;
+        unsigned exLen = exinfo ? exinfo->length : 0;
+        if (exLen) created->length = exLen;
+        const bool isMem = (mode & (FMOD_OPENMEMORY_FLAG | FMOD_OPENMEMORY_POINT_FLAG)) != 0;
+        const bool isRaw = (mode & FMOD_OPENRAW_FLAG) != 0;
+        if (isMem && name_or_data && exLen > 0 && exLen < (1u << 30)) {
+            const uint8_t* buf = reinterpret_cast<const uint8_t*>(name_or_data);
+            // Keep a copy of the name only for file-based sounds; for memory
+            // buffers the pointer is binary data (not a C string).
+            created->name.clear();
+            std::vector<float> pcm;
+            int rate = kFmodOutRate, ch = 2;
+            bool decoded = false;
+            if (!isRaw) {
+                decoded = FmodParseWav(buf, exLen, pcm, rate, ch);
+            }
+            if (!decoded && isRaw) {
+                // OPENRAW: interpret buffer using exinfo (default stereo 48k PCM16).
+                int rawCh = exinfo ? exinfo->numchannels : 0;
+                int rawRate = exinfo ? exinfo->defaultfrequency : 0;
+                int rawFmt = exinfo ? static_cast<int>(exinfo->format) : 2;
+                if (rawCh <= 0 || rawCh > 8) rawCh = 2;
+                if (rawRate <= 0) rawRate = kFmodOutRate;
+                size_t bytesPerSamp = 2;
+                if (rawFmt == 1) bytesPerSamp = 1;       // PCM8
+                else if (rawFmt == 2) bytesPerSamp = 2;  // PCM16
+                else if (rawFmt == 5) bytesPerSamp = 4;  // FLOAT
+                else bytesPerSamp = 2;
+                size_t frames = exLen / (static_cast<size_t>(rawCh) * bytesPerSamp);
+                if (frames > 0 && frames < 48000u * 60u) {
+                    pcm.reserve(frames * 2);
+                    for (size_t f = 0; f < frames; f++) {
+                        float l = 0, r = 0;
+                        for (int c = 0; c < rawCh; c++) {
+                            const uint8_t* p = buf + (f * rawCh + c) * bytesPerSamp;
+                            float s = 0;
+                            if (rawFmt == 1) s = (static_cast<int>(p[0]) - 128) / 128.0f;
+                            else if (rawFmt == 2) { int16_t v; std::memcpy(&v, p, 2); s = v / 32768.0f; }
+                            else if (rawFmt == 5) { float v; std::memcpy(&v, p, 4); s = v; }
+                            if (c == 0) l = s; else if (c == 1) r = s; else { l += s; r += s; }
+                        }
+                        if (rawCh == 1) r = l;
+                        pcm.push_back(l); pcm.push_back(r);
+                    }
+                    // Resample if needed.
+                    if (rawRate != kFmodOutRate && !pcm.empty()) {
+                        size_t inF = pcm.size() / 2;
+                        size_t outF = static_cast<size_t>((static_cast<double>(inF) * kFmodOutRate) / rawRate);
+                        std::vector<float> rs; rs.reserve(outF * 2);
+                        for (size_t i = 0; i < outF; i++) {
+                            double pos = (static_cast<double>(i) * rawRate) / kFmodOutRate;
+                            size_t i0 = static_cast<size_t>(pos);
+                            size_t i1 = i0 + 1 < inF ? i0 + 1 : i0;
+                            float t = static_cast<float>(pos - i0);
+                            rs.push_back(pcm[i0 * 2] * (1 - t) + pcm[i1 * 2] * t);
+                            rs.push_back(pcm[i0 * 2 + 1] * (1 - t) + pcm[i1 * 2 + 1] * t);
+                        }
+                        pcm.swap(rs);
+                    }
+                    decoded = !pcm.empty();
+                    rate = kFmodOutRate; ch = 2;
+                }
+            }
+            if (decoded) {
+                created->pcm.swap(pcm);
+                created->pcmRate = rate;
+                created->pcmCh = ch;
+            } else {
+                // Compressed (Vorbis/MP3/FSB/AT9...) or unknown: audible
+                // placeholder so the mixer path can be heard. Real decoders
+                // (Vorbis/MP3/AT9) remain future work — see docs/TechnicalDebt.
+                FmodMakeSine(created->pcm, kFmodOutRate, 2, 440.0f, 1.0f);
+                created->pcmRate = kFmodOutRate;
+                created->pcmCh = 2;
+            }
+        } else {
+            if (name_or_data) {
+                // File-based: store name only (first bytes may still be checked
+                // for embedded RIFF in case game passes a path that is data).
+                size_t nlen = std::strlen(name_or_data);
+                if (nlen < 256) created->name = name_or_data;
+            }
+            // Placeholder 0.5s sine so file-based playSound is audible.
+            FmodMakeSine(created->pcm, kFmodOutRate, 2, 330.0f, 0.5f);
+            created->pcmRate = kFmodOutRate;
+            created->pcmCh = 2;
+        }
         *sound = created;
         return FMOD_OK;
     }
@@ -1241,6 +1680,19 @@ public:
         created->group = channelgroup ? channelgroup : masterChannelGroup;
         created->paused = paused;
         created->playing = true;
+        created->owner = this;
+        created->mixCursor = 0;
+        if (sound && !sound->pcm.empty()) {
+            created->mixHasData = true;
+            created->mixTotal = sound->pcm.size() / 2;
+            const bool loopMode = (sound->mode & FMOD_LOOP_NORMAL) != 0;
+            created->mixLoop = loopMode || sound->loopCount != 0;
+        } else {
+            created->mixHasData = false;
+            created->mixTotal = 0;
+            created->mixLoop = false;
+        }
+        gFmodChannels.push_back(created);
         *channel = created;
         return FMOD_OK;
     }
@@ -1252,6 +1704,9 @@ public:
         created->group = channelgroup ? channelgroup : masterChannelGroup;
         created->paused = paused;
         created->playing = true;
+        created->owner = this;
+        created->mixHasData = false;
+        gFmodChannels.push_back(created);
         *channel = created;
         return FMOD_OK;
     }
@@ -1424,12 +1879,24 @@ int APS5_VABI FMOD_Memory_GetStats(int* currentalloced, int* maxalloced, int blo
 
 namespace {
 
-__attribute__((used)) int fmod_nid_stub_00() { APS5_LOG_ERR("%s", "VS1Vg5yOLH0"); return 0; }
-__attribute__((used)) int fmod_nid_stub_01() { APS5_LOG_ERR("%s", "WAU72lnwYic"); return 0; }
+// Round2 NID identification via real FMOD headers (const-correct manglings).
+// VS1Vg5yOLH0 = FMOD::System::setFileSystem(open,close,read,seek,asyncRead,asyncCancel,blockalign)
+// WAU72lnwYic = FMOD::System::setCallback(callback,mask)
+// Both are ABI-compatible with void*/int (func ptrs are 8B, mask 4B); we keep
+// the silent backend (return OK) — file callbacks are not needed for
+// OPENMEMORY sounds used by Legends, and callbacks are stored nowhere.
+__attribute__((used)) int APS5_VABI fmod_system_setfilesystem(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, int a7) {
+    (void)self; (void)a1; (void)a2; (void)a3; (void)a4; (void)a5; (void)a6; (void)a7;
+    return 0;
+}
+__attribute__((used)) int APS5_VABI fmod_system_setcallback(void* self, void* cb, unsigned mask) {
+    (void)self; (void)cb; (void)mask;
+    return 0;
+}
 
 }
 
-APS5_EXPORT("VS1Vg5yOLH0", fmod_nid_stub_00);
-APS5_EXPORT("WAU72lnwYic", fmod_nid_stub_01);
+APS5_EXPORT("VS1Vg5yOLH0", fmod_system_setfilesystem);
+APS5_EXPORT("WAU72lnwYic", fmod_system_setcallback);
 
 }

@@ -1,6 +1,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -813,58 +814,196 @@ extern "C" {
 
 namespace {
 
-__attribute__((used)) int fmodstudio_nid_stub_00() { APS5_LOG_ERR("%s", "+V2QcIcvWpw"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_01() { APS5_LOG_ERR("%s", "2QOSvz5hvAg"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_02() { APS5_LOG_ERR("%s", "3loRRCoqXfU"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_03() { APS5_LOG_ERR("%s", "6E6MUTGjxhI"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_04() { APS5_LOG_ERR("%s", "6nWYF1yMOl4"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_05() { APS5_LOG_ERR("%s", "7hd4bRJuLMg"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_06() { APS5_LOG_ERR("%s", "-7VafNNns2A"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_07() { APS5_LOG_ERR("%s", "AdR01fo-WaM"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_08() { APS5_LOG_ERR("%s", "alleMuKEWr8"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_09() { APS5_LOG_ERR("%s", "Bu8uFP7ME2k"); return 0; }
+// Round2: 20/25 studio stubs identified via real FMOD headers (const-correct
+// Itanium manglings, verified with g++ + c++filt + NidCompute SHA1+suffix).
+// Wrappers below are ABI-compatible (this+params, SysV) with the real const
+// methods; most delegate to the existing non-const logic (const is
+// compile-time only, same calling convention). 5 remain unknown (kept as
+// logging stubs): Cm2cmtCv8cA, EfM9xXvBmxk, Js90KQXVS4s, oCYWES02VPc, vVwA2cZA5e4.
+
+// +V2QcIcvWpw = EventDescription::createInstance(EventInstance**) const
+__attribute__((used)) int APS5_VABI fmodstudio_real_createInstance(const void* self, void** out) {
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    if (!out) return 0;
+    auto* desc = const_cast<FMOD::Studio::EventDescription*>(static_cast<const FMOD::Studio::EventDescription*>(self));
+    auto* inst = new FMOD::Studio::EventInstance();
+    inst->description = desc;
+    *out = inst;
+    return 0;
+}
+// 2QOSvz5hvAg = EventInstance::getPlaybackState(PLAYBACK_STATE*) const
+__attribute__((used)) int APS5_VABI fmodstudio_real_getPlaybackState(const void* self, int* state) {
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    const auto* inst = static_cast<const FMOD::Studio::EventInstance*>(self);
+    if (state) *state = (inst && inst->playing) ? 0 : 2; // PLAYING=0, STOPPED=2
+    return 0;
+}
+// 3loRRCoqXfU = EventInstance::isValid() const
+__attribute__((used)) int APS5_VABI fmodstudio_real_ei_isValid(const void* self) {
+    (void)self;
+    return 1;
+}
+// 6E6MUTGjxhI = System::getEvent(const char*, EventDescription**) const
+__attribute__((used)) int APS5_VABI fmodstudio_real_getEvent(const void* self, const char* path, void** out) {
+    (void)self;
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    if (!out) return 0;
+    auto* ed = new FMOD::Studio::EventDescription();
+    if (path) ed->path = path;
+    *out = ed;
+    return 0;
+}
+// 6nWYF1yMOl4 = Bank::getLoadingState(LOADING_STATE*) const
+__attribute__((used)) int APS5_VABI fmodstudio_real_bankLoading(const void* self, int* state) {
+    (void)self;
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    if (state) *state = 3; // LOADED
+    return 0;
+}
+// 7hd4bRJuLMg = System::getCoreSystem(CoreSystem**) const (placeholder 256B zeroed)
+__attribute__((used)) int APS5_VABI fmodstudio_real_getCoreSystem(const void* self, void** out) {
+    (void)self;
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    if (!out) return 0;
+    void* placeholder = std::calloc(1, 256);
+    *out = placeholder;
+    return 0;
+}
+// -7VafNNns2A = EventInstance::getUserData(void**) const
+__attribute__((used)) int APS5_VABI fmodstudio_real_ei_getUserData(const void* self, void** out) {
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    const auto* inst = static_cast<const FMOD::Studio::EventInstance*>(self);
+    if (out) *out = inst ? inst->userData : nullptr;
+    return 0;
+}
+// AdR01fo-WaM = System::getParameterByName(const char*, float*, float*) const
+__attribute__((used)) int APS5_VABI fmodstudio_real_sysGetParam(const void* self, const char* name, float* v, float* fv) {
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    const auto* sys = static_cast<const FMOD::Studio::System*>(self);
+    float stored = 0.0f;
+    if (sys && name) {
+        auto it = sys->paramsByName.find(name);
+        if (it != sys->paramsByName.end()) stored = it->second;
+    }
+    if (v) *v = stored;
+    if (fv) *fv = stored;
+    return 0;
+}
+// alleMuKEWr8 = EventDescription::isOneshot(bool*) const
+__attribute__((used)) int APS5_VABI fmodstudio_real_isOneshot(const void* self, bool* out) {
+    (void)self;
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    if (out) *out = false;
+    return 0;
+}
+// Bu8uFP7ME2k = System::getVCA(const char*, VCA**) const
+__attribute__((used)) int APS5_VABI fmodstudio_real_getVCA(const void* self, const char* path, void** out) {
+    (void)self;
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    if (!out) return 0;
+    auto* vca = new FMOD::Studio::VCA();
+    if (path) vca->path = path;
+    *out = vca;
+    return 0;
+}
+// DsFsPD0MWNc = System::getSoundInfo(const char*, SOUND_INFO*) const
+__attribute__((used)) int APS5_VABI fmodstudio_real_getSoundInfo(const void* self, const char* key, void* info) {
+    (void)self; (void)key;
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    if (info) std::memset(info, 0, sizeof(FMOD_STUDIO_SOUND_INFO));
+    return 0;
+}
+// --f9RJwAh1A = EventDescription::getSampleLoadingState(LOADING_STATE*) const
+__attribute__((used)) int APS5_VABI fmodstudio_real_edSampleState(const void* self, int* state) {
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    const auto* ed = static_cast<const FMOD::Studio::EventDescription*>(self);
+    if (state) *state = (ed && ed->sampleDataLoaded) ? 3 : 1; // LOADED=3, UNLOADED=1
+    return 0;
+}
+// fbAVXdyBuso = Bank::isValid() const
+__attribute__((used)) int APS5_VABI fmodstudio_real_bankIsValid(const void* self) {
+    (void)self;
+    return 1;
+}
+// LG53EJZJDnA = EventInstance::setCallback(callback, mask) (non-const, 2 params)
+__attribute__((used)) int APS5_VABI fmodstudio_real_eiSetCallback(void* self, void* cb, unsigned mask) {
+    (void)self; (void)cb; (void)mask;
+    return 0;
+}
+// nhBPjhZ+VWs = EventDescription::is3D(bool*) const
+__attribute__((used)) int APS5_VABI fmodstudio_real_is3D(const void* self, bool* out) {
+    (void)self;
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    if (out) *out = false;
+    return 0;
+}
+// omDBr+dcDVc = EventDescription::getInstanceCount(int*) const
+__attribute__((used)) int APS5_VABI fmodstudio_real_getInstanceCount(const void* self, int* out) {
+    (void)self;
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    if (out) *out = 0;
+    return 0;
+}
+// uWXqw4LeM5Q = EventDescription::isValid() const
+__attribute__((used)) int APS5_VABI fmodstudio_real_edIsValid(const void* self) {
+    (void)self;
+    return 1;
+}
+// VdQjbIsdhXQ = EventDescription::getLength(int*) const
+__attribute__((used)) int APS5_VABI fmodstudio_real_edGetLength(const void* self, int* out) {
+    (void)self;
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    if (out) *out = 0;
+    return 0;
+}
+// WP51b8simn8 = EventInstance::getTimelinePosition(int*) const
+__attribute__((used)) int APS5_VABI fmodstudio_real_getTimeline(const void* self, int* out) {
+    (void)self;
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    if (out) *out = 0;
+    return 0;
+}
+// Zi1n4MvZ3-0 = System::getBufferUsage(BUFFER_USAGE*) const
+__attribute__((used)) int APS5_VABI fmodstudio_real_getBufferUsage(const void* self, void* out) {
+    (void)self;
+    std::lock_guard<std::mutex> lock(gStudioMutex);
+    if (out) std::memset(out, 0, sizeof(FMOD_STUDIO_BUFFER_USAGE));
+    return 0;
+}
+
+// Remaining 5 unknown (no public FMOD match found via exact manglings):
 __attribute__((used)) int fmodstudio_nid_stub_10() { APS5_LOG_ERR("%s", "Cm2cmtCv8cA"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_11() { APS5_LOG_ERR("%s", "DsFsPD0MWNc"); return 0; }
 __attribute__((used)) int fmodstudio_nid_stub_12() { APS5_LOG_ERR("%s", "EfM9xXvBmxk"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_13() { APS5_LOG_ERR("%s", "--f9RJwAh1A"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_14() { APS5_LOG_ERR("%s", "fbAVXdyBuso"); return 0; }
 __attribute__((used)) int fmodstudio_nid_stub_15() { APS5_LOG_ERR("%s", "Js90KQXVS4s"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_16() { APS5_LOG_ERR("%s", "LG53EJZJDnA"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_17() { APS5_LOG_ERR("%s", "nhBPjhZ+VWs"); return 0; }
 __attribute__((used)) int fmodstudio_nid_stub_18() { APS5_LOG_ERR("%s", "oCYWES02VPc"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_19() { APS5_LOG_ERR("%s", "omDBr+dcDVc"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_20() { APS5_LOG_ERR("%s", "uWXqw4LeM5Q"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_21() { APS5_LOG_ERR("%s", "VdQjbIsdhXQ"); return 0; }
 __attribute__((used)) int fmodstudio_nid_stub_22() { APS5_LOG_ERR("%s", "vVwA2cZA5e4"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_23() { APS5_LOG_ERR("%s", "WP51b8simn8"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_24() { APS5_LOG_ERR("%s", "Zi1n4MvZ3-0"); return 0; }
 
 }
 
-APS5_EXPORT("+V2QcIcvWpw", fmodstudio_nid_stub_00);
-APS5_EXPORT("2QOSvz5hvAg", fmodstudio_nid_stub_01);
-APS5_EXPORT("3loRRCoqXfU", fmodstudio_nid_stub_02);
-APS5_EXPORT("6E6MUTGjxhI", fmodstudio_nid_stub_03);
-APS5_EXPORT("6nWYF1yMOl4", fmodstudio_nid_stub_04);
-APS5_EXPORT("7hd4bRJuLMg", fmodstudio_nid_stub_05);
-APS5_EXPORT("-7VafNNns2A", fmodstudio_nid_stub_06);
-APS5_EXPORT("AdR01fo-WaM", fmodstudio_nid_stub_07);
-APS5_EXPORT("alleMuKEWr8", fmodstudio_nid_stub_08);
-APS5_EXPORT("Bu8uFP7ME2k", fmodstudio_nid_stub_09);
+APS5_EXPORT("+V2QcIcvWpw", fmodstudio_real_createInstance);
+APS5_EXPORT("2QOSvz5hvAg", fmodstudio_real_getPlaybackState);
+APS5_EXPORT("3loRRCoqXfU", fmodstudio_real_ei_isValid);
+APS5_EXPORT("6E6MUTGjxhI", fmodstudio_real_getEvent);
+APS5_EXPORT("6nWYF1yMOl4", fmodstudio_real_bankLoading);
+APS5_EXPORT("7hd4bRJuLMg", fmodstudio_real_getCoreSystem);
+APS5_EXPORT("-7VafNNns2A", fmodstudio_real_ei_getUserData);
+APS5_EXPORT("AdR01fo-WaM", fmodstudio_real_sysGetParam);
+APS5_EXPORT("alleMuKEWr8", fmodstudio_real_isOneshot);
+APS5_EXPORT("Bu8uFP7ME2k", fmodstudio_real_getVCA);
 APS5_EXPORT("Cm2cmtCv8cA", fmodstudio_nid_stub_10);
-APS5_EXPORT("DsFsPD0MWNc", fmodstudio_nid_stub_11);
+APS5_EXPORT("DsFsPD0MWNc", fmodstudio_real_getSoundInfo);
 APS5_EXPORT("EfM9xXvBmxk", fmodstudio_nid_stub_12);
-APS5_EXPORT("--f9RJwAh1A", fmodstudio_nid_stub_13);
-APS5_EXPORT("fbAVXdyBuso", fmodstudio_nid_stub_14);
+APS5_EXPORT("--f9RJwAh1A", fmodstudio_real_edSampleState);
+APS5_EXPORT("fbAVXdyBuso", fmodstudio_real_bankIsValid);
 APS5_EXPORT("Js90KQXVS4s", fmodstudio_nid_stub_15);
-APS5_EXPORT("LG53EJZJDnA", fmodstudio_nid_stub_16);
-APS5_EXPORT("nhBPjhZ+VWs", fmodstudio_nid_stub_17);
+APS5_EXPORT("LG53EJZJDnA", fmodstudio_real_eiSetCallback);
+APS5_EXPORT("nhBPjhZ+VWs", fmodstudio_real_is3D);
 APS5_EXPORT("oCYWES02VPc", fmodstudio_nid_stub_18);
-APS5_EXPORT("omDBr+dcDVc", fmodstudio_nid_stub_19);
-APS5_EXPORT("uWXqw4LeM5Q", fmodstudio_nid_stub_20);
-APS5_EXPORT("VdQjbIsdhXQ", fmodstudio_nid_stub_21);
+APS5_EXPORT("omDBr+dcDVc", fmodstudio_real_getInstanceCount);
+APS5_EXPORT("uWXqw4LeM5Q", fmodstudio_real_edIsValid);
+APS5_EXPORT("VdQjbIsdhXQ", fmodstudio_real_edGetLength);
 APS5_EXPORT("vVwA2cZA5e4", fmodstudio_nid_stub_22);
-APS5_EXPORT("WP51b8simn8", fmodstudio_nid_stub_23);
-APS5_EXPORT("Zi1n4MvZ3-0", fmodstudio_nid_stub_24);
+APS5_EXPORT("WP51b8simn8", fmodstudio_real_getTimeline);
+APS5_EXPORT("Zi1n4MvZ3-0", fmodstudio_real_getBufferUsage);
 
 }
