@@ -30,6 +30,19 @@ void Read(std::uint64_t address, std::span<std::byte> destination, std::size_t a
 // scratch heaps): uncommitted pages read as zeros, are not compared, and are never stored.
 void ReadCommitted(std::uint64_t address, std::span<std::byte> destination);
 bool EqualsCommitted(std::uint64_t address, std::span<const std::byte> bytes);
+// EqualsCommitted without the flush hook: the caller has decided that the recorded GPU work
+// writing the range need not be waited for (the dispatch-cache validation in Driver.cpp).
+bool EqualsCommittedUnsynced(std::uint64_t address, std::span<const std::byte> bytes);
+// EqualsCommittedUnsynced for a caller that treats an unmapped page as a miss (the dispatch-cache
+// validation's per-run compare): one walk of the page states, one memcmp per mapped run, no profile
+// counter and no reason string. Unmapped: some page of the range is not readable (or the address
+// space cannot be queried).
+enum class Compare : std::uint8_t { Equal, Differs, Unmapped };
+Compare CompareMapped(std::uint64_t address, std::span<const std::byte> bytes);
+// CompareMapped's walk with a copy in place of the compare: the bytes at `address` are copied into
+// `out` (Equal), or Unmapped as CompareMapped answers it (the dispatch-cache validation's masked
+// re-read of a differing run).
+Compare CopyMapped(std::uint64_t address, std::span<std::byte> out);
 void WriteChangedCommitted(std::uint64_t address, std::span<const std::byte> current, std::span<const std::byte> original);
 void Write(std::uint64_t address, std::span<const std::byte> source, std::size_t alignment = 1);
 // Stores the parts of `current` that differ from `original` (the guest bytes the GPU started from), so
@@ -45,7 +58,16 @@ void WriteChanged(std::uint64_t address, std::span<const std::byte> current, std
 // UnchangedSince is always false, so callers fall back to comparing bytes.
 std::uint64_t CollectWrites(std::uint64_t address, std::size_t bytes);
 bool UnchangedSince(std::uint64_t address, std::size_t bytes, std::uint64_t generation);
-void MarkWritten(std::uint64_t address, std::size_t bytes);
+// UnchangedSince for several ranges under one tracker lock: true only when every one holds.
+struct UnchangedQuery {
+    std::uint64_t address;
+    std::size_t bytes;
+    std::uint64_t generation;
+};
+bool UnchangedSinceAll(std::span<const UnchangedQuery> queries);
+// Returns the generation the blocks were stamped with (0 when the arena is not write-watched):
+// UnchangedSince(range, it) holds until the next store over the range.
+std::uint64_t MarkWritten(std::uint64_t address, std::size_t bytes);
 // Collect epoch: within one epoch a range already collected is not walked again, CollectWrites
 // returns the current generation instead. A guest write landing between two collects of the same
 // epoch is seen by the next epoch, which is the ordering real hardware gives a CPU write made while a
@@ -64,6 +86,23 @@ void MarkWritten(std::uint64_t address, std::size_t bytes);
 void BumpCollectEpoch();
 std::uint64_t CollectEpochBumps();
 std::uint64_t CollectWritesUncached(std::uint64_t address, std::size_t bytes);
+// The tracker's current generation (every collect and MarkWritten bumps it): a stamp taken after
+// a set of driver stores, for UnchangedSinceCollected to compare against later. Read under the
+// tracker mutex, so every collect that bumped before it has finished its walk and every later
+// collect stamps newer.
+std::uint64_t TrackerGeneration();
+// Whether no CPU write touched the range since `generation`: an uncached resetting collect of the
+// range's pages first (a game store not collected yet becomes a block stamp), then the compare over
+// the stamps collects make (dirty pages), not the MarkWritten stamps of the driver's own GPU label
+// records, which share the title's label blocks. False when the arena is not write-watched.
+bool UnchangedSinceCollected(std::uint64_t address, std::size_t bytes, std::uint64_t generation);
+// Per 64 KiB tracker block of [address, address + bytes) (block 0 holds `address`): `changed[k]`
+// receives whether the block was stamped after generations[k] (UnchangedSince over that block
+// alone), `cpu[k]`, when given, whether a collect stamped it after (a CPU store, as
+// UnchangedSinceCollected tells them apart from the driver's MarkWritten stamps, but without its
+// walk: the caller collected the range first). One tracker lock for the whole range. Outside the
+// watched arena, or for a generation of 0, a block reads as changed.
+void ChangedBlocks(std::uint64_t address, std::size_t bytes, std::span<const std::uint64_t> generations, std::span<std::uint8_t> changed, std::span<std::uint8_t> cpu = {});
 
 // Serializes device work: draws, dispatches, presentation and the deferred write-backs below. The
 // mutex is recursive; it is wrapped so every acquisition (std::lock_guard at any site) measures how
@@ -102,6 +141,9 @@ void SetGpuUnlockHook(void (*hook)());
 // only be reached under it (a resource build's stage A runs without it, see ShaderResources).
 void AssertGpuLockHeld(const char* where);
 void TagGpuLockThread(std::uint32_t queue);
+// The presenter stays untagged (its tag is a queue id to the recorder) but takes its own column
+// of the [lock] holder matrix, apart from the game threads.
+void MarkPresenterThread();
 // The queue tag of the calling thread (0xffffffff when untagged), for reports that name the thread.
 std::uint32_t GpuLockThreadTag();
 // Lock sites (APS5_PROFILE_DRAW): a caller names the site of its next lock() so the [lock] line
@@ -111,8 +153,14 @@ std::uint32_t GpuLockThreadTag();
 // as acquisitions; the hold they start is timed under "try". Holds are timed per site as well (the
 // outermost acquisition of a thread until its unlock; APS5_NO_HOLD_PROFILE=1 turns that off), so
 // the line shows who holds the mutex, not only who waits for it.
-enum class GpuLockSite : std::uint8_t { Other = 0, Dispatch, Indirect, Draw, Hook, Wait, Label, Flush, Present, Fill, Try, Count };
+enum class GpuLockSite : std::uint8_t { Other = 0, Dispatch, Indirect, Draw, Hook, Wait, Label, Flush, Present, Fill, Copy, End, Try, Count };
 void TagGpuLockSite(GpuLockSite site);
+// A GPU wait (a fence or timeline wait that found its work unfinished) made while the calling
+// thread holds GpuMutex: counted on the thread's [lock] line as 'locked GPU waits' (APS5_PROFILE_DRAW).
+void NoteLockedGpuWait(double ms);
+// Bytes the calling thread's write-watch collects walked so far (0 without the memory profile):
+// a caller reads the difference across a span of its own work.
+std::uint64_t ThreadCollectedBytes();
 // A code address (a return address) as an offset into its module, in the form of the [guestmem]
 // callers (symbolized with nm against the driver's image). Takes the loader lock: for reports only.
 unsigned long long CodeOffset(const void* address);
@@ -123,6 +171,11 @@ unsigned long long CodeOffset(const void* address);
 // calls FlushGpuWrites itself.
 void SetFlushHook(void (*hook)(std::uint64_t address, std::size_t bytes));
 void FlushGpuWrites(std::uint64_t address, std::size_t bytes);
+// Moves with every ForgetPages call (the libc invalidator: memory unmapped or re-registered): odd
+// while the call stores its page states, moved past it after, so a reader that loads an even
+// value before consulting the page states and reading directly, and the same value after, knows
+// the states it consulted were current and no page it read changed its mapping meanwhile.
+std::uint64_t ForgetSerial();
 
 // Attribution of guest memory accesses (the [hooksync] line in Recorder.cpp and the read-site
 // counts of the [guestmem] line, APS5_PROFILE_DRAW): a sync the flush hook makes for an access has
@@ -143,8 +196,10 @@ PacketTag CurrentPacket();
 // write after a pending GPU write, so whether the bytes change says nothing about its necessity.
 // MirrorRefresh: an address-based build bringing an image mirror up to date with guest memory
 // (GuestBufferMemory.cpp: the flush before a writable mirror's compare, a new mirror's fill).
+// DrawCache: a draw entry's per-stage value validation (Driver.cpp drawCache), where a draw
+// capture's hook waits reappear on a hit.
 // Every enumerator needs its name in ReadSiteName's table (GuestMemory.cpp).
-enum class ReadSite : std::uint8_t { Unknown = 0, Capture, DispatchCache, TextureCompare, TextureRead, BufferUpload, IndexBuffer, VertexBuffer, Registers, IndirectArguments, Wait, Label, Scanout, Store, MirrorRefresh, Count };
+enum class ReadSite : std::uint8_t { Unknown = 0, Capture, DispatchCache, TextureCompare, TextureRead, BufferUpload, IndexBuffer, VertexBuffer, Registers, IndirectArguments, Wait, Label, Scanout, Store, MirrorRefresh, DrawCache, Count };
 const char* ReadSiteName(ReadSite site);
 // Sets the calling thread's read site and returns the previous one (nested scopes restore it).
 ReadSite SetReadSite(ReadSite site);

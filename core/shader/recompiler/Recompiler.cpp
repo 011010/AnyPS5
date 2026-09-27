@@ -1,9 +1,11 @@
 #include "Recompiler.hpp"
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <cstdio>
 #include "CacheKey.hpp"
+#include <list>
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
@@ -166,6 +168,15 @@ struct CompiledVariant {
     RecompileResult result;
 };
 
+// A materialized result of one variant over one snapshot (Recompile(request, capture)): the
+// shared immutable object every later capture that reproduces the snapshot receives, so Populate
+// and the per-request copy run once per distinct snapshot.
+struct ResultMemoEntry {
+    std::uint64_t variantId;
+    std::uint64_t hash;
+    std::shared_ptr<const RecompileResult> result;
+};
+
 struct SourceEntry {
     std::mutex mutex;
     // The code the entry was built for: the key carries only a hash of it, so a candidate entry is
@@ -173,7 +184,14 @@ struct SourceEntry {
     // points into a registration the driver may replace while the entry lives on.
     std::vector<std::uint32_t> code;
     std::shared_ptr<const IrResourcePlan> plan;
+    // A plan build that threw (an unsupported resource chain or control flow) is remembered and
+    // rethrown: the front end ran every pass before failing, ~13 ms per dispatch of a shader the
+    // title issues every frame (0x1048947300 at the intro video). APS5_NO_FAILURE_MEMO=1 rebuilds.
+    std::exception_ptr planFailure;
     std::vector<std::shared_ptr<const CompiledVariant>> variants;
+    // The result memo, most recently used first, at most ResultMemoEntries (under mutex).
+    std::list<ResultMemoEntry> memo;
+    std::unordered_map<std::uint64_t, std::list<ResultMemoEntry>::iterator> memoIndex;
 };
 
 namespace {
@@ -241,7 +259,14 @@ std::shared_ptr<SourceEntry> getSource(const RecompileRequest& request) {
     {
         std::lock_guard lock(source->mutex);
         if (source->plan == nullptr) {
-            source->plan = makeResourcePlan(request);
+            static const bool memoFailures = std::getenv("APS5_NO_FAILURE_MEMO") == nullptr;
+            if (memoFailures && source->planFailure) std::rethrow_exception(source->planFailure);
+            try {
+                source->plan = makeResourcePlan(request);
+            } catch (...) {
+                if (memoFailures) source->planFailure = std::current_exception();
+                throw;
+            }
         }
     }
     return source;
@@ -286,6 +311,10 @@ CompiledVariant compileVariant(const RecompileRequest& request, IrProgram progra
     result.bdaAbiVersion = program.Info().usesDma ? request.target.bdaAbiVersion : 0u;
     result.vertexOffsetSgpr = program.Info().vertexOffsetSgpr;
     result.instanceOffsetSgpr = program.Info().instanceOffsetSgpr;
+    result.vertexOffsetShared = program.Info().vertexOffsetShared;
+    result.instanceOffsetShared = program.Info().instanceOffsetShared;
+    result.vertexOffsetConflict = program.Info().vertexOffsetConflict;
+    result.instanceOffsetConflict = program.Info().instanceOffsetConflict;
     for (const auto& output : program.Info().outputs) {
         if (output.kind == StageOutputKind::Parameter) result.parameterExports.push_back(output.location);
     }
@@ -370,19 +399,166 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     return materializeVariant(*source, request, snapshot, specialization);
 }
 
+// APS5_NO_RESULT_MEMO=1: every Recompile(request, capture) materializes its own result as before.
+bool ResultMemo() {
+    static const bool resultMemo = std::getenv("APS5_NO_RESULT_MEMO") == nullptr;
+    return resultMemo;
+}
+
+constexpr std::size_t ResultMemoEntries = 256;
+
+struct ResultMemoCounters {
+    std::atomic<std::uint64_t> hits{0}, misses{0}, evictions{0}, populateNanoseconds{0};
+    std::atomic<std::int64_t> lastReport{0};
+};
+
+ResultMemoCounters& resultMemoCounters() {
+    static ResultMemoCounters counters;
+    return counters;
+}
+
+void reportResultMemo() {
+    static const bool profile = std::getenv("APS5_PROFILE_DRAW") != nullptr;
+    if (!profile) return;
+    auto& counters = resultMemoCounters();
+    const auto now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    auto last = counters.lastReport.load(std::memory_order_relaxed);
+    if (last == 0) {
+        counters.lastReport.compare_exchange_strong(last, now, std::memory_order_relaxed);
+        return;
+    }
+    if (now - last < 10'000'000'000ll || !counters.lastReport.compare_exchange_strong(last, now, std::memory_order_relaxed)) return;
+    const auto hits = counters.hits.exchange(0, std::memory_order_relaxed);
+    const auto misses = counters.misses.exchange(0, std::memory_order_relaxed);
+    const auto evictions = counters.evictions.exchange(0, std::memory_order_relaxed);
+    const auto populate = counters.populateNanoseconds.exchange(0, std::memory_order_relaxed);
+    std::fprintf(stderr, "[recompile] result memo (10 s): %llu hits, %llu misses (%.1f%% hits), Populate %.1f us per miss / %.1f ms in total, %llu evictions\n", static_cast<unsigned long long>(hits), static_cast<unsigned long long>(misses), hits + misses != 0 ? 100.0 * static_cast<double>(hits) / static_cast<double>(hits + misses) : 0.0, misses != 0 ? static_cast<double>(populate) / 1000.0 / static_cast<double>(misses) : 0.0, static_cast<double>(populate) / 1e6, static_cast<unsigned long long>(evictions));
+}
+
+// Everything materializeResult reads besides the variant: the snapshot (the descriptor words, the
+// flattened SRT, the user data, the uniform fill) and, for the vertex family, the V# table the
+// attributes are resolved from.
+std::uint64_t snapshotHash(const RecompileRequest& request, const ResourceSnapshot& snapshot) {
+    std::uint64_t hash = 0xcbf29ce484222325ull;
+    const auto mix = [&](std::uint64_t value) {
+        hash ^= value;
+        hash *= 0x100000001b3ull;
+    };
+    const auto mixWords = [&](std::span<const std::uint32_t> words) {
+        mix(words.size());
+        for (const auto word : words) mix(word);
+    };
+    const auto mixDescriptors = [&](const std::vector<DescriptorValue>& values) {
+        mix(values.size());
+        for (const auto& value : values) {
+            mix(value.dwordCount);
+            for (std::uint32_t i = 0; i < value.dwordCount && i < value.dwords.size(); ++i) mix(value.dwords[i]);
+        }
+    };
+    mixDescriptors(snapshot.buffers);
+    mixDescriptors(snapshot.images);
+    mixDescriptors(snapshot.samplers);
+    mixWords(snapshot.flattenedSrt);
+    mixWords(snapshot.userData);
+    mix(static_cast<std::uint64_t>(snapshot.uniformFill.kind));
+    mix(snapshot.uniformFill.resource);
+    for (const auto stride : snapshot.uniformFill.groupStride) mix(stride);
+    mix(snapshot.uniformFill.words);
+    mix(snapshot.uniformFill.value);
+    if (request.context.vertex) {
+        const auto& vertex = *request.context.vertex;
+        const auto count = std::min<std::uint32_t>(vertex.resourcesNum, ShaderVertexStageInfo::MaxResources);
+        mix(count);
+        for (std::uint32_t i = 0; i < count; ++i) {
+            for (const auto field : vertex.resources[i].fields) mix(field);
+        }
+    } else {
+        mix(1ull << 32u);
+    }
+    return hash;
+}
+
+// The memo'd result of `source`'s variant for the snapshot (design13 R5): a hit returns the shared
+// object, a miss materializes outside the source mutex and inserts (a concurrent miss's object is
+// as good). `memoHit` reports the hit.
+std::shared_ptr<const RecompileResult> materializeMemoized(SourceEntry& source, const RecompileRequest& request, const ResourceSnapshot& snapshot, const ResourceSpecialization& specialization, bool* memoHit) {
+    static const bool profile = std::getenv("APS5_PROFILE_DRAW") != nullptr;
+    std::shared_ptr<const CompiledVariant> variant;
+    bool cacheHit = false;
+    const auto hash = snapshotHash(request, snapshot);
+    std::uint64_t index = 0;
+    auto& counters = resultMemoCounters();
+    {
+        std::lock_guard lock(source.mutex);
+        for (const auto& candidate : source.variants) {
+            if (sameLayout(candidate->layout, request.layout) && candidate->specialization == specialization) {
+                variant = candidate;
+                cacheHit = true;
+                break;
+            }
+        }
+        if (variant == nullptr) {
+            auto program = PrepareResourceProgram(request);
+            variant = std::make_shared<CompiledVariant>(compileVariant(request, std::move(program), snapshot, specialization));
+            source.variants.push_back(variant);
+        }
+        index = (variant->result.variantId * 0x9e3779b97f4a7c15ull) ^ hash;
+        const auto found = source.memoIndex.find(index);
+        if (found != source.memoIndex.end() && found->second->variantId == variant->result.variantId && found->second->hash == hash) {
+            source.memo.splice(source.memo.begin(), source.memo, found->second);
+            counters.hits.fetch_add(1, std::memory_order_relaxed);
+            if (memoHit != nullptr) *memoHit = true;
+            reportResultMemo();
+            return found->second->result;
+        }
+    }
+    const auto started = profile ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+    auto result = std::make_shared<RecompileResult>(materializeResult(*variant, request, snapshot));
+    result->cacheHit = cacheHit;
+    if (profile) counters.populateNanoseconds.fetch_add(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - started).count()), std::memory_order_relaxed);
+    counters.misses.fetch_add(1, std::memory_order_relaxed);
+    std::shared_ptr<const RecompileResult> shared = std::move(result);
+    {
+        std::lock_guard lock(source.mutex);
+        const auto found = source.memoIndex.find(index);
+        if (found != source.memoIndex.end()) {
+            if (found->second->variantId == variant->result.variantId && found->second->hash == hash) {
+                source.memo.splice(source.memo.begin(), source.memo, found->second);
+                shared = found->second->result;
+            } else {
+                source.memo.erase(found->second);
+                source.memoIndex.erase(found);
+            }
+        }
+        if (source.memoIndex.find(index) == source.memoIndex.end()) {
+            source.memo.push_front({variant->result.variantId, hash, shared});
+            source.memoIndex.emplace(index, source.memo.begin());
+            while (source.memo.size() > ResultMemoEntries) {
+                const auto& last = source.memo.back();
+                source.memoIndex.erase((last.variantId * 0x9e3779b97f4a7c15ull) ^ last.hash);
+                source.memo.pop_back();
+                counters.evictions.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+    }
+    reportResultMemo();
+    return shared;
+}
+
 // The capture already resolved the source entry (stage input validation included) and materialized
 // the request over exactly the words the driver captured, so neither is repeated here.
-RecompileResult RecompileImpl(const RecompileRequest& request, const ResourceCapture& capture) {
+std::shared_ptr<const RecompileResult> RecompileImpl(const RecompileRequest& request, const ResourceCapture& capture, bool* memoHit) {
     if (!request.useCache || capture.source == nullptr) {
         auto program = PrepareResourceProgram(request);
         const auto variant = compileVariant(request, std::move(program), capture.snapshot, capture.specialization);
-        return materializeResult(variant, request, capture.snapshot);
+        return std::make_shared<const RecompileResult>(materializeResult(variant, request, capture.snapshot));
     }
-    return materializeVariant(*capture.source, request, capture.snapshot, capture.specialization);
+    if (!ResultMemo()) return std::make_shared<const RecompileResult>(materializeVariant(*capture.source, request, capture.snapshot, capture.specialization));
+    return materializeMemoized(*capture.source, request, capture.snapshot, capture.specialization, memoHit);
 }
 
 template <typename Impl>
-RecompileResult recompileReporting(const RecompileRequest& request, Impl&& impl) {
+auto recompileReporting(const RecompileRequest& request, Impl&& impl) -> decltype(impl()) {
     try {
         return impl();
     } catch (const std::exception& e) {
@@ -402,7 +578,29 @@ std::shared_ptr<const IrResourcePlan> GetResourcePlan(const RecompileRequest& re
     return makeResourcePlan(request);
 }
 
+namespace {
+
+// The capture's materialization; with pure flat slots in the plan the walk's read addresses are
+// traced into the capture (ResourceCapture::readTrace).
+void materializeCapture(ResourceCapture& capture, const SrtRuntime& runtime) {
+    const auto& plan = *capture.plan;
+    if (std::none_of(plan.pureFlatSlots.begin(), plan.pureFlatSlots.end(), [](std::uint8_t pure) { return pure != 0u; })) {
+        ResourceMaterializer{}.Materialize(plan, runtime, capture.snapshot, capture.specialization);
+        return;
+    }
+    SrtRuntime traced = runtime;
+    traced.readTrace = &capture.readTrace;
+    ResourceMaterializer{}.Materialize(plan, traced, capture.snapshot, capture.specialization);
+    auto& other = capture.readTrace.otherReads;
+    std::sort(other.begin(), other.end());
+    other.erase(std::unique(other.begin(), other.end()), other.end());
+}
+
+}
+
 std::shared_ptr<const ResourceCapture> CaptureResources(const RecompileRequest& request, const SrtRuntime& runtime) {
+    static const bool profile = std::getenv("APS5_PROFILE_DRAW") != nullptr;
+    const auto started = profile ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     // Validates the stage inputs once per request, as GetResourcePlan and Recompile(request) do.
     static_cast<void>(BuildShaderStageInputInfo(toShaderStageKind(request.shader.stage), request.context, HostSubgroupSize(request)));
     auto capture = std::make_shared<ResourceCapture>();
@@ -412,7 +610,27 @@ std::shared_ptr<const ResourceCapture> CaptureResources(const RecompileRequest& 
     } else {
         capture->plan = makeResourcePlan(request);
     }
-    ResourceMaterializer{}.Materialize(*capture->plan, runtime, capture->snapshot, capture->specialization);
+    if (profile) capture->sourceNanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - started).count());
+    materializeCapture(*capture, runtime);
+    return capture;
+}
+
+std::shared_ptr<const SourceHandle> ResolveSource(const RecompileRequest& request) {
+    if (!request.useCache) return nullptr;
+    static_cast<void>(BuildShaderStageInputInfo(toShaderStageKind(request.shader.stage), request.context, HostSubgroupSize(request)));
+    return std::make_shared<const SourceHandle>(SourceHandle{getSource(request)});
+}
+
+std::shared_ptr<const ResourceCapture> CaptureResources(const RecompileRequest& request, const SrtRuntime& runtime, const SourceHandle& handle) {
+    static const bool profile = std::getenv("APS5_PROFILE_DRAW") != nullptr;
+    const auto started = profile ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+    // The whole vertex family (Vertex, Local, TC, TE, Mesh) validates V# fields the memo key does not cover.
+    if (request.shader.stage != ShaderStage::Compute && request.shader.stage != ShaderStage::Fragment) static_cast<void>(BuildShaderStageInputInfo(toShaderStageKind(request.shader.stage), request.context, HostSubgroupSize(request)));
+    auto capture = std::make_shared<ResourceCapture>();
+    capture->source = handle.source;
+    capture->plan = handle.source->plan;
+    if (profile) capture->sourceNanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - started).count());
+    materializeCapture(*capture, runtime);
     return capture;
 }
 
@@ -420,8 +638,9 @@ RecompileResult Recompile(const RecompileRequest& request) {
     return recompileReporting(request, [&] { return RecompileImpl(request); });
 }
 
-RecompileResult Recompile(const RecompileRequest& request, const ResourceCapture& capture) {
-    return recompileReporting(request, [&] { return RecompileImpl(request, capture); });
+std::shared_ptr<const RecompileResult> Recompile(const RecompileRequest& request, const ResourceCapture& capture, bool* memoHit) {
+    if (memoHit != nullptr) *memoHit = false;
+    return recompileReporting(request, [&] { return RecompileImpl(request, capture, memoHit); });
 }
 
 }

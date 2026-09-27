@@ -41,6 +41,20 @@ bool TraceContextState() {
     return value;
 }
 
+// Kill switch: APS5_NO_INDIRECT_DRAW=1 rejects the indirect draw packets at submission validation as
+// before they were implemented (the driver then dumps the submission as it did).
+bool IndirectDrawsDisabled() {
+    static const bool value = std::getenv("APS5_NO_INDIRECT_DRAW") != nullptr;
+    return value;
+}
+
+// An SH register an indirect draw packet may name for the CP's patch: the sentinel 0x280 (write
+// nowhere) or a user-data register of the vertex-side stage banks (0x8c.. for the vertex / geometry
+// programs, 0x10c.. for the local / hull programs).
+bool drawLocation(std::uint32_t value) {
+    return value == 0x280u || value - 0x8cu < 32u || value - 0x10cu < 32u;
+}
+
 Registers& registersFor(QueueState& queue, std::uint32_t opcode) {
     if (opcode == 0x69 || opcode == 0x9f) return queue.context;
     if (opcode == 0x76 || opcode == 0x63) return queue.shader;
@@ -128,7 +142,10 @@ std::string_view UnsupportedReason(std::uint32_t header) {
         case 0x2a: case 0x2d: case 0x2f: case 0x35: case 0x37: case 0x40: case 0x42: case 0x46: case 0x50:
         case 0x58: case 0x63: case 0x64: case 0x69: case 0x76: case 0x79: case 0x7a:
         case 0x81: case 0x83: case 0x9f: return {};
-        case 0x24: case 0x25: case 0x27: case 0x2c: case 0x38: case 0x3a: case 0x8d:
+        case 0x24: case 0x25: case 0x2c: case 0x38:
+            if (IndirectDrawsDisabled()) return "graphics draw, shader stages and guest render-target materialization are not implemented";
+            return {};
+        case 0x27: case 0x3a: case 0x8d:
             return "graphics draw, shader stages and guest render-target materialization are not implemented";
         case 0x20: return "GPU query predication is not implemented";
         case 0x22: return "conditional command execution and conditional flip reservation are not implemented";
@@ -213,6 +230,26 @@ void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue) {
             size(5);
             require(packet[3] <= packet[1], "index count exceeds maximum index size");
             require((packet[4] & ~0x20u) == 0, "unsupported indexed draw flags");
+            break;
+        case 0x24: case 0x25:
+            graphics();
+            size(5);
+            require((packet[1] & 3u) == 0, "misaligned indirect draw offset");
+            require((packet[2] >> 16u) == 0 && (packet[3] >> 16u) == 0, "start-index location semantics are not implemented");
+            require(drawLocation(packet[2]) && drawLocation(packet[3]), "invalid indirect draw register location");
+            require((packet[4] & ~0x20u) == (opcode == 0x24 ? 2u : 0u), "unsupported indirect draw initiator");
+            break;
+        case 0x2c: case 0x38:
+            graphics();
+            size(10);
+            require((packet[1] & 3u) == 0, "misaligned indirect draw offset");
+            require((packet[2] >> 16u) == 0 && (packet[3] >> 16u) == 0, "start-index location semantics are not implemented");
+            require(drawLocation(packet[2]) && drawLocation(packet[3]) && drawLocation(packet[4] & 0xffffu), "invalid indirect draw register location");
+            require((packet[4] & ~(0xffffu | (1u << 30u) | (1u << 31u))) == 0, "indirect multi-draw control bits are not implemented");
+            if ((packet[4] & (1u << 30u)) != 0) require((packet[6] & 3u) == 0 && address(packet[6], packet[7]) != 0, "invalid indirect draw count address");
+            else require(address(packet[6], packet[7]) == 0, "count address without an indirect draw count");
+            require((packet[8] & 3u) == 0 && packet[8] >= (opcode == 0x2c ? 16u : 20u), "invalid indirect draw stride");
+            require((packet[9] & ~0x20u) == (opcode == 0x2c ? 2u : 0u), "unsupported indirect draw initiator");
             break;
         case 0x15: size(5); if ((packet[4] & ~0x8020u) != 0x41u) throw std::runtime_error("dispatch modifiers 0x" + ToHex(packet[4]) + " are not implemented"); break;
         case 0x16:
@@ -433,7 +470,7 @@ bool UsesGpuCacheBarrier(std::span<const std::uint32_t> packet) {
 
 bool AccessesMemory(std::uint32_t header) {
     switch ((header >> 8u) & 0xffu) {
-        case 0x3c: case 0x93: case 0x49: case 0x16: case 0x2d: case 0x35: case 0x37: case 0x40: case 0x50: case 0x63: case 0x64: case 0x83: case 0x9f: return true;
+        case 0x3c: case 0x93: case 0x49: case 0x16: case 0x2d: case 0x35: case 0x24: case 0x25: case 0x2c: case 0x38: case 0x37: case 0x40: case 0x50: case 0x63: case 0x64: case 0x83: case 0x9f: return true;
         default: return false;
     }
 }
@@ -457,8 +494,83 @@ std::array<std::uint32_t, 5> ResolveDispatch(std::span<const std::uint32_t> pack
     return ReadDispatchArguments(DispatchArgumentAddress(packet, queue), packet.back());
 }
 
+namespace {
+
+// The index buffer state an indexed draw binds: the index size for the journaled INDEX_TYPE and the
+// checks every indexed draw makes on INDEX_BASE.
+std::uint32_t indexSizeOf(const QueueState& queue) {
+    require(queue.indexType <= 2, "unsupported index type");
+    const std::uint32_t indexSize = queue.indexType == 0 ? 2 : queue.indexType == 1 ? 4 : 1;
+    require(queue.indexBase != 0 && queue.indexBase % indexSize == 0, "null or misaligned index base");
+    return indexSize;
+}
+
+DrawParameters resolveIndirectDraw(std::span<const std::uint32_t> packet, const QueueState& queue) {
+    const auto opcode = (packet[0] >> 8u) & 0xffu;
+    const bool indexed = opcode == 0x25 || opcode == 0x38;
+    const bool multi = opcode == 0x2c || opcode == 0x38;
+    require(queue.drawIndirectBase != 0, "indirect draw base has not been set");
+    require(packet[1] <= std::numeric_limits<std::uint64_t>::max() - queue.drawIndirectBase, "indirect draw address overflow");
+    DrawParameters::IndirectDraw indirect{};
+    indirect.arguments = queue.drawIndirectBase + packet[1];
+    indirect.opcode = opcode;
+    indirect.recordBytes = indexed ? 20 : 16;
+    indirect.stride = multi ? packet[8] : indirect.recordBytes;
+    indirect.count = multi ? packet[5] : 1;
+    indirect.countIndirect = multi && (packet[4] & (1u << 30u)) != 0;
+    indirect.countAddress = multi ? address(packet[6], packet[7]) : 0;
+    indirect.baseVertexLocation = packet[2];
+    indirect.startInstanceLocation = packet[3];
+    indirect.drawIndexLocation = multi ? packet[4] & 0xffffu : 0x280u;
+    indirect.drawIndexEnabled = multi && (packet[4] >> 31u) != 0;
+    indirect.indxOffset = 0;
+    require(indirect.count <= (std::numeric_limits<std::uint64_t>::max() - indirect.arguments - indirect.recordBytes) / indirect.stride, "indirect draw record range overflow");
+    // The counts are unknown here (the CP takes them from the record; NUM_INSTANCES is ignored).
+    DrawParameters draw{0, 0, 0, 0, packet.back() & 0x20u, indexed, 0, 0};
+    if (!indexed) {
+        const auto offset = queue.userConfig.find(0x24a);
+        require(offset != queue.userConfig.end(), "missing GE_INDX_OFFSET register");
+        draw.firstVertex = offset->second;
+        indirect.indxOffset = offset->second;
+    } else {
+        // The CP clamps firstIndex + indexCount to INDEX_BUFFER_SIZE: the declared range is the
+        // hardware's view of the index buffer, so that is what gets bound.
+        const auto indexSize = indexSizeOf(queue);
+        require(queue.indexBufferSize != 0, "INDEX_BUFFER_SIZE has not been set");
+        const auto bytes = static_cast<std::uint64_t>(queue.indexBufferSize) * indexSize;
+        require(bytes <= std::numeric_limits<std::size_t>::max() && bytes <= std::numeric_limits<std::uint64_t>::max() - queue.indexBase, "index range size overflow");
+        GuestMemory::CheckRange(reinterpret_cast<const void*>(queue.indexBase), static_cast<std::size_t>(bytes), indexSize);
+        draw.indexAddress = queue.indexBase;
+        draw.indexCount = queue.indexBufferSize;
+        draw.indexSize = indexSize;
+    }
+    draw.indirect = indirect;
+    return draw;
+}
+
+}
+
+DrawArguments ReadDrawArguments(const DrawParameters::IndirectDraw& indirect, std::uint32_t record) {
+    require(record < indirect.count, "indirect draw record index exceeds the packet's count");
+    std::array<std::uint32_t, 5> words{};
+    // Named for the [hooksync] attribution (the read goes through the flush hook).
+    const GuestMemory::ReadSiteScope site(GuestMemory::ReadSite::IndirectArguments);
+    GuestMemory::Read(indirect.arguments + static_cast<std::uint64_t>(record) * indirect.stride, std::as_writable_bytes(std::span(words)).first(indirect.recordBytes), 4);
+    if (indirect.recordBytes == 20) return {words[0], words[1], words[2], words[3], words[4]};
+    return {words[0], words[1], words[2], 0, words[3]};
+}
+
+std::uint32_t ReadDrawCount(const DrawParameters::IndirectDraw& indirect) {
+    require(indirect.countIndirect && indirect.countAddress != 0, "indirect draw has no count address");
+    std::uint32_t count = 0;
+    const GuestMemory::ReadSiteScope site(GuestMemory::ReadSite::IndirectArguments);
+    GuestMemory::Read(indirect.countAddress, std::as_writable_bytes(std::span(&count, 1)), 4);
+    return count;
+}
+
 DrawParameters ResolveDraw(std::span<const std::uint32_t> packet, const QueueState& queue) {
     Validate(packet, 0);
+    if (IndirectDrawOpcode((packet[0] >> 8u) & 0xffu)) return resolveIndirectDraw(packet, queue);
     if (((packet[0] >> 8u) & 0xffu) == 0x2d) {
         const auto offset = queue.userConfig.find(0x24a);
         require(offset != queue.userConfig.end(), "missing GE_INDX_OFFSET register");
@@ -467,9 +579,7 @@ DrawParameters ResolveDraw(std::span<const std::uint32_t> packet, const QueueSta
         return {0, packet[1], 0, queue.instanceCount, packet[2] & 0x20u, false, firstVertex, 0};
     }
     require(((packet[0] >> 8u) & 0xffu) == 0x35, "expected DRAW_INDEX_OFFSET_2 packet");
-    require(queue.indexType <= 2, "unsupported index type");
-    const std::uint32_t indexSize = queue.indexType == 0 ? 2 : queue.indexType == 1 ? 4 : 1;
-    require(queue.indexBase != 0 && queue.indexBase % indexSize == 0, "null or misaligned index base");
+    const auto indexSize = indexSizeOf(queue);
     const auto offset = static_cast<std::uint64_t>(packet[2]) * indexSize;
     require(offset <= std::numeric_limits<std::uint64_t>::max() - queue.indexBase, "index address overflow");
     const auto address = queue.indexBase + offset;

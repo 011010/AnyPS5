@@ -44,6 +44,17 @@ layout(push_constant) uniform Push {
     uint tailY;
     uint elementBytes;
     uint slice;
+    // Only elements whose tiled offset (the linear offset for kLinear) lies in [rangeBegin,
+    // rangeEnd) are moved; tiledBase and linearBase are subtracted from the tiled and linear
+    // offsets of those elements (a window of the mip in each buffer; both 0 for the whole mip).
+    uint rangeBegin;
+    uint rangeEnd;
+    uint tiledBase;
+    uint linearBase;
+    // The first element column and row of the dispatched grid (a window's rectangle; 0 for the
+    // whole mip).
+    uint columnBegin;
+    uint rowBegin;
 } params;
 
 uint equationBit(uint mask, uvec2 p) {
@@ -145,7 +156,7 @@ void copyElement(uint src, uint dst) {
 }
 
 void main() {
-    uvec2 p = gl_GlobalInvocationID.xy;
+    uvec2 p = gl_GlobalInvocationID.xy + uvec2(params.columnBegin, params.rowBegin);
     if (p.x >= params.width || p.y >= params.height) {
         return;
     }
@@ -155,7 +166,14 @@ void main() {
     if (TILE_FAMILY == 0u) {
         // kLinear: guest and host layouts match; a straight copy at the
         // same pitch, no swizzle.
-        copyElement(params.srcBase + linearOffset, params.dstBase + linearOffset);
+        if (linearOffset < params.rangeBegin || linearOffset >= params.rangeEnd) {
+            return;
+        }
+        if (RETILE != 0u) {
+            copyElement(params.srcBase + linearOffset - params.linearBase, params.dstBase + linearOffset - params.tiledBase);
+        } else {
+            copyElement(params.srcBase + linearOffset - params.tiledBase, params.dstBase + linearOffset - params.linearBase);
+        }
         return;
     }
 
@@ -169,6 +187,11 @@ void main() {
 
     uint blockIndex = block.y * params.blocksPerRow + block.x;
     uint tiledOffset = blockIndex * BLOCK_BYTES + blockOffset(swizzle);
+    if (tiledOffset < params.rangeBegin || tiledOffset >= params.rangeEnd) {
+        return;
+    }
+    tiledOffset -= params.tiledBase;
+    linearOffset -= params.linearBase;
 
     if (RETILE != 0u) {
         copyElement(params.srcBase + linearOffset, params.dstBase + tiledOffset);

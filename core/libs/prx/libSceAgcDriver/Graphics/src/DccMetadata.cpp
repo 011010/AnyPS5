@@ -4,6 +4,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/Recorder.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Resources.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureFormat.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/UnitShadow.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -62,6 +63,18 @@ ScanProfile& Scans() {
     return profile;
 }
 
+// ProvedClearKeys outcomes, counted with or without profiling (the tests read them).
+struct ProofCounters {
+    std::atomic<std::uint64_t> proved{0};
+    std::atomic<std::uint64_t> scanned{0};
+    std::atomic<std::uint64_t> unstable{0};
+};
+
+ProofCounters& Proofs() {
+    static ProofCounters counters;
+    return counters;
+}
+
 bool ScanProfileEnabled() {
     static const bool profile = std::getenv("APS5_PROFILE_DRAW") != nullptr;
     return profile;
@@ -77,7 +90,8 @@ void ReportScans(std::chrono::steady_clock::time_point now) {
         return;
     }
     if (nowMs - last < 10000 || !profile.lastReport.compare_exchange_strong(last, nowMs)) return;
-    std::fprintf(stderr, "[dcc] %llu scans, %.1f MiB scanned, %llu memo hits, %llu flush syncs, %.1f ms; uncompressed keys stored: %llu on the GPU (%llu with an unaligned head or tail), %llu on the CPU\n", static_cast<unsigned long long>(profile.scans.load()), profile.bytes.load() / 1048576.0, static_cast<unsigned long long>(profile.memoHits.load()), static_cast<unsigned long long>(profile.flushSyncs.load()), profile.nanoseconds.load() / 1e6, static_cast<unsigned long long>(profile.gpuStores.load()), static_cast<unsigned long long>(profile.gpuSplitStores.load()), static_cast<unsigned long long>(profile.cpuStores.load()));
+    const auto& proofs = Proofs();
+    std::fprintf(stderr, "[dcc] %llu scans, %.1f MiB scanned, %llu memo hits, %llu flush syncs, %.1f ms; uncompressed keys stored: %llu on the GPU (%llu with an unaligned head or tail), %llu on the CPU; key proofs: %llu proved, %llu scanned, %llu unstable\n", static_cast<unsigned long long>(profile.scans.load()), profile.bytes.load() / 1048576.0, static_cast<unsigned long long>(profile.memoHits.load()), static_cast<unsigned long long>(profile.flushSyncs.load()), profile.nanoseconds.load() / 1e6, static_cast<unsigned long long>(profile.gpuStores.load()), static_cast<unsigned long long>(profile.gpuSplitStores.load()), static_cast<unsigned long long>(profile.cpuStores.load()), static_cast<unsigned long long>(proofs.proved.load()), static_cast<unsigned long long>(proofs.scanned.load()), static_cast<unsigned long long>(proofs.unstable.load()));
 }
 
 void CountScan(std::size_t bytes, std::chrono::steady_clock::time_point start) {
@@ -172,6 +186,14 @@ std::optional<DccKeys> MemoizedKeys(std::uint64_t begin, std::uint64_t end) {
     return std::nullopt;
 }
 
+// Debug aid (APS5_TRACE_DCC_KEYS=1): every uncompressed key store, with the packet that made it.
+void TraceKeyStore(const char* path, std::uint64_t begin, std::size_t count) {
+    static const bool trace = std::getenv("APS5_TRACE_DCC_KEYS") != nullptr;
+    if (!trace) return;
+    const auto packet = GuestMemory::CurrentPacket();
+    std::fprintf(stderr, "[dcc-keys] uncompressed keys stored on the %s: 0x%llx+0x%zx (packet 0x%x queue 0x%x)\n", path, static_cast<unsigned long long>(begin), count, packet.opcode, packet.queue);
+}
+
 // The 0xff keys as a fill recorded into the active recorder's open batch, into the range's host
 // import (the WriteLabelOnGpu / FillBuffer pattern): ordered behind every earlier recorded read or
 // write of the range (the title's DCC clear or decompress kernel storing keys through a V#, which the
@@ -193,20 +215,14 @@ bool StoreUncompressedOnGpu(const Context& context, Recorder& recorder, std::uin
     if (fillBegin > first || last > fillEnd) {
         seed = std::make_shared<Buffer>(context, 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
         std::memset(seed->Bytes().data(), 0xff, seed->Bytes().size());
-        recorder.Keep(seed);
-    }
-    const auto commands = recorder.Commands();
-    RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT);
-    if (fillEnd > fillBegin) context.Function<PFN_vkCmdFillBuffer>("vkCmdFillBuffer")(commands, import->buffer, fillBegin, fillEnd - fillBegin, 0xffffffffu);
-    if (seed != nullptr) {
-        VkBufferCopy copies[2];
-        std::uint32_t copyCount = 0;
-        if (fillBegin > first) copies[copyCount++] = {0, first, fillBegin - first};
-        if (last > fillEnd) copies[copyCount++] = {0, fillEnd, last - fillEnd};
-        context.Function<PFN_vkCmdCopyBuffer>("vkCmdCopyBuffer")(commands, seed->Handle(), import->buffer, copyCount, copies);
         CountStore(Scans().gpuSplitStores);
     }
-    RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_HOST_READ_BIT);
+    // A unit shadow's results in the key range's edge units reach the import before the fill
+    // lands over part of them (the stamp below then makes those units stale).
+    if (AnyShadowedOverlaps(begin, count)) PublishShadow(begin, count, PublishScope::PartialUnits, PublishReason::Keys);
+    // Queued on the open batch and recorded with the batch's other key stores as one run (or before
+    // a later command writing the keys; see Recorder::QueueKeyStore).
+    recorder.QueueKeyStore(import->buffer, first, last, std::move(seed), begin, begin + count);
     recorder.NotePendingWrite(begin, count);
     GuestMemory::MarkWritten(begin, count);
     // After the note: an unlocked memo lookup drops an entry the snapshot does not cover yet. The
@@ -219,10 +235,12 @@ bool StoreUncompressedOnGpu(const Context& context, Recorder& recorder, std::uin
         if (MemoRecorder(memo) == &recorder) memo.entries.push_back({begin, end});
     }
     CountStore(Scans().gpuStores);
+    TraceKeyStore("gpu", begin, count);
     return true;
 }
 
 void StoreUncompressedOnCpu(std::uint64_t begin, std::size_t count) {
+    TraceKeyStore("cpu", begin, count);
     // The write waits for recorded work over the range (the flush hook), so the bytes are current after.
     ForgetStores(begin, begin + count);
     const std::vector<std::byte> uncompressed(count, std::byte{0xff});
@@ -321,11 +339,33 @@ const char* DccKeysName(DccKeys keys) {
     return "?";
 }
 
-DccKeys ReadDccKeys(std::uint64_t metaAddress, std::uint64_t surfaceBytes) {
+namespace {
+
+// ReadDccKeys, saying in `memoized` whether the answer came from the pending-store memo rather
+// than the bytes.
+DccKeys readDccKeys(std::uint64_t metaAddress, std::uint64_t surfaceBytes, bool& memoized) {
+    memoized = false;
     const auto count = static_cast<std::size_t>(surfaceBytes / KeyBytes);
     if (metaAddress == 0 || count == 0 || !GuestMemory::Accessible(reinterpret_cast<const void*>(metaAddress), count)) return DccKeys::Unreadable;
     // A driver store still pending on the GPU is not in the bytes yet.
-    if (const auto memoized = MemoizedKeys(metaAddress, metaAddress + count)) return *memoized;
+    if (const auto memo = MemoizedKeys(metaAddress, metaAddress + count)) {
+        memoized = true;
+        return *memo;
+    }
+    // Keys under a unit shadow's fresh results (metadata aliased with a surface): under the
+    // device lock they are published and waited for; a build's unlocked stage answers "unstable"
+    // so its stage B reads them under the lock.
+    if (AnyShadowedOverlaps(metaAddress, count)) {
+        if (!GuestMemory::GpuMutex().HeldByThisThread()) {
+            memoized = true;
+            return DccKeys::Mixed;
+        }
+        PublishShadow(metaAddress, count, PublishScope::Whole, PublishReason::Keys);
+        if (auto* recorder = Recorder::Active()) {
+            Recorder::CountSync(2);
+            recorder->Sync();
+        }
+    }
     const auto* keys = reinterpret_cast<const std::uint8_t*>(metaAddress);
     const auto first = keys[0];
     const auto start = ScanProfileEnabled() ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
@@ -341,6 +381,29 @@ DccKeys ReadDccKeys(std::uint64_t metaAddress, std::uint64_t surfaceBytes) {
         case 0xff: return DccKeys::Uncompressed;
         default: return DccKeys::Mixed;
     }
+}
+
+DccKeys textureClearKeys(const GuestTextureResource& resource, std::uint64_t guestBytes, bool& memoized) {
+    memoized = false;
+    if (resource.dccAddress == 0) return DccKeys::Uncompressed;
+    const auto keys = readDccKeys(resource.dccAddress, guestBytes, memoized);
+    if (keys == DccKeys::Uncompressed) return keys;
+    std::byte probe[16]{};
+    if (!IsDccClear(keys) || !FillDccClear(ResolveTextureFormat(resource.format), keys, resource.dccAlphaOnMsb, std::span(probe, std::min<std::size_t>(sizeof(probe), BytesPerElement(resource.format))))) {
+        static std::mutex reportedMutex;
+        static std::set<std::pair<std::uint64_t, int>> reported;
+        std::lock_guard lock(reportedMutex);
+        if (reported.size() < 32 && reported.insert({resource.baseAddress, static_cast<int>(keys)}).second) std::fprintf(stderr, "[gpu] texture 0x%llx (format %u) has %s DCC keys at 0x%llx; its texels are read as stored\n", static_cast<unsigned long long>(resource.baseAddress), resource.format, DccKeysName(keys), static_cast<unsigned long long>(resource.dccAddress));
+        return DccKeys::Uncompressed;
+    }
+    return keys;
+}
+
+}
+
+DccKeys ReadDccKeys(std::uint64_t metaAddress, std::uint64_t surfaceBytes) {
+    bool memoized = false;
+    return readDccKeys(metaAddress, surfaceBytes, memoized);
 }
 
 bool IsDccClear(DccKeys keys) {
@@ -409,18 +472,54 @@ bool DccAlphaOnMsb(VkFormat format, std::uint32_t componentSwap) {
 }
 
 DccKeys TextureClearKeys(const GuestTextureResource& resource, std::uint64_t guestBytes) {
+    bool memoized = false;
+    return textureClearKeys(resource, guestBytes, memoized);
+}
+
+bool KeyFastPath() {
+    static const bool enabled = std::getenv("APS5_NO_KEY_FAST_PATH") == nullptr;
+    return enabled;
+}
+
+DccKeys ProvedClearKeys(const GuestTextureResource& resource, std::uint64_t guestBytes, DccKeyProof& proof) {
     if (resource.dccAddress == 0) return DccKeys::Uncompressed;
-    const auto keys = ReadDccKeys(resource.dccAddress, guestBytes);
-    if (keys == DccKeys::Uncompressed) return keys;
-    std::byte probe[16]{};
-    if (!IsDccClear(keys) || !FillDccClear(ResolveTextureFormat(resource.format), keys, resource.dccAlphaOnMsb, std::span(probe, std::min<std::size_t>(sizeof(probe), BytesPerElement(resource.format))))) {
-        static std::mutex reportedMutex;
-        static std::set<std::pair<std::uint64_t, int>> reported;
-        std::lock_guard lock(reportedMutex);
-        if (reported.size() < 32 && reported.insert({resource.baseAddress, static_cast<int>(keys)}).second) std::fprintf(stderr, "[gpu] texture 0x%llx (format %u) has %s DCC keys at 0x%llx; its texels are read as stored\n", static_cast<unsigned long long>(resource.baseAddress), resource.format, DccKeysName(keys), static_cast<unsigned long long>(resource.dccAddress));
-        return DccKeys::Uncompressed;
+    auto& counters = Proofs();
+    if (!KeyFastPath()) {
+        counters.scanned.fetch_add(1, std::memory_order_relaxed);
+        return TextureClearKeys(resource, guestBytes);
     }
+    const auto count = static_cast<std::size_t>(guestBytes / KeyBytes);
+    // The collect precedes the scan: a write landing between them is stamped above `collected`, so
+    // the proof it would invalidate is never taken as current.
+    const auto collected = count == 0 ? 0 : GuestMemory::CollectWrites(resource.dccAddress, count);
+    if (proof.generation != 0 && collected != 0 && GuestMemory::UnchangedSince(resource.dccAddress, count, proof.generation)) {
+        counters.proved.fetch_add(1, std::memory_order_relaxed);
+        return proof.keys;
+    }
+    bool memoized = false;
+    const auto keys = textureClearKeys(resource, guestBytes, memoized);
+    bool stable = collected != 0 && !memoized;
+    if (stable) {
+        // After the scan: a write noted since the collect is stamped above it anyway; one noted
+        // before it may still land after the bytes were read.
+        if (GuestMemory::GpuMutex().HeldByThisThread()) {
+            if (auto* recorder = Recorder::Active(); recorder != nullptr) {
+                const auto info = recorder->DescribePendingWrite(resource.dccAddress, count);
+                stable = !info.has_value() || info->signaled;
+            }
+        } else {
+            stable = !Recorder::SnapshotWriteOverlaps(resource.dccAddress, count);
+        }
+    }
+    proof = stable ? DccKeyProof{keys, collected} : DccKeyProof{};
+    counters.scanned.fetch_add(1, std::memory_order_relaxed);
+    if (!stable) counters.unstable.fetch_add(1, std::memory_order_relaxed);
     return keys;
+}
+
+DccKeyProofCounts KeyProofCounts() {
+    const auto& counters = Proofs();
+    return {counters.proved.load(std::memory_order_relaxed), counters.scanned.load(std::memory_order_relaxed), counters.unstable.load(std::memory_order_relaxed)};
 }
 
 void ReadTextureSurface(const GuestTextureResource& resource, DccKeys keys, std::span<std::byte> bytes) {

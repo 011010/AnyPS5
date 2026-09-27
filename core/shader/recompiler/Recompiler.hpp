@@ -323,6 +323,12 @@ struct RecompileResult {
     std::vector<VertexAttribute> vertexAttributes;
     std::int32_t vertexOffsetSgpr = -1;
     std::int32_t instanceOffsetSgpr = -1;
+    // The offset SGPR is also read elsewhere in the program (so a value folded into the draw's
+    // first vertex / instance cannot stand in for it), or two SGPRs were added (the SGPR is -1).
+    bool vertexOffsetShared = false;
+    bool instanceOffsetShared = false;
+    bool vertexOffsetConflict = false;
+    bool instanceOffsetConflict = false;
     std::vector<std::uint32_t> parameterExports;
     std::vector<FragmentParameter> fragmentParameters;
     bool cacheHit = false;
@@ -335,9 +341,12 @@ struct RecompileResult {
 
 // The resource plan, snapshot and specialization a driver captured for the request (see
 // CaptureResources in Optimization/ResourceProgram.hpp): this overload reuses them instead of
-// materializing the request's memory regions again, and is otherwise Recompile(request).
+// materializing the request's memory regions again, and is otherwise Recompile(request). The
+// result is immutable and shared: a capture that reproduces a snapshot the source's variant was
+// materialized over before receives the same object (`memoHit`), so the descriptor population runs
+// once per distinct snapshot. APS5_NO_RESULT_MEMO=1 materializes every call.
 struct ResourceCapture;
-[[nodiscard]] RecompileResult Recompile(const RecompileRequest& request, const ResourceCapture& capture);
+[[nodiscard]] std::shared_ptr<const RecompileResult> Recompile(const RecompileRequest& request, const ResourceCapture& capture, bool* memoHit = nullptr);
 
 // Debug aid (see DebugProbe in Translation/TranslationContext.hpp): the APS5_PROBE register probe is
 // only applied while a driver has it active, so it can be limited to one dispatch; the recompile

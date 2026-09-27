@@ -39,6 +39,11 @@ struct BufferAllocation {
 // the 256-byte copied-region buffers to fit, and those then missed on every build (81869 misses
 // and 80850 evictions per run, each a Vulkan create or destroy under the pool mutex, 3.5 s per
 // run). APS5_BUFFER_POOL_SHARED=1 keeps one tier as before.
+//
+// Device-local allocations (the detiler's scratch buffers and the staging shadows of written guest
+// buffers, see GuestBufferMemory) are retained in a third tier with a budget of their own, video
+// memory instead of pinned host memory: APS5_STAGING_POOL_MIB (default 512); 0 keeps them in the
+// two host tiers as before.
 class BufferPool {
 public:
     explicit BufferPool(const Context& context);
@@ -65,8 +70,11 @@ private:
         std::uint64_t misses = 0;
         std::uint64_t evictions = 0;
     };
-    // The tier a buffer of `capacity` is retained in (the large one for everything when shared).
-    Tier& tierFor(std::size_t capacity);
+    // The tier a buffer of `capacity` and `properties` is retained in (the large one for everything
+    // when shared; the device tier for device-local memory while it has a budget).
+    Tier& tierFor(std::size_t capacity, VkMemoryPropertyFlags properties);
+    // The device tier's budget (APS5_STAGING_POOL_MIB), read once.
+    static VkDeviceSize DeviceBudget();
     void destroy(const BufferAllocation& allocation) noexcept;
     // Moves the tier's least recently used slot to `evicted`; the caller destroys those after
     // releasing the mutex, so builds taking buffers on other threads do not wait behind the
@@ -82,6 +90,7 @@ private:
     // Not `small`/`large`: <rpcndr.h> (via <windows.h>) defines `small` as a macro.
     Tier smallTier;
     Tier largeTier;
+    Tier deviceTier;
     std::uint64_t clock = 0;
     static constexpr VkDeviceSize budget = 512ull * 1024 * 1024;
     // The small tier's own budget (512 slots of at most half a MiB each): pinned host memory the

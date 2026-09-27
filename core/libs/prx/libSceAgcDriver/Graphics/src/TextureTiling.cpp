@@ -249,6 +249,11 @@ std::array<std::uint32_t, 3> ThickBlockExtent(TextureTileMode tileMode, std::uin
     }
 }
 
+std::array<std::uint32_t, 3> ThinBlockLayout(TextureTileMode tileMode, std::uint32_t bytesPerElement) {
+    const auto block = GetBlockLayout(tileMode, bytesPerElement);
+    return {block.blockSize, block.blockWidth, block.blockHeight};
+}
+
 ThickLayout ComputeThickLayout(TextureTileMode tileMode, std::uint32_t format, std::uint32_t width, std::uint32_t height, std::uint32_t depth) {
     Require(width != 0 && height != 0 && depth != 0, "cannot compute layout for a zero-sized 3D texture");
     const auto bytesPerElement = BytesPerElement(format);

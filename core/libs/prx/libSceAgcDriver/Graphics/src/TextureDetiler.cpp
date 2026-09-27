@@ -25,6 +25,12 @@ struct Push {
     std::uint32_t tailY;
     std::uint32_t elementBytes;
     std::uint32_t slice;
+    std::uint32_t rangeBegin;
+    std::uint32_t rangeEnd;
+    std::uint32_t tiledBase;
+    std::uint32_t linearBase;
+    std::uint32_t columnBegin;
+    std::uint32_t rowBegin;
 };
 
 std::uint32_t BlockBytesFor(TextureTileMode tileMode) {
@@ -138,11 +144,15 @@ VkPipeline TextureDetiler::pipeline(TextureTileMode tileMode, std::uint32_t elem
     return result;
 }
 
-void TextureDetiler::Dispatch(VkCommandBuffer commands, TextureTileMode tileMode, std::uint32_t elementBytes, VkBuffer source, std::uint64_t sourceOffset, VkBuffer destination, std::uint64_t destinationOffset, const TileMipLayout& layout, bool retile, std::uint32_t slice, bool thick) {
+void TextureDetiler::Dispatch(VkCommandBuffer commands, TextureTileMode tileMode, std::uint32_t elementBytes, VkBuffer source, std::uint64_t sourceOffset, VkBuffer destination, std::uint64_t destinationOffset, const TileMipLayout& layout, bool retile, std::uint32_t slice, bool thick, const DetileWindow& window) {
     Require(commands != VK_NULL_HANDLE, "texture detiling requires an active command buffer");
+    Require(window.rangeBegin < window.rangeEnd && window.tiledBase <= window.rangeBegin, "texture detiling window is empty");
     Require(source != VK_NULL_HANDLE && destination != VK_NULL_HANDLE, "texture detiling requires source and destination buffers");
     Require(layout.width != 0 && layout.height != 0, "texture detiling requires a non-empty mip layout");
     Require(layout.tiledSize != 0 && layout.linearSize != 0, "texture detiling requires a non-empty mip layout");
+    const auto columnEnd = window.columnEnd != 0 ? std::min(window.columnEnd, layout.width) : layout.width;
+    const auto rowEnd = window.rowEnd != 0 ? std::min(window.rowEnd, layout.height) : layout.height;
+    Require(window.columnBegin < columnEnd && window.rowBegin < rowEnd, "texture detiling window lies outside the mip: columns " + std::to_string(window.columnBegin) + ".." + std::to_string(columnEnd) + ", rows " + std::to_string(window.rowBegin) + ".." + std::to_string(rowEnd) + " of " + std::to_string(layout.width) + "x" + std::to_string(layout.height));
     const auto target = pipeline(tileMode, elementBytes, retile, thick);
     const auto alignment = std::max<VkDeviceSize>(context.limits.minStorageBufferOffsetAlignment, 4);
     const auto sourceDescriptorOffset = sourceOffset - sourceOffset % alignment;
@@ -150,8 +160,12 @@ void TextureDetiler::Dispatch(VkCommandBuffer commands, TextureTileMode tileMode
     const auto sourceBase = sourceOffset - sourceDescriptorOffset;
     const auto destinationBase = destinationOffset - destinationDescriptorOffset;
     Require(sourceBase <= UINT32_MAX && destinationBase <= UINT32_MAX, "texture detiling buffer offset exceeds addressable range");
-    const auto sourceRange = (sourceBase + (retile ? layout.linearSize : layout.tiledSize) + 3) / 4 * 4;
-    const auto destinationRange = (destinationBase + (retile ? layout.tiledSize : layout.linearSize) + 3) / 4 * 4;
+    // A window covers the mip's bytes from its base to the range's end (tiled) or the last row the
+    // range can touch (linear).
+    const std::uint64_t tiledBytes = window.rangeEnd == 0xffffffffu ? layout.tiledSize : std::min<std::uint64_t>(layout.tiledSize, window.rangeEnd) - window.tiledBase;
+    const std::uint64_t linearBytes = window.linearBytes != 0 ? window.linearBytes : layout.linearSize - std::min<std::uint64_t>(window.linearBase, layout.linearSize);
+    const auto sourceRange = (sourceBase + (retile ? linearBytes : tiledBytes) + 3) / 4 * 4;
+    const auto destinationRange = (destinationBase + (retile ? tiledBytes : linearBytes) + 3) / 4 * 4;
     Require(sourceRange <= context.limits.maxStorageBufferRange && destinationRange <= context.limits.maxStorageBufferRange, "texture detiling buffer range exceeds device limits");
     const auto set = allocateSet();
     const VkDescriptorBufferInfo sourceInfo{source, sourceDescriptorOffset, sourceRange};
@@ -184,9 +198,15 @@ void TextureDetiler::Dispatch(VkCommandBuffer commands, TextureTileMode tileMode
     push.tailY = layout.tailY;
     push.elementBytes = elementBytes;
     push.slice = slice;
+    push.rangeBegin = window.rangeBegin;
+    push.rangeEnd = window.rangeEnd;
+    push.tiledBase = window.tiledBase;
+    push.linearBase = window.linearBase;
+    push.columnBegin = window.columnBegin;
+    push.rowBegin = window.rowBegin;
     context.Function<PFN_vkCmdPushConstants>("vkCmdPushConstants")(commands, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Push), &push);
-    const auto groupsX = (layout.width + 7u) / 8u;
-    const auto groupsY = (layout.height + 7u) / 8u;
+    const auto groupsX = (columnEnd - window.columnBegin + 7u) / 8u;
+    const auto groupsY = (rowEnd - window.rowBegin + 7u) / 8u;
     context.Function<PFN_vkCmdDispatch>("vkCmdDispatch")(commands, groupsX, groupsY, 1);
 }
 

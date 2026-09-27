@@ -79,6 +79,7 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/TextureTiling.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/TextureDetiler.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Texture.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/UnitShadow.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Sampler.cpp
         ${agcTextureDetileShaderHeader}
         ${CMAKE_CURRENT_SOURCE_DIR}/Eq/src/Event.cpp
@@ -172,6 +173,25 @@ target_link_libraries(agc_driver_flip_tests PRIVATE
 set_target_properties(agc_driver_flip_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(agc_driver_flip_tests)
 
+add_executable(agc_driver_recorder_tests EXCLUDE_FROM_ALL
+        tests/Recorder.cpp
+)
+
+target_include_directories(agc_driver_recorder_tests PRIVATE
+        ${LIBS_INCLUDE_DIR}
+        ${CMAKE_SOURCE_DIR}/core/shader/recompiler
+        ${CMAKE_SOURCE_DIR}/3rdparty/Vulkan-Headers/include
+)
+
+target_link_libraries(agc_driver_recorder_tests PRIVATE
+        libSceAgcDriver
+        SDL2-static
+        libc
+)
+
+set_target_properties(agc_driver_recorder_tests PROPERTIES CXX_EXTENSIONS OFF)
+configure_windows_unwind(agc_driver_recorder_tests)
+
 add_executable(agc_driver_pm4_tests EXCLUDE_FROM_ALL
         tests/Pm4.cpp
 )
@@ -215,6 +235,7 @@ add_executable(agc_driver_graphics_tests EXCLUDE_FROM_ALL
         Graphics/src/TextureTiling.cpp
         Graphics/src/TextureDetiler.cpp
         Graphics/src/Texture.cpp
+        Graphics/src/UnitShadow.cpp
         Graphics/src/Sampler.cpp
         ${agcTextureDetileShaderHeader}
         Execution/src/GuestMemory.cpp
@@ -308,6 +329,7 @@ if(AGC_BUILD_VISUAL_TEST)
             Graphics/src/TextureTiling.cpp
             Graphics/src/TextureDetiler.cpp
             Graphics/src/Texture.cpp
+            Graphics/src/UnitShadow.cpp
             Graphics/src/Sampler.cpp
             ${agcTextureDetileShaderHeader}
             ${visualShaders}

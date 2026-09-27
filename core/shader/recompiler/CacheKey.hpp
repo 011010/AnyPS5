@@ -33,6 +33,27 @@ public:
         append(key, DebugProbeActive());
     }
 
+    // A hash over every field Build appends except the code, the target and the probe flag: the
+    // key of a source memo whose owner fixes the code (a registered shader at an offset) and the
+    // device itself, and which is bypassed while the probe is active.
+    static std::uint64_t ContextHash(const RecompileRequest& request) {
+        thread_local std::vector<std::uint64_t> key;
+        key.clear();
+        append(key, request.shader.stage);
+        append(key, request.context.waveSize);
+        append(key, request.context.userDataBaseRegister);
+        append(key, request.context.userData.size());
+        append(key, request.context.compute);
+        append(key, request.context.pixel);
+        append(key, request.context.vertex);
+        std::uint64_t hash = 0xcbf29ce484222325ull;
+        for (const auto value : key) {
+            hash ^= value;
+            hash *= 0x100000001b3ull;
+        }
+        return hash;
+    }
+
     // A 64-bit hash of the code, two dwords per step; collisions are resolved by comparing the code.
     static std::uint64_t HashCode(std::span<const std::uint32_t> code) {
         std::uint64_t hash = 0x9e3779b97f4a7c15ull ^ (static_cast<std::uint64_t>(code.size()) * 0x100000001b3ull);

@@ -21,7 +21,59 @@ struct DrawParameters {
     bool indexed = true;
     std::uint32_t firstVertex = 0;
     std::uint32_t firstInstance = 0;
+    // An indirect draw (DRAW_INDIRECT 0x24, DRAW_INDEX_INDIRECT 0x25 and their multi forms 0x2c and
+    // 0x38): the CP reads {vertexCount, instanceCount, startVertex, startInstance} (indexed:
+    // {indexCount, instanceCount, firstIndex, vertexOffset, startInstance}) per record at
+    // `arguments` + record * stride, writes startVertex / vertexOffset, startInstance and the draw
+    // index into the SH registers the packet names (0x280: nowhere) and takes the instance count
+    // from the record. indexCount and instanceCount above are then unknown (indexed draws bind the
+    // declared INDEX_BUFFER_SIZE range), firstVertex holds GE_INDX_OFFSET. The driver decides per
+    // dimension how the GPU reproduces the CP's register write for the fixed-function fetch (see
+    // Driver.cpp): InPlace draws from the record's dword, Constant rewrites it with the constant.
+    struct IndirectDraw {
+        std::uint64_t arguments;
+        std::uint32_t opcode;
+        std::uint32_t recordBytes;
+        std::uint32_t stride;
+        std::uint32_t count;
+        bool countIndirect;
+        std::uint64_t countAddress;
+        std::uint32_t baseVertexLocation;
+        std::uint32_t startInstanceLocation;
+        std::uint32_t drawIndexLocation;
+        bool drawIndexEnabled;
+        std::uint32_t indxOffset;
+        enum class Rule : std::uint8_t { InPlace, Constant };
+        Rule vertexRule = Rule::Constant;
+        Rule instanceRule = Rule::Constant;
+        std::uint32_t vertexConstant = 0;
+        std::uint32_t instanceConstant = 0;
+        std::int32_t baseVertexSgpr = -1;
+        std::int32_t startInstanceSgpr = -1;
+        std::int32_t drawIndexSgpr = -1;
+        // Bytes of the record range: (count - 1) * stride + recordBytes, or 0 for no records.
+        std::uint64_t RangeBytes() const { return count == 0 ? 0 : static_cast<std::uint64_t>(count - 1) * stride + recordBytes; }
+        std::uint32_t VertexDwordOffset() const { return recordBytes == 20 ? 12u : 8u; }
+        std::uint32_t InstanceDwordOffset() const { return recordBytes == 20 ? 16u : 12u; }
+    };
+    std::optional<IndirectDraw> indirect;
 };
+
+// One indirect draw record as the CP reads it (firstVertexOrIndex is startVertex for the
+// non-indexed layout and firstIndex for the indexed one; vertexOffset exists only in the latter).
+struct DrawArguments {
+    std::uint32_t count;
+    std::uint32_t instances;
+    std::uint32_t firstVertexOrIndex;
+    std::uint32_t vertexOffset;
+    std::uint32_t firstInstance;
+};
+// Reads record `record` of an indirect draw, or its count dword, through the checked guest memory
+// path (which waits for recorded GPU work that writes them).
+DrawArguments ReadDrawArguments(const DrawParameters::IndirectDraw& indirect, std::uint32_t record);
+std::uint32_t ReadDrawCount(const DrawParameters::IndirectDraw& indirect);
+inline bool IndirectDrawOpcode(std::uint32_t opcode) { return opcode == 0x24 || opcode == 0x25 || opcode == 0x2c || opcode == 0x38; }
+inline bool DrawOpcode(std::uint32_t opcode) { return opcode == 0x2d || opcode == 0x35 || IndirectDrawOpcode(opcode); }
 
 std::string Name(std::uint32_t header);
 // A PM4 type-2 packet is a one-dword filler (command-buffer padding); type 3 and type 0 carry a

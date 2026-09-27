@@ -29,6 +29,10 @@ std::vector<TileMipLayout> ComputeElementMipLayout(TextureTileMode tileMode, std
 
 // Thick (3D) SW_4KB_S / SW_64KB_S blocks span several depth slices: {width, height, depth} in elements.
 std::array<std::uint32_t, 3> ThickBlockExtent(TextureTileMode tileMode, std::uint32_t bytesPerElement);
+// Thin (2D) tiled blocks: {block bytes, width, height} in elements for the tile mode and element size
+// (the detiler's blockExtent). A mip's tiled bytes are its blocks in row-major order, blocksPerRow per
+// row (TileMipLayout), except the tail mips, which share one block. Throws for linear tiling.
+std::array<std::uint32_t, 3> ThinBlockLayout(TextureTileMode tileMode, std::uint32_t bytesPerElement);
 
 // Single-mip 3D surface. Each depth slice z is detiled from slab z / blockDepth (slabBytes apart) with the
 // swizzle's slice input set to z, into linear slices sliceLinearBytes apart.

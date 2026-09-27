@@ -20,11 +20,21 @@ bool sharedTiers() {
 BufferPool::BufferPool(const Context& context) : device(context.device), unmap(context.Function<PFN_vkUnmapMemory>("vkUnmapMemory")), destroyBuffer(context.Function<PFN_vkDestroyBuffer>("vkDestroyBuffer")), freeMemory(context.Function<PFN_vkFreeMemory>("vkFreeMemory")) {
     smallTier.budget = smallBudget;
     largeTier.budget = budget;
+    deviceTier.budget = DeviceBudget();
 }
 
 BufferPool::~BufferPool() {
     for (const auto& slot : smallTier.free) destroy(slot.allocation);
     for (const auto& slot : largeTier.free) destroy(slot.allocation);
+    for (const auto& slot : deviceTier.free) destroy(slot.allocation);
+}
+
+VkDeviceSize BufferPool::DeviceBudget() {
+    static const VkDeviceSize deviceBudget = [] {
+        const char* value = std::getenv("APS5_STAGING_POOL_MIB");
+        return (value != nullptr ? std::strtoull(value, nullptr, 10) : 512ull) << 20u;
+    }();
+    return deviceBudget;
 }
 
 void BufferPool::destroy(const BufferAllocation& allocation) noexcept {
@@ -41,7 +51,8 @@ std::size_t BufferPool::Capacity(std::size_t bytes) {
     return std::max(smallest, std::bit_ceil(bytes));
 }
 
-BufferPool::Tier& BufferPool::tierFor(std::size_t capacity) {
+BufferPool::Tier& BufferPool::tierFor(std::size_t capacity, VkMemoryPropertyFlags properties) {
+    if ((properties & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0 && (properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) == 0 && DeviceBudget() != 0) return deviceTier;
     return !sharedTiers() && capacity < classLimit ? smallTier : largeTier;
 }
 
@@ -55,10 +66,10 @@ std::optional<BufferAllocation> BufferPool::Take(std::size_t bytes, VkBufferUsag
         const auto now = std::chrono::steady_clock::now();
         if (now - lastReport > std::chrono::seconds(10)) {
             lastReport = now;
-            std::fprintf(stderr, "[bufferpool] small: %llu hits, %llu misses, %llu evictions, %zu retained (%.0f MiB); large: %llu hits, %llu misses, %llu evictions, %zu retained (%.0f MiB)%s\n", static_cast<unsigned long long>(smallTier.hits), static_cast<unsigned long long>(smallTier.misses), static_cast<unsigned long long>(smallTier.evictions), smallTier.free.size(), smallTier.retainedBytes / 1048576.0, static_cast<unsigned long long>(largeTier.hits), static_cast<unsigned long long>(largeTier.misses), static_cast<unsigned long long>(largeTier.evictions), largeTier.free.size(), largeTier.retainedBytes / 1048576.0, sharedTiers() ? " (shared)" : "");
+            std::fprintf(stderr, "[bufferpool] small: %llu hits, %llu misses, %llu evictions, %zu retained (%.0f MiB); large: %llu hits, %llu misses, %llu evictions, %zu retained (%.0f MiB)%s; device: %llu hits, %llu misses, %llu evictions, %zu retained (%.0f MiB of %llu)\n", static_cast<unsigned long long>(smallTier.hits), static_cast<unsigned long long>(smallTier.misses), static_cast<unsigned long long>(smallTier.evictions), smallTier.free.size(), smallTier.retainedBytes / 1048576.0, static_cast<unsigned long long>(largeTier.hits), static_cast<unsigned long long>(largeTier.misses), static_cast<unsigned long long>(largeTier.evictions), largeTier.free.size(), largeTier.retainedBytes / 1048576.0, sharedTiers() ? " (shared)" : "", static_cast<unsigned long long>(deviceTier.hits), static_cast<unsigned long long>(deviceTier.misses), static_cast<unsigned long long>(deviceTier.evictions), deviceTier.free.size(), deviceTier.retainedBytes / 1048576.0, static_cast<unsigned long long>(deviceTier.budget >> 20u));
         }
     }
-    auto& tier = tierFor(capacity);
+    auto& tier = tierFor(capacity, properties);
     for (auto it = tier.free.begin(); it != tier.free.end(); ++it) {
         const auto& allocation = it->allocation;
         if (allocation.bytes != capacity || allocation.usage != usage || allocation.properties != properties) continue;
@@ -100,7 +111,7 @@ void BufferPool::Put(const BufferAllocation& allocation) noexcept {
     std::vector<BufferAllocation> evicted;
     try {
         std::lock_guard lock(mutex);
-        auto& tier = tierFor(allocation.bytes);
+        auto& tier = tierFor(allocation.bytes, allocation.properties);
         if (allocation.allocationBytes > tier.budget) {
             evicted.push_back(allocation);
         } else {

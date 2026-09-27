@@ -32,8 +32,10 @@ class Pipeline {
 public:
     // `state` carries the blend states with the outputs the pixel shader lacks already masked and
     // `vertexInput` the layout of the draw's vertex descriptors; the shaders were validated by the
-    // caller (ValidateShaders).
-    Pipeline(const Context& context, const State& state, const VertexInputLayout& vertexInput, const ShaderResources& resources, std::span<const CompiledShader> shaders);
+    // caller (ValidateShaders). `attachmentLayout` is the layout the color attachments are in
+    // before, during and after the pass (GENERAL for resident targets, which then need no
+    // transitions).
+    Pipeline(const Context& context, const State& state, const VertexInputLayout& vertexInput, const ShaderResources& resources, std::span<const CompiledShader> shaders, VkImageLayout attachmentLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     ~Pipeline();
     Pipeline(const Pipeline&) = delete;
     Pipeline& operator=(const Pipeline&) = delete;
@@ -44,7 +46,12 @@ public:
     std::shared_ptr<Framebuffer> AcquireFramebuffer(std::span<const VkImageView> targets, std::span<const std::shared_ptr<StorageTexture>> owners, VkExtent2D extent);
     // Begins the render pass on the framebuffer, binds the pipeline and sets viewport and scissor.
     void Begin(VkCommandBuffer commands, const Framebuffer& framebuffer, VkExtent2D extent, const VkViewport& viewport, const VkRect2D& scissor) const;
+    // The same inside a render pass another pipeline of the same attachments began (compatible by
+    // construction: the attachment formats alone decide).
+    void Continue(VkCommandBuffer commands, const VkViewport& viewport, const VkRect2D& scissor) const;
     void PushConstants(VkCommandBuffer commands, std::span<const CompiledShader> shaders) const;
+    // The same from an assembled block (a draw recipe's, made by AssemblePushConstants once).
+    void PushConstants(VkCommandBuffer commands, VkShaderStageFlags stages, std::span<const std::byte, PipelinePushConstantBytes> bytes) const;
     // Forgets the Vulkan objects without destroying them: for entries of a device that is already gone.
     void Abandon() noexcept;
 
@@ -71,7 +78,7 @@ private:
 // A configuration whose stage has no variant id gets a private pipeline. Entries are LRU-bounded and
 // only evicted once no recorded draw holds them. Debug aid: APS5_NO_PIPELINE_CACHE=1 builds one per
 // draw as before.
-std::shared_ptr<Pipeline> CachedPipeline(const Context& context, const State& state, const VertexInputLayout& vertexInput, const ShaderResources& resources, std::span<const CompiledShader> shaders);
+std::shared_ptr<Pipeline> CachedPipeline(const Context& context, const State& state, const VertexInputLayout& vertexInput, const ShaderResources& resources, std::span<const CompiledShader> shaders, VkImageLayout attachmentLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 // Destroys the cached pipelines of a device; to be called before the device goes away. Without it,
 // entries of a gone device are recognised by their buffer pool (made and reset with the device, so
 // it tells device instances apart when the loader reuses a VkDevice handle) and forgotten unused.
@@ -81,7 +88,7 @@ void ValidateViewport(const Context& context, const VkViewport& viewport);
 
 void ValidateShaderPair(const ShaderRecompiler::RecompileResult& vertex, const ShaderRecompiler::RecompileResult& fragment);
 // Returns the color attachment locations the pixel shader writes.
-std::set<std::uint32_t> ValidateShaders(std::span<const CompiledShader> shaders, const State& state, const VkPhysicalDeviceSubgroupProperties& subgroup, bool fragmentShaderBarycentric);
+std::set<std::uint32_t> ValidateShaders(std::span<const CompiledShader> shaders, const State& state, const VkPhysicalDeviceSubgroupProperties& subgroup, bool fragmentShaderBarycentric, bool descriptorIndexing = false);
 
 }
 

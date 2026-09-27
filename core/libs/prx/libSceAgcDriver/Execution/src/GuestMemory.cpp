@@ -12,6 +12,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <vector>
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -54,6 +55,8 @@ bool writableProtection(DWORD protection) {
 
 namespace {
 std::atomic<std::uint64_t> forgetCalls{0};
+// See ForgetSerial: odd while a ForgetPages call stores its page states.
+std::atomic<std::uint64_t> forgetSerial{0};
 std::atomic<std::uint64_t> forgetBytes{0};
 std::atomic<std::uint64_t> collectMemoHits{0};
 std::atomic<std::uint64_t> collectEpochBumps{0};
@@ -69,21 +72,57 @@ std::size_t ImagePagesSize();
 }
 
 // Profile (APS5_PROFILE_DRAW): calls, bytes and time of the guest memory copies and comparisons the
-// driver makes, printed every 10 s as [guestmem].
+// driver makes, printed every 10 s as [guestmem]. Accumulated per thread (the calling thread is the
+// only writer: plain loads and stores, no locked RMW on a cache line every queue worker shares) and
+// folded at report time; a finished thread's totals move to `retired`. Nothing is counted without
+// the profile switch (the counters are only ever printed under it).
+// Debug aid: APS5_SHARED_MEMORY_COUNTERS=1 accumulates into one shared set with atomic RMWs as before.
+enum MemoryCounterKind { CounterRead, CounterCompare, CounterWrite, CounterChangedWrite, CounterCollect, CounterVerify, CounterQuery, MemoryCounterCount };
+constexpr const char* MemoryCounterNames[MemoryCounterCount] = {"read", "compare", "write", "write-changed", "collect", "verify", "query"};
+
 struct MemoryCounter {
     std::atomic<std::uint64_t> calls{0};
     std::atomic<std::uint64_t> bytes{0};
     std::atomic<std::uint64_t> nanoseconds{0};
+
+    void Add(std::uint64_t moreBytes, std::uint64_t moreNanoseconds, bool shared) {
+        if (shared) {
+            calls.fetch_add(1, std::memory_order_relaxed);
+            bytes.fetch_add(moreBytes, std::memory_order_relaxed);
+            nanoseconds.fetch_add(moreNanoseconds, std::memory_order_relaxed);
+            return;
+        }
+        calls.store(calls.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+        bytes.store(bytes.load(std::memory_order_relaxed) + moreBytes, std::memory_order_relaxed);
+        nanoseconds.store(nanoseconds.load(std::memory_order_relaxed) + moreNanoseconds, std::memory_order_relaxed);
+    }
+};
+
+struct MemoryCounters {
+    std::array<MemoryCounter, MemoryCounterCount> counters;
+
+    void FoldInto(std::array<std::array<std::uint64_t, 3>, MemoryCounterCount>& totals) const {
+        for (std::size_t i = 0; i < MemoryCounterCount; ++i) {
+            totals[i][0] += counters[i].calls.load(std::memory_order_relaxed);
+            totals[i][1] += counters[i].bytes.load(std::memory_order_relaxed);
+            totals[i][2] += counters[i].nanoseconds.load(std::memory_order_relaxed);
+        }
+    }
+    // Under the profile's threadsMutex (the only writer of `retired`).
+    void AddFrom(const MemoryCounters& other) {
+        for (std::size_t i = 0; i < MemoryCounterCount; ++i) {
+            counters[i].calls.store(counters[i].calls.load(std::memory_order_relaxed) + other.counters[i].calls.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            counters[i].bytes.store(counters[i].bytes.load(std::memory_order_relaxed) + other.counters[i].bytes.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            counters[i].nanoseconds.store(counters[i].nanoseconds.load(std::memory_order_relaxed) + other.counters[i].nanoseconds.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        }
+    }
 };
 
 struct MemoryProfile {
-    MemoryCounter read;
-    MemoryCounter compare;
-    MemoryCounter write;
-    MemoryCounter changedWrite;
-    MemoryCounter collect;
-    MemoryCounter verify;
-    MemoryCounter query;
+    std::mutex threadsMutex;
+    std::vector<const MemoryCounters*> threads;
+    MemoryCounters retired;
+    MemoryCounters shared;
     std::atomic<std::int64_t> lastReport{0};
     // Sampled callers of Read and Write (module offsets), to name what touches guest memory most.
     std::mutex callersMutex;
@@ -91,10 +130,49 @@ struct MemoryProfile {
     std::array<std::pair<unsigned long long, std::uint64_t>, 16> writeCallers{};
 };
 
-
+// Never destroyed: worker threads' counters unregister at thread exit, which can follow static
+// destruction at process exit.
 MemoryProfile& Profile() {
-    static MemoryProfile profile;
+    static MemoryProfile& profile = *new MemoryProfile();
     return profile;
+}
+
+bool SharedMemoryCounters() {
+    static const bool shared = std::getenv("APS5_SHARED_MEMORY_COUNTERS") != nullptr;
+    return shared;
+}
+
+struct ThreadMemoryCounters {
+    MemoryCounters counters;
+
+    ThreadMemoryCounters() {
+        auto& profile = Profile();
+        std::lock_guard lock(profile.threadsMutex);
+        profile.threads.push_back(&counters);
+    }
+    ~ThreadMemoryCounters() {
+        auto& profile = Profile();
+        std::lock_guard lock(profile.threadsMutex);
+        std::erase(profile.threads, &counters);
+        profile.retired.AddFrom(counters);
+    }
+};
+
+MemoryCounter& CounterFor(MemoryCounterKind kind) {
+    if (SharedMemoryCounters()) return Profile().shared.counters[kind];
+    thread_local ThreadMemoryCounters thread;
+    return thread.counters.counters[kind];
+}
+
+// Every thread's counters, the retired and the shared ones summed: calls, bytes, nanoseconds per kind.
+std::array<std::array<std::uint64_t, 3>, MemoryCounterCount> FoldMemoryCounters() {
+    auto& profile = Profile();
+    std::array<std::array<std::uint64_t, 3>, MemoryCounterCount> totals{};
+    std::lock_guard lock(profile.threadsMutex);
+    for (const auto* thread : profile.threads) thread->FoldInto(totals);
+    profile.retired.FoldInto(totals);
+    profile.shared.FoldInto(totals);
+    return totals;
 }
 
 void CountCaller(std::array<std::pair<unsigned long long, std::uint64_t>, 16>& callers, std::uint32_t& sampled, std::uint32_t every, const void* returnAddress) {
@@ -127,7 +205,7 @@ PacketTag CurrentPacket() {
 }
 
 const char* ReadSiteName(ReadSite site) {
-    static const char* const names[static_cast<std::size_t>(ReadSite::Count)] = {"unknown", "capture", "dispatch-cache", "texture-compare", "texture-read", "buffer-upload", "index-buffer", "vertex-buffer", "registers", "indirect-args", "wait", "label", "scanout", "store"};
+    static const char* const names[static_cast<std::size_t>(ReadSite::Count)] = {"unknown", "capture", "dispatch-cache", "texture-compare", "texture-read", "buffer-upload", "index-buffer", "vertex-buffer", "registers", "indirect-args", "wait", "label", "scanout", "store", "mirror-refresh", "draw-cache"};
     const auto index = static_cast<std::size_t>(site);
     return index < static_cast<std::size_t>(ReadSite::Count) ? names[index] : "?";
 }
@@ -187,32 +265,27 @@ void CountWriteCaller(const void* returnAddress) {
     CountCaller(Profile().writeCallers, sampled, 16, returnAddress);
 }
 
+bool MemoryProfiled() {
+    static const bool profile = std::getenv("APS5_PROFILE_DRAW") != nullptr;
+    return profile;
+}
+
 class TimedAccess {
 public:
-    TimedAccess(MemoryCounter& counter, std::uint64_t bytes) : counter(counter), bytes(bytes), start(std::chrono::steady_clock::now()) {}
+    TimedAccess(MemoryCounterKind kind, std::uint64_t bytes) : kind(kind), bytes(bytes), start(MemoryProfiled() ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{}) {}
     ~TimedAccess() {
+        if (!MemoryProfiled()) return;
         const auto now = std::chrono::steady_clock::now();
-        counter.calls += 1;
-        counter.bytes += bytes;
-        counter.nanoseconds += static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(now - start).count());
-        static const bool profile = std::getenv("APS5_PROFILE_DRAW") != nullptr;
-        if (!profile) return;
+        CounterFor(kind).Add(bytes, static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(now - start).count()), SharedMemoryCounters());
         auto& state = Profile();
         const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
         auto last = state.lastReport.load();
         if (nowMs - last < 10000 || !state.lastReport.compare_exchange_strong(last, nowMs)) return;
-        const auto line = [](const char* name, const MemoryCounter& c) {
-            const double seconds = c.nanoseconds / 1e9;
-            std::fprintf(stderr, " %s %llu calls %.0f MiB %.1f s", name, static_cast<unsigned long long>(c.calls.load()), c.bytes / 1048576.0, seconds);
-        };
+        const auto totals = FoldMemoryCounters();
         std::fprintf(stderr, "[guestmem]");
-        line("read", state.read);
-        line("compare", state.compare);
-        line("write", state.write);
-        line("write-changed", state.changedWrite);
-        line("collect", state.collect);
-        line("verify", state.verify);
-        line("query", state.query);
+        for (std::size_t i = 0; i < MemoryCounterCount; ++i) {
+            std::fprintf(stderr, " %s %llu calls %.0f MiB %.1f s", MemoryCounterNames[i], static_cast<unsigned long long>(totals[i][0]), totals[i][1] / 1048576.0, totals[i][2] / 1e9);
+        }
         std::fprintf(stderr, " collect-memo hits %llu, collect epochs %llu", static_cast<unsigned long long>(collectMemoHits.load()), static_cast<unsigned long long>(collectEpochBumps.load()));
         std::fprintf(stderr, " collect-dirty %llu tracker waits %llu / %llu", static_cast<unsigned long long>(collectDirty.load()), static_cast<unsigned long long>(trackerWaits.load()), static_cast<unsigned long long>(trackerAcquisitions.load()));
         std::fprintf(stderr, " | arena 0x%llx+0x%llx image 0x%llx+0x%llx forgets %llu (%.0f MiB)", static_cast<unsigned long long>(PagesBase()), static_cast<unsigned long long>(PagesSize()), static_cast<unsigned long long>(ImagePagesBase()), static_cast<unsigned long long>(ImagePagesSize()), static_cast<unsigned long long>(forgetCalls.load()), forgetBytes.load() / 1048576.0);
@@ -235,7 +308,7 @@ public:
         std::fprintf(stderr, "\n");
     }
 private:
-    MemoryCounter& counter;
+    MemoryCounterKind kind;
     std::uint64_t bytes;
     std::chrono::steady_clock::time_point start;
 };
@@ -356,7 +429,9 @@ std::size_t ImagePagesSize() {
 void ForgetPages(std::uintptr_t address, std::size_t bytes) {
     forgetCalls.fetch_add(1, std::memory_order_relaxed);
     forgetBytes.fetch_add(bytes, std::memory_order_relaxed);
+    forgetSerial.fetch_add(1, std::memory_order_release);
     Pages().forget(address, bytes);
+    forgetSerial.fetch_add(1, std::memory_order_release);
 }
 
 void PageStates::initialize() {
@@ -411,7 +486,7 @@ bool describePages(std::uintptr_t address, std::size_t bytes, Emit&& emit) {
             }
         }
 #ifdef _WIN32
-        const TimedAccess timed(Profile().query, 0);
+        const TimedAccess timed(CounterQuery, 0);
         MEMORY_BASIC_INFORMATION memory{};
         const auto queryStart = std::chrono::steady_clock::now();
         // A mutation that changes these pages while they are being queried bumps the generation
@@ -477,7 +552,7 @@ bool describePages(std::uintptr_t address, std::size_t bytes, Emit&& emit) {
 // Checks that [address, address + bytes) is mapped with read (and, if asked, write) access. Returns
 // an empty string when it is, otherwise why it is not.
 std::string verify(std::uintptr_t address, std::size_t bytes, bool writable) {
-    const TimedAccess timed(Profile().verify, bytes);
+    const TimedAccess timed(CounterVerify, bytes);
     std::string reason;
     const bool queried = describePages(address, bytes, [&](const PageRun& run) {
         if (!run.readable) {
@@ -514,9 +589,13 @@ bool Accessible(const void* pointer, std::size_t bytes, bool writable) {
     return address != 0 && bytes <= std::numeric_limits<std::uintptr_t>::max() - address && verify(address, bytes, writable).empty();
 }
 
+std::uint64_t ForgetSerial() {
+    return forgetSerial.load(std::memory_order_acquire);
+}
+
 Commitment DescribeCommitted(std::uint64_t address, std::size_t bytes, bool writable) {
     require(bytes <= std::numeric_limits<std::uint64_t>::max() - address, "address range overflow");
-    const TimedAccess timed(Profile().verify, bytes);
+    const TimedAccess timed(CounterVerify, bytes);
     Commitment result;
     const bool queried = describePages(static_cast<std::uintptr_t>(address), bytes, [&](const PageRun& run) {
         if (run.readable && (!writable || run.writable)) {
@@ -546,6 +625,10 @@ struct WriteTracker {
     std::size_t size = 0;
     // Generation of the last collected write per 64 KiB block of the arena.
     std::vector<std::uint32_t> blocks;
+    // The same, stamped by collects only (dirty pages = CPU stores), never by MarkWritten: the
+    // late label rule asks whether the CPU touched a label's block, and the driver's own GPU label
+    // records in the same block (the title's per-job slots are 0x20 apart) must not count.
+    std::vector<std::uint32_t> cpuBlocks;
     // Atomic only so a per-thread memo hit can read it without the mutex (every mutation and every
     // stamp still happen under it): a hit must return the current value, including MarkWritten
     // bumps, or an image refreshed after a stamp would keep failing UnchangedSince until the next
@@ -575,6 +658,7 @@ struct WriteTracker {
         watched = size != 0 && GuestArena::GuestArenaWriteWatched_nid_postfix();
         if (!watched) return;
         blocks.assign(size / WriteBlockBytes + 1, 0);
+        cpuBlocks.assign(size / WriteBlockBytes + 1, 0);
         pages.resize(1u << 16);
     }
 };
@@ -669,7 +753,7 @@ std::uint64_t collectWrites(std::uint64_t address, std::size_t bytes, bool memoi
             }
         }
     }
-    const TimedAccess timed(Profile().collect, bytes);
+    const TimedAccess timed(CounterCollect, bytes);
     ++tracker.generation;
     // One resetting walk: the kernel reports and clears a page's dirty bit together, a write landing
     // after the walk passed a page is reported by the next walk, and a clean page is not touched by the
@@ -685,7 +769,11 @@ std::uint64_t collectWrites(std::uint64_t address, std::size_t bytes, bool memoi
             return 0;
         }
         if (count != 0) dirty = true;
-        for (ULONG_PTR i = 0; i < count; ++i) tracker.blocks[(reinterpret_cast<std::uintptr_t>(tracker.pages[i]) - tracker.base) / WriteBlockBytes] = tracker.generation;
+        for (ULONG_PTR i = 0; i < count; ++i) {
+            const auto block = (reinterpret_cast<std::uintptr_t>(tracker.pages[i]) - tracker.base) / WriteBlockBytes;
+            tracker.blocks[block] = tracker.generation;
+            tracker.cpuBlocks[block] = tracker.generation;
+        }
         if (count < tracker.pages.size()) break;
         cursor = reinterpret_cast<std::uintptr_t>(tracker.pages[count - 1]) + (granularity != 0 ? granularity : page);
     }
@@ -697,7 +785,11 @@ std::uint64_t collectWrites(std::uint64_t address, std::size_t bytes, bool memoi
             ULONG_PTR count = tracker.pages.size();
             DWORD granularity = 0;
             if (GetWriteWatch(WRITE_WATCH_FLAG_RESET, reinterpret_cast<void*>(cursor), static_cast<std::size_t>(stop - cursor), tracker.pages.data(), &count, &granularity) != 0) return 0;
-            for (ULONG_PTR i = 0; i < count; ++i) tracker.blocks[(reinterpret_cast<std::uintptr_t>(tracker.pages[i]) - tracker.base) / WriteBlockBytes] = tracker.generation;
+            for (ULONG_PTR i = 0; i < count; ++i) {
+                const auto block = (reinterpret_cast<std::uintptr_t>(tracker.pages[i]) - tracker.base) / WriteBlockBytes;
+                tracker.blocks[block] = tracker.generation;
+                tracker.cpuBlocks[block] = tracker.generation;
+            }
             if (count < tracker.pages.size()) break;
             cursor = reinterpret_cast<std::uintptr_t>(tracker.pages[count - 1]) + (granularity != 0 ? granularity : page);
         }
@@ -747,15 +839,71 @@ bool UnchangedSince(std::uint64_t address, std::size_t bytes, std::uint64_t gene
     return true;
 }
 
-void MarkWritten(std::uint64_t address, std::size_t bytes) {
+bool UnchangedSinceAll(std::span<const UnchangedQuery> queries) {
+    auto& tracker = Tracker();
+    const auto lock = lockTracker(tracker);
+    tracker.initialize();
+    if (!tracker.watched) return false;
+    for (const auto& [address, bytes, generation] : queries) {
+        if (generation == 0 || bytes == 0 || address < tracker.base || address - tracker.base > tracker.size - bytes) return false;
+        const auto first = (address - tracker.base) / WriteBlockBytes;
+        const auto last = (address - tracker.base + bytes - 1) / WriteBlockBytes;
+        for (auto block = first; block <= last; ++block) {
+            if (tracker.blocks[block] > generation) return false;
+        }
+    }
+    return true;
+}
+
+std::uint64_t MarkWritten(std::uint64_t address, std::size_t bytes) {
+    auto& tracker = Tracker();
+    const auto lock = lockTracker(tracker);
+    tracker.initialize();
+    if (!tracker.watched || bytes == 0 || address < tracker.base || address - tracker.base > tracker.size - bytes) return 0;
+    const auto first = (address - tracker.base) / WriteBlockBytes;
+    const auto last = (address - tracker.base + bytes - 1) / WriteBlockBytes;
+    ++tracker.generation;
+    for (auto block = first; block <= last; ++block) tracker.blocks[block] = tracker.generation;
+    return tracker.generation;
+}
+
+std::uint64_t TrackerGeneration() {
+    auto& tracker = Tracker();
+    // Under the mutex: a collect bumps the generation before its walk, and a walk still running
+    // when the value is read absorbs stores made after it with a stamp not newer than the value.
+    const auto lock = lockTracker(tracker);
+    return tracker.generation;
+}
+
+bool UnchangedSinceCollected(std::uint64_t address, std::size_t bytes, std::uint64_t generation) {
+    if (CollectWritesUncached(address, bytes) == 0) return false;
+    auto& tracker = Tracker();
+    const auto lock = lockTracker(tracker);
+    if (!tracker.watched || generation == 0 || bytes == 0 || address < tracker.base || address - tracker.base > tracker.size - bytes) return false;
+    const auto first = (address - tracker.base) / WriteBlockBytes;
+    const auto last = (address - tracker.base + bytes - 1) / WriteBlockBytes;
+    for (auto block = first; block <= last; ++block) {
+        if (tracker.cpuBlocks[block] > generation) return false;
+    }
+    return true;
+}
+
+void ChangedBlocks(std::uint64_t address, std::size_t bytes, std::span<const std::uint64_t> generations, std::span<std::uint8_t> changed, std::span<std::uint8_t> cpu) {
+    std::fill(changed.begin(), changed.end(), std::uint8_t{1});
+    std::fill(cpu.begin(), cpu.end(), std::uint8_t{1});
     auto& tracker = Tracker();
     const auto lock = lockTracker(tracker);
     tracker.initialize();
     if (!tracker.watched || bytes == 0 || address < tracker.base || address - tracker.base > tracker.size - bytes) return;
     const auto first = (address - tracker.base) / WriteBlockBytes;
     const auto last = (address - tracker.base + bytes - 1) / WriteBlockBytes;
-    ++tracker.generation;
-    for (auto block = first; block <= last; ++block) tracker.blocks[block] = tracker.generation;
+    for (auto block = first; block <= last; ++block) {
+        const auto k = block - first;
+        if (k >= generations.size() || k >= changed.size()) break;
+        const auto generation = generations[k];
+        changed[k] = generation == 0 || tracker.blocks[block] > generation ? 1 : 0;
+        if (k < cpu.size()) cpu[k] = generation == 0 || tracker.cpuBlocks[block] > generation ? 1 : 0;
+    }
 }
 
 namespace {
@@ -763,7 +911,48 @@ namespace {
 // Per-thread GpuMutex wait accounting (APS5_PROFILE_DRAW): a queue worker tags its thread, other
 // threads (the presenter) report untagged.
 constexpr std::size_t GpuLockSiteCount = static_cast<std::size_t>(GpuLockSite::Count);
-constexpr const char* GpuLockSiteNames[GpuLockSiteCount] = {"other", "dispatch", "indirect", "draw", "hook", "wait", "label", "flush", "present", "fill", "try"};
+constexpr const char* GpuLockSiteNames[GpuLockSiteCount] = {"other", "dispatch", "indirect", "draw", "hook", "wait", "label", "flush", "present", "fill", "copy", "end", "try"};
+
+// Hold-side holder matrix: nanoseconds held per (holder thread, site), added by EndHold. Column 0
+// is every untagged thread (the presenter, game threads); the queue workers take a column each on
+// their first hold. A contended lock() snapshots the matrix before and after its wait and credits
+// the deltas (the holds that ended during the wait) to the waiter's site.
+constexpr std::size_t HolderColumns = 12;
+constexpr std::uint32_t UnassignedHolder = 0xfffffffeu;
+constexpr std::uint32_t PresenterHolderTag = 0xfffffffdu;
+constexpr int PresenterColumn = 1;
+using HolderMatrixValues = std::array<std::array<std::uint64_t, GpuLockSiteCount>, HolderColumns>;
+struct HolderMatrix {
+    std::array<std::atomic<std::uint32_t>, HolderColumns> tags{};
+    std::array<std::array<std::atomic<std::uint64_t>, GpuLockSiteCount>, HolderColumns> heldNs{};
+    HolderMatrix() {
+        for (auto& tag : tags) tag.store(UnassignedHolder, std::memory_order_relaxed);
+        tags[0].store(0xffffffffu, std::memory_order_relaxed);
+        tags[PresenterColumn].store(PresenterHolderTag, std::memory_order_relaxed);
+    }
+    void Snapshot(HolderMatrixValues& into) const {
+        for (std::size_t h = 0; h < HolderColumns; ++h) {
+            for (std::size_t s = 0; s < GpuLockSiteCount; ++s) into[h][s] = heldNs[h][s].load(std::memory_order_relaxed);
+        }
+    }
+};
+
+HolderMatrix& Holders() {
+    static HolderMatrix matrix;
+    return matrix;
+}
+
+std::size_t HolderColumnFor(std::uint32_t tag) {
+    if (tag == 0xffffffffu) return 0;
+    auto& holders = Holders();
+    for (std::size_t i = 1; i < HolderColumns; ++i) {
+        auto expected = UnassignedHolder;
+        if (holders.tags[i].load(std::memory_order_acquire) == tag) return i;
+        if (holders.tags[i].compare_exchange_strong(expected, tag, std::memory_order_acq_rel)) return i;
+        if (expected == tag) return i;
+    }
+    return 0;
+}
 
 struct GpuLockStats {
     std::uint32_t tag = 0xffffffffu;
@@ -784,6 +973,14 @@ struct GpuLockStats {
     std::array<double, GpuLockSiteCount> siteMaxHeldMs{};
     std::size_t holdSite = 0;
     std::chrono::steady_clock::time_point holdStart;
+    // This thread's column of the holder matrix (-1 until its first hold), and what its contended
+    // acquisitions waited behind: holds by (holder, site) that ended during the waits.
+    int holderColumn = -1;
+    HolderMatrixValues waitedBehindNs{};
+    std::uint64_t tries = 0;
+    std::uint64_t triesFailed = 0;
+    std::uint64_t lockedGpuWaits = 0;
+    double lockedGpuWaitMs = 0;
     std::chrono::steady_clock::time_point lastReport = std::chrono::steady_clock::now();
 };
 
@@ -812,10 +1009,41 @@ void BeginHold(std::size_t site) {
 
 void EndHold() {
     auto& stats = LockStats();
-    const auto heldMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - stats.holdStart).count();
+    const auto heldNs = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - stats.holdStart).count();
+    const auto heldMs = static_cast<double>(heldNs) / 1e6;
     ++stats.siteHolds[stats.holdSite];
     stats.siteHeldMs[stats.holdSite] += heldMs;
     stats.siteMaxHeldMs[stats.holdSite] = std::max(stats.siteMaxHeldMs[stats.holdSite], heldMs);
+    if (stats.holderColumn < 0) stats.holderColumn = static_cast<int>(HolderColumnFor(stats.tag));
+    Holders().heldNs[static_cast<std::size_t>(stats.holderColumn)][stats.holdSite].fetch_add(static_cast<std::uint64_t>(heldNs), std::memory_order_relaxed);
+}
+
+const char* HolderName(std::size_t column, char* text, std::size_t size) {
+    const auto tag = Holders().tags[column].load(std::memory_order_relaxed);
+    if (tag == 0xffffffffu) std::snprintf(text, size, "untagged");
+    else if (tag == PresenterHolderTag) std::snprintf(text, size, "presenter");
+    else std::snprintf(text, size, "q0x%x", tag);
+    return text;
+}
+
+// The waiter's matrix as text, largest first, entries of at least a millisecond.
+std::string WaitedBehindReport(const HolderMatrixValues& waited) {
+    std::vector<std::tuple<std::uint64_t, std::size_t, std::size_t>> entries;
+    for (std::size_t h = 0; h < HolderColumns; ++h) {
+        for (std::size_t s = 0; s < GpuLockSiteCount; ++s) {
+            if (waited[h][s] >= 1000000) entries.emplace_back(waited[h][s], h, s);
+        }
+    }
+    std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) { return std::get<0>(a) > std::get<0>(b); });
+    std::string report;
+    char text[96];
+    char holder[24];
+    for (std::size_t i = 0; i < entries.size() && i < 16; ++i) {
+        const auto& [ns, h, s] = entries[i];
+        std::snprintf(text, sizeof(text), " %s/%s %.0f", HolderName(h, holder, sizeof(holder)), GpuLockSiteNames[s], static_cast<double>(ns) / 1e6);
+        report += text;
+    }
+    return report;
 }
 
 }
@@ -843,7 +1071,11 @@ bool GpuMutexType::try_lock() {
     // acquisition); an untagged try's hold is charged to 'try' (a boundary reap, an idle worker).
     auto& stats = LockStats();
     const auto tagged = std::exchange(stats.nextSite, GpuLockSite::Other);
-    if (!mutex.try_lock()) return false;
+    ++stats.tries;
+    if (!mutex.try_lock()) {
+        ++stats.triesFailed;
+        return false;
+    }
     acquired();
     if (depth == 1 && GpuHoldProfiled()) BeginHold(static_cast<std::size_t>(tagged == GpuLockSite::Other ? GpuLockSite::Try : tagged));
     return true;
@@ -901,11 +1133,21 @@ void GpuMutexType::lock() {
     // An uncontended (or recursive) acquisition costs no clock reads for the wait; only a wait is
     // timed. The hold timer (outermost acquisitions only) starts once the mutex is held.
     if (!mutex.try_lock()) {
+        const bool holders = GpuHoldProfiled();
+        HolderMatrixValues before{};
+        if (holders) Holders().Snapshot(before);
         const auto start = std::chrono::steady_clock::now();
         mutex.lock();
         acquired();
         const auto now = std::chrono::steady_clock::now();
-        if (depth == 1 && GpuHoldProfiled()) {
+        if (holders) {
+            HolderMatrixValues after{};
+            Holders().Snapshot(after);
+            for (std::size_t h = 0; h < HolderColumns; ++h) {
+                for (std::size_t s = 0; s < GpuLockSiteCount; ++s) stats.waitedBehindNs[h][s] += after[h][s] - before[h][s];
+            }
+        }
+        if (depth == 1 && holders) {
             stats.holdSite = site;
             stats.holdStart = now;
         }
@@ -942,8 +1184,12 @@ void GpuMutexType::lock() {
                 std::snprintf(text, sizeof(text), " %s %llu %.0f ms (max %.1f)", GpuLockSiteNames[i], static_cast<unsigned long long>(stats.siteHolds[i]), stats.siteHeldMs[i], stats.siteMaxHeldMs[i]);
                 holds += text;
             }
+            holds += "; waited behind (holder/site ms):" + WaitedBehindReport(stats.waitedBehindNs);
         }
-        if (stats.tag == 0xffffffffu) std::fprintf(stderr, "[lock] untagged thread waited %.0f ms for the GPU mutex in %llu of %llu acquisitions (%.0f s); by site (acquisitions/waits, waited):%s%s\n", stats.waitedMs, static_cast<unsigned long long>(stats.waits), static_cast<unsigned long long>(stats.acquisitions), interval, sites.c_str(), holds.c_str());
+        char counts[160];
+        std::snprintf(counts, sizeof(counts), "; lock() %llu / try %llu / try failed %llu; locked GPU waits %llu / %.0f ms", static_cast<unsigned long long>(stats.acquisitions), static_cast<unsigned long long>(stats.tries), static_cast<unsigned long long>(stats.triesFailed), static_cast<unsigned long long>(stats.lockedGpuWaits), stats.lockedGpuWaitMs);
+        holds += counts;
+        if (stats.tag == 0xffffffffu) std::fprintf(stderr, "[lock] %s waited %.0f ms for the GPU mutex in %llu of %llu acquisitions (%.0f s); by site (acquisitions/waits, waited):%s%s\n", stats.holderColumn == PresenterColumn ? "presenter" : "untagged thread", stats.waitedMs, static_cast<unsigned long long>(stats.waits), static_cast<unsigned long long>(stats.acquisitions), interval, sites.c_str(), holds.c_str());
         else std::fprintf(stderr, "[lock] queue 0x%x waited %.0f ms for the GPU mutex in %llu of %llu acquisitions (%.0f s); by site (acquisitions/waits, waited):%s%s\n", stats.tag, stats.waitedMs, static_cast<unsigned long long>(stats.waits), static_cast<unsigned long long>(stats.acquisitions), interval, sites.c_str(), holds.c_str());
         stats.waitedMs = 0;
         stats.waits = 0;
@@ -954,6 +1200,11 @@ void GpuMutexType::lock() {
         stats.siteHolds.fill(0);
         stats.siteHeldMs.fill(0);
         stats.siteMaxHeldMs.fill(0);
+        for (auto& row : stats.waitedBehindNs) row.fill(0);
+        stats.tries = 0;
+        stats.triesFailed = 0;
+        stats.lockedGpuWaits = 0;
+        stats.lockedGpuWaitMs = 0;
         return;
     }
     acquired();
@@ -964,6 +1215,22 @@ void TagGpuLockSite(GpuLockSite site) {
     // Off the profiled path the tag is never read, so the thread-local is not touched either.
     if (!GpuLockProfiled()) return;
     LockStats().nextSite = site;
+}
+
+void MarkPresenterThread() {
+    LockStats().holderColumn = PresenterColumn;
+}
+
+void NoteLockedGpuWait(double ms) {
+    if (!GpuLockProfiled() || GpuMutex().DepthOnThisThread() == 0) return;
+    auto& stats = LockStats();
+    ++stats.lockedGpuWaits;
+    stats.lockedGpuWaitMs += ms;
+}
+
+std::uint64_t ThreadCollectedBytes() {
+    if (!MemoryProfiled()) return 0;
+    return CounterFor(CounterCollect).bytes.load(std::memory_order_relaxed);
 }
 
 std::uint32_t GpuLockThreadTag() {
@@ -998,7 +1265,7 @@ void FlushGpuWrites(std::uint64_t address, std::size_t bytes) {
 void Read(std::uint64_t address, std::span<std::byte> destination, std::size_t alignment) {
     if (destination.empty()) return;
     FlushGpuWrites(address, destination.size());
-    const TimedAccess timed(Profile().read, destination.size());
+    const TimedAccess timed(CounterRead, destination.size());
     CountReadCaller(__builtin_return_address(0));
     const auto* source = reinterpret_cast<const void*>(address);
     try {
@@ -1014,7 +1281,7 @@ void Read(std::uint64_t address, std::span<std::byte> destination, std::size_t a
 void ReadCommitted(std::uint64_t address, std::span<std::byte> destination) {
     if (destination.empty()) return;
     FlushGpuWrites(address, destination.size());
-    const TimedAccess timed(Profile().read, destination.size());
+    const TimedAccess timed(CounterRead, destination.size());
     CountReadCaller(__builtin_return_address(0));
     if (Accessible(reinterpret_cast<const void*>(address), destination.size())) {
         std::memcpy(destination.data(), reinterpret_cast<const void*>(address), destination.size());
@@ -1027,12 +1294,42 @@ void ReadCommitted(std::uint64_t address, std::span<std::byte> destination) {
 bool EqualsCommitted(std::uint64_t address, std::span<const std::byte> bytes) {
     if (bytes.empty()) return true;
     FlushGpuWrites(address, bytes.size());
-    const TimedAccess timed(Profile().compare, bytes.size());
+    return EqualsCommittedUnsynced(address, bytes);
+}
+
+bool EqualsCommittedUnsynced(std::uint64_t address, std::span<const std::byte> bytes) {
+    if (bytes.empty()) return true;
+    const TimedAccess timed(CounterCompare, bytes.size());
     if (Accessible(reinterpret_cast<const void*>(address), bytes.size())) return std::memcmp(reinterpret_cast<const void*>(address), bytes.data(), bytes.size()) == 0;
     for (const auto& [begin, end] : CommittedRanges(address, bytes.size())) {
         if (std::memcmp(reinterpret_cast<const void*>(begin), bytes.data() + (begin - address), static_cast<std::size_t>(end - begin)) != 0) return false;
     }
     return true;
+}
+
+Compare CompareMapped(std::uint64_t address, std::span<const std::byte> bytes) {
+    if (bytes.empty()) return Compare::Equal;
+    if (address == 0 || bytes.size() > std::numeric_limits<std::uintptr_t>::max() - address) return Compare::Unmapped;
+    auto outcome = Compare::Equal;
+    // Each run's page state is consulted right before its bytes are compared.
+    const bool queried = describePages(static_cast<std::uintptr_t>(address), bytes.size(), [&](const PageRun& run) {
+        if (!run.readable) outcome = Compare::Unmapped;
+        else if (std::memcmp(reinterpret_cast<const void*>(run.begin), bytes.data() + (run.begin - address), static_cast<std::size_t>(run.end - run.begin)) != 0) outcome = Compare::Differs;
+        return outcome == Compare::Equal;
+    });
+    return queried ? outcome : Compare::Unmapped;
+}
+
+Compare CopyMapped(std::uint64_t address, std::span<std::byte> out) {
+    if (out.empty()) return Compare::Equal;
+    if (address == 0 || out.size() > std::numeric_limits<std::uintptr_t>::max() - address) return Compare::Unmapped;
+    auto outcome = Compare::Equal;
+    const bool queried = describePages(static_cast<std::uintptr_t>(address), out.size(), [&](const PageRun& run) {
+        if (!run.readable) outcome = Compare::Unmapped;
+        else std::memcpy(out.data() + (run.begin - address), reinterpret_cast<const void*>(run.begin), static_cast<std::size_t>(run.end - run.begin));
+        return outcome == Compare::Equal;
+    });
+    return queried ? outcome : Compare::Unmapped;
 }
 
 void WriteChangedCommitted(std::uint64_t address, std::span<const std::byte> current, std::span<const std::byte> original) {
@@ -1055,7 +1352,7 @@ void WriteChanged(std::uint64_t address, std::span<const std::byte> current, std
     // site above it was doing (the [hooksync] line counts stores apart).
     const ReadSiteScope site(ReadSite::Store);
     FlushGpuWrites(address, current.size());
-    const TimedAccess timed(Profile().changedWrite, current.size());
+    const TimedAccess timed(CounterChangedWrite, current.size());
     auto* destination = reinterpret_cast<std::byte*>(address);
     CheckRange(destination, current.size(), 1, true);
     constexpr std::size_t block = 256;
@@ -1081,7 +1378,7 @@ void Write(std::uint64_t address, std::span<const std::byte> source, std::size_t
     // A store, as in WriteChanged.
     const ReadSiteScope site(ReadSite::Store);
     FlushGpuWrites(address, source.size());
-    const TimedAccess timed(Profile().write, source.size());
+    const TimedAccess timed(CounterWrite, source.size());
     CountWriteCaller(__builtin_return_address(0));
     auto* destination = reinterpret_cast<void*>(address);
     CheckRange(destination, source.size(), alignment, true);

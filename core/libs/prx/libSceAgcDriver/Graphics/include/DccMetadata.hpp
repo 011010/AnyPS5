@@ -45,6 +45,30 @@ bool DccAlphaOnMsb(VkFormat format, std::uint32_t componentSwap);
 // The keys of a texture's DCC surface when they fast-clear it to a value encodable here, else
 // Uncompressed (the texels are read as stored; other keys are reported once).
 DccKeys TextureClearKeys(const GuestTextureResource& resource, std::uint64_t guestBytes);
+// The last stable key scan of one surface's metadata (ProvedClearKeys): the keys read and the write
+// generation the key range was collected at before the scan. Held by the image or texture of the
+// surface, read and written under GuestMemory::GpuMutex only.
+struct DccKeyProof {
+    DccKeys keys = DccKeys::Uncompressed;
+    std::uint64_t generation = 0;
+};
+// TextureClearKeys with the scan skipped while the key range is unchanged since `proof` was taken
+// (CollectWrites over the keys, then UnchangedSince its generation), so a surface's keys are scanned
+// once per change instead of on every use. A scan becomes the proof only when it read the bytes
+// (not the pending-store memo) and no recorded work still writes them: a recorded key store stamps
+// the range at its note, before it lands, so a proof taken meanwhile would outlive the change. Every
+// other key writer stamps the range too (CPU writes through the page write watch, GPU writes at
+// their record), which makes the proof exactly as sound as UnchangedSince over the texels.
+// APS5_NO_KEY_FAST_PATH=1 scans on every call and stores nothing.
+DccKeys ProvedClearKeys(const GuestTextureResource& resource, std::uint64_t guestBytes, DccKeyProof& proof);
+bool KeyFastPath();
+// Cumulative outcomes of ProvedClearKeys: calls answered by a proof, scans made, and scans not kept.
+struct DccKeyProofCounts {
+    std::uint64_t proved;
+    std::uint64_t scanned;
+    std::uint64_t unstable;
+};
+DccKeyProofCounts KeyProofCounts();
 // A surface's texels as a read sees them: the guest bytes, or the clear value of fast-cleared keys.
 void ReadTextureSurface(const GuestTextureResource& resource, DccKeys keys, std::span<std::byte> bytes);
 
