@@ -818,8 +818,7 @@ namespace {
 // Itanium manglings, verified with g++ + c++filt + NidCompute SHA1+suffix).
 // Wrappers below are ABI-compatible (this+params, SysV) with the real const
 // methods; most delegate to the existing non-const logic (const is
-// compile-time only, same calling convention). 5 remain unknown (kept as
-// logging stubs): Cm2cmtCv8cA, EfM9xXvBmxk, Js90KQXVS4s, oCYWES02VPc, vVwA2cZA5e4.
+// compile-time only, same calling convention).
 
 // +V2QcIcvWpw = EventDescription::createInstance(EventInstance**) const
 __attribute__((used)) int APS5_VABI fmodstudio_real_createInstance(const void* self, void** out) {
@@ -971,12 +970,11 @@ __attribute__((used)) int APS5_VABI fmodstudio_real_getBufferUsage(const void* s
     return 0;
 }
 
-// Remaining 5 unknown (no public FMOD match found via exact manglings):
-__attribute__((used)) int fmodstudio_nid_stub_10() { APS5_LOG_ERR("%s", "Cm2cmtCv8cA"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_12() { APS5_LOG_ERR("%s", "EfM9xXvBmxk"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_15() { APS5_LOG_ERR("%s", "Js90KQXVS4s"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_18() { APS5_LOG_ERR("%s", "oCYWES02VPc"); return 0; }
-__attribute__((used)) int fmodstudio_nid_stub_22() { APS5_LOG_ERR("%s", "vVwA2cZA5e4"); return 0; }
+__attribute__((used)) int fmodstudio_nid_stub_10() { NotImplemented_nid_no_patch("Cm2cmtCv8cA"); return 0; }
+__attribute__((used)) int fmodstudio_nid_stub_12() { NotImplemented_nid_no_patch("EfM9xXvBmxk"); return 0; }
+__attribute__((used)) int fmodstudio_nid_stub_15() { NotImplemented_nid_no_patch("Js90KQXVS4s"); return 0; }
+__attribute__((used)) int fmodstudio_nid_stub_18() { NotImplemented_nid_no_patch("oCYWES02VPc"); return 0; }
+__attribute__((used)) int fmodstudio_nid_stub_22() { NotImplemented_nid_no_patch("vVwA2cZA5e4"); return 0; }
 
 }
 
