@@ -14,7 +14,6 @@ Throughout the project, every function at every stage either **does exactly what
 - [libSceSaveDataDialog.native](../core/libs/prx/libSceSaveDataDialog.native/Export.cpp)
 - [libSceCommonDialog](../core/libs/prx/libSceCommonDialog/Export.cpp)
 - The shader recompiler [skips baryctric coordinates](../core/shader/recompiler/Recompiler.cpp) (is not even passed to SpirvTargetOptions at row 212).
-- [SPIR-V validation](../core/shader/recompiler/Recompiler.cpp) via Spirv-Tools is gated behind the `ANYPS5_ENABLE_SPIRV_TOOLS` CMake option (default OFF) and does not run in a default build.
 
 ### Unknown function names
 
