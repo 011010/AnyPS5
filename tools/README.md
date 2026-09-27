@@ -13,9 +13,19 @@ Requires only Python 3.9+ with the standard library. It writes:
 - `progress.svg`: treemaps for system libraries and GPU shader instructions
 - `badge-libraries.svg`, `badge-shaders.svg`: percentage badges
 - `index.html`: the map with per-library and per-encoding tables
-- `progress.json`: raw numbers
+- `progress.json`: raw numbers and the names of implemented and pending items
 
 The [Progress workflow](../.github/workflows/progress.yml) runs it on every push to `main` and deploys the output to GitHub Pages, so nothing generated is committed to the repository.
+
+To compare two runs, for example `main` and a pull request:
+
+```sh
+python3 tools/progress.py --root <base-checkout> base
+python3 tools/progress.py head
+python3 tools/progress.py --compare base/progress.json head/progress.json
+```
+
+`--root` measures another source tree with the current script. `--compare` prints a Markdown report of implemented, newly declared, reverted and removed items, and prints nothing when progress did not change. The [Progress report workflow](../.github/workflows/progress-report.yml) runs it for every pull request, and [Progress comment](../.github/workflows/progress-comment.yml) posts the report as a single comment on the pull request, updated on every push. It runs as a separate `workflow_run` so pull requests from forks never run with write permissions.
 
 ### What is measured
 

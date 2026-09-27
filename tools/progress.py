@@ -24,6 +24,7 @@ OPCODE_ALIASES = {
     "VMadMixloF16": "V_FMA_MIXLO_F16",
     "VMadMixhiF16": "V_FMA_MIXHI_F16",
 }
+REPORT_ROWS = 100
 PANEL_WIDTH, GAP, MAP_HEIGHT, HEADER = 495, 10, 280, 30
 DONE_COLOR, TODO_COLOR, BORDER, TEXT = "#2ea043", "#1f6feb", "#0d1117", "#ffffff"
 
@@ -51,7 +52,8 @@ def scan_library(path):
             body = text[match.end() - 1:body_end(text, match.end() - 1)]
             (todo if STUB in body else done).add(name)
     todo -= done
-    return {"name": path.name, "label": path.name.removeprefix("libSce"), "done": len(done), "todo": len(todo)}
+    return {"name": path.name, "label": path.name.removeprefix("libSce"), "done": len(done), "todo": len(todo),
+            "done_names": sorted(done), "todo_names": sorted(todo)}
 
 
 def summarize(groups):
@@ -88,8 +90,11 @@ def collect_shaders():
             extra.append(opcode)
     groups = {}
     for name, encoding in isa.items():
-        group = groups.setdefault(encoding, {"name": encoding, "label": encoding, "done": 0, "todo": 0})
-        group["done" if name in supported else "todo"] += 1
+        group = groups.setdefault(encoding, {"name": encoding, "label": encoding, "done": 0, "todo": 0,
+                                             "done_names": [], "todo_names": []})
+        state = "done" if name in supported else "todo"
+        group[state] += 1
+        group[f"{state}_names"].append(name)
     result = summarize(sorted(groups.values(), key=lambda g: g["name"]))
     result["extra"] = extra
     return result
@@ -226,10 +231,62 @@ def summary(libraries, shaders):
     ]) + "\n"
 
 
+def names(data, state):
+    return {(g["name"], n) for g in data["groups"] for n in g.get(f"{state}_names", [])}
+
+
+def details(icon, title, column, items):
+    if not items:
+        return []
+    rows = [f"<details>\n<summary>{icon} {len(items)} {title}</summary>\n", f"| {column} | Name |", "| - | - |"]
+    rows += [f"| {group} | `{name}` |" for group, name in sorted(items)[:REPORT_ROWS]]
+    if len(items) > REPORT_ROWS:
+        rows.append(f"| ... | {len(items) - REPORT_ROWS} more |")
+    return rows + ["\n</details>"]
+
+
+def compare(title, column, unit, base, head):
+    base_done, head_done = names(base, "done"), names(head, "done")
+    base_all, head_all = base_done | names(base, "todo"), head_done | names(head, "todo")
+    implemented, declared = head_done - base_done, head_all - base_all - head_done
+    regressed, removed = base_done & (head_all - head_done), base_all - head_all
+    if not (implemented or declared or regressed or removed):
+        return []
+    delta = round(head["percent"] - base["percent"], 2)
+    icon = "📈" if delta > 0 else "📉" if delta < 0 else "➖"
+    counts = [f"{n:+} {label}" for n, label in ((len(implemented), "implemented"), (len(declared), "declared"),
+                                                (-len(removed), "removed")) if n]
+    lines = [f'{icon} **{title}**: {head["percent"]}% ({delta:+}%, {", ".join(counts)} {unit})', ""]
+    lines += details("✅", "implemented", column, implemented)
+    lines += details("🆕", "declared as stubs", column, declared)
+    lines += details("⚠️", "went back to stubs", column, regressed)
+    lines += details("🗑️", "removed", column, removed)
+    return lines + [""]
+
+
+def report(base, head):
+    lines = compare("System libraries", "Library", "functions", base["libraries"], head["libraries"])
+    lines += compare("GPU shader instructions", "Encoding", "instructions", base["shaders"], head["shaders"])
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("output", type=Path)
-    output = parser.parse_args().output
+    parser.add_argument("output", type=Path, nargs="?")
+    parser.add_argument("--root", type=Path, help="source tree to measure instead of the one containing this script")
+    parser.add_argument("--compare", type=Path, nargs=2, metavar=("BASE", "HEAD"),
+                        help="print a markdown report of the changes between two progress.json files")
+    args = parser.parse_args()
+    if args.compare:
+        base, head = (json.loads(path.read_text()) for path in args.compare)
+        print(report(base, head), end="")
+        raise SystemExit
+    if not args.output:
+        parser.error("the output directory is required")
+    if args.root:
+        PRX = args.root / "core" / "libs" / "prx"
+        OPCODES = args.root / OPCODES.relative_to(ROOT)
+    output = args.output
     output.mkdir(parents=True, exist_ok=True)
     libraries, shaders = collect_libraries(), collect_shaders()
     (output / "progress.json").write_text(json.dumps({"libraries": libraries, "shaders": shaders}, indent=2))
