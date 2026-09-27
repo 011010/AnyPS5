@@ -1,6 +1,8 @@
 #include "../include/Pthread.hpp"
 #include "prx/libc/include/General.hpp"
+#include "prx/libkernel/Time/include/TimedWait.hpp"
 #include <chrono>
+#include <cstdint>
 #include <stdexcept>
 
 static constexpr int SCE_OK = 0;
@@ -51,7 +53,8 @@ int APS5_VABI scePthreadRwlockTryrdlock(PthreadRwlock* rwlock) {
 int APS5_VABI scePthreadRwlockTimedrdlock(PthreadRwlock* rwlock, KernelUseconds usec) {
     auto* lock = RequireRwlock(rwlock, __func__);
     if (OwnsWrite(lock)) return SCE_KERNEL_ERROR_EDEADLK;
-    return lock->_lock.try_lock_shared_for(std::chrono::microseconds(usec)) ? SCE_OK : SCE_KERNEL_ERROR_ETIMEDOUT;
+    const bool locked = TimedWait::AcquireUntil(TimedWait::DeadlineNanos(usec), [&] { return lock->_lock.try_lock_shared(); }, [&](std::uint64_t micros) { return lock->_lock.try_lock_shared_for(std::chrono::microseconds(micros)); });
+    return locked ? SCE_OK : SCE_KERNEL_ERROR_ETIMEDOUT;
 }
 
 int APS5_VABI scePthreadRwlockWrlock(PthreadRwlock* rwlock) {
@@ -72,7 +75,8 @@ int APS5_VABI scePthreadRwlockTrywrlock(PthreadRwlock* rwlock) {
 int APS5_VABI scePthreadRwlockTimedwrlock(PthreadRwlock* rwlock, KernelUseconds usec) {
     auto* lock = RequireRwlock(rwlock, __func__);
     if (OwnsWrite(lock)) return SCE_KERNEL_ERROR_EDEADLK;
-    if (!lock->_lock.try_lock_for(std::chrono::microseconds(usec))) return SCE_KERNEL_ERROR_ETIMEDOUT;
+    const bool locked = TimedWait::AcquireUntil(TimedWait::DeadlineNanos(usec), [&] { return lock->_lock.try_lock(); }, [&](std::uint64_t micros) { return lock->_lock.try_lock_for(std::chrono::microseconds(micros)); });
+    if (!locked) return SCE_KERNEL_ERROR_ETIMEDOUT;
     lock->_writer.store(std::this_thread::get_id(), std::memory_order_release);
     return SCE_OK;
 }

@@ -3,16 +3,16 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "Common.hpp"
+#include "prx/libkernel/Time/include/TimedWait.hpp"
 #include <cerrno>
 #include <chrono>
-#include <condition_variable>
 #include <cstring>
 #include <mutex>
 
 // The guest sem_t is at least 8 bytes; its first word holds a pointer to the host semaphore.
 struct PosixSemaphore {
     std::mutex lock;
-    std::condition_variable available;
+    TimedWait::Condition available;
     unsigned int count;
 };
 
@@ -35,9 +35,9 @@ static int WaitFor(PosixSemaphore* semaphore, const KernelUseconds* usec) {
     std::unique_lock lock(semaphore->lock);
     const auto ready = [&] { return semaphore->count > 0; };
     if (usec) {
-        if (!semaphore->available.wait_for(lock, std::chrono::microseconds(*usec), ready)) return Fail(PosixThread::GUEST_ETIMEDOUT);
+        if (!semaphore->available.WaitUntil(lock, TimedWait::DeadlineNanos(*usec), ready)) return Fail(PosixThread::GUEST_ETIMEDOUT);
     } else {
-        semaphore->available.wait(lock, ready);
+        semaphore->available.Wait(lock, ready);
     }
     --semaphore->count;
     return 0;
@@ -99,7 +99,7 @@ int APS5_VABI sem_post_nid_postfix(void* sem) {
         std::lock_guard lock(semaphore->lock);
         ++semaphore->count;
     }
-    semaphore->available.notify_one();
+    semaphore->available.NotifyOne();
     return 0;
 }
 

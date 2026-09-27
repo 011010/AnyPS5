@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 
@@ -27,6 +28,10 @@ void PadInput::HandleEvent(const SDL_Event& event, DisplayWindow& window) {
         publish();
         return;
     }
+    // APS5_NO_PAD_INPUT=1 keeps a measurement run from reacting to keys or mouse buttons that reach
+    // its window (a stray press advances the title into another stage).
+    static const bool ignoreInput = std::getenv("APS5_NO_PAD_INPUT") != nullptr;
+    if (ignoreInput && event.type == SDL_MOUSEWHEEL) return;
     if (event.type == SDL_MOUSEWHEEL) {
         int direction = (event.wheel.y > 0) - (event.wheel.y < 0);
         if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) direction = -direction;
@@ -44,6 +49,7 @@ void PadInput::HandleEvent(const SDL_Event& event, DisplayWindow& window) {
     const bool keyboard = event.type == SDL_KEYDOWN || event.type == SDL_KEYUP;
     const bool mouse = event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP;
     if (!keyboard && !mouse) return;
+    if (ignoreInput) return;
     if (keyboard && event.key.repeat != 0) return;
     const bool down = event.type == SDL_KEYDOWN || event.type == SDL_MOUSEBUTTONDOWN;
     for (std::size_t index = 0; index < Pad::InputMapping.size(); ++index) {

@@ -1,4 +1,5 @@
 #include "prx/libkernel/Time/include/Time.hpp"
+#include "prx/libkernel/Time/include/TimedWait.hpp"
 
 #include "prx/libc/include/General.hpp"
 #include <algorithm>
@@ -6,6 +7,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <mutex>
 #include <unordered_map>
 #include <utility>
@@ -23,14 +25,7 @@
 
 static std::uint64_t RawMonotonicNanos() {
 #ifdef _WIN32
-    static const std::uint64_t freq = [] {
-        LARGE_INTEGER f{};
-        QueryPerformanceFrequency(&f);
-        return static_cast<std::uint64_t>(f.QuadPart);
-    }();
-    LARGE_INTEGER counter{};
-    QueryPerformanceCounter(&counter);
-    return static_cast<std::uint64_t>(counter.QuadPart) * 1000000000ULL / freq;
+    return TimedWait::NowNanos();
 #else
     struct timespec ts{};
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -85,40 +80,63 @@ static const bool g_timerResolutionRaised = [] {
     throttling.ControlMask = PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
     throttling.StateMask = 0;
     SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &throttling, sizeof(throttling));
-    std::fprintf(stderr, "[time] scheduler tick %s (was %.2f ms)\n", raised ? "raised to 0.5 ms" : "unchanged", previous / 10000.0);
+    using NtQueryTimerResolutionFn = LONG(WINAPI*)(PULONG, PULONG, PULONG);
+    const auto queryResolution = ntdll ? reinterpret_cast<NtQueryTimerResolutionFn>(reinterpret_cast<void*>(GetProcAddress(ntdll, "NtQueryTimerResolution"))) : nullptr;
+    ULONG minimum = 0, maximum = 0, current = 0;
+    if (queryResolution) queryResolution(&minimum, &maximum, &current);
+    std::fprintf(stderr, "[time] scheduler tick %s (was %.2f ms, now %.2f ms, timed waits %s)\n", raised ? "raised to 0.5 ms" : "unchanged", previous / 10000.0, current / 10000.0, TimedWait::Coarse() ? "coarse" : "fine");
     return raised;
 }();
-#endif
 
-static void SleepNanos(std::uint64_t nanos) {
-    if (nanos == 0) {
-        return;
-    }
-#ifdef _WIN32
-    // Guest spin/backoff loops sleep for a few microseconds; Sleep() would either not sleep at all
-    // or round up to a whole scheduler tick, so short sleeps yield and longer ones use a
-    // high-resolution waitable timer.
-    if (nanos < 50000ULL) {
-        SwitchToThread();
-        return;
-    }
-    thread_local HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
-    if (timer) {
-        LARGE_INTEGER due{};
-        due.QuadPart = -static_cast<LONGLONG>(nanos / 100ULL);
-        if (SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
-            WaitForSingleObject(timer, INFINITE);
-            return;
-        }
-    }
-    Sleep(static_cast<DWORD>((nanos + 999999ULL) / 1000000ULL));
-#else
-    struct timespec req{};
-    req.tv_sec = static_cast<time_t>(nanos / 1000000000ULL);
-    req.tv_nsec = static_cast<long>(nanos % 1000000000ULL);
-    while (nanosleep(&req, &req) == -1 && errno == EINTR) {}
-#endif
+extern "C" {
+int APS5_VABI scePthreadCondInit(PthreadCond* cond, const PthreadCondattr* attr, const char* name);
+int APS5_VABI scePthreadCondDestroy(PthreadCond* cond);
+int APS5_VABI scePthreadCondTimedwait(PthreadCond* cond, PthreadMutex* mutex, unsigned int usec);
+int APS5_VABI scePthreadMutexInit(PthreadMutex* mutex, const PthreadMutexattr* attr, const char* name);
+int APS5_VABI scePthreadMutexDestroy(PthreadMutex* mutex);
+int APS5_VABI scePthreadMutexLock(PthreadMutex* mutex);
+int APS5_VABI scePthreadMutexUnlock(PthreadMutex* mutex);
 }
+
+static void ReportTimedWait(const char* name, const std::function<void()>& body) {
+    std::vector<double> samples(200);
+    for (auto& sample : samples) {
+        const std::uint64_t start = TimedWait::NowNanos();
+        body();
+        sample = static_cast<double>(TimedWait::NowNanos() - start) / 1000.0;
+    }
+    std::sort(samples.begin(), samples.end());
+    double sum = 0.0;
+    for (const double sample : samples) sum += sample;
+    std::fprintf(stderr, "[timers] %-44s mean %8.1f  p50 %8.1f  max %8.1f us\n", name, sum / static_cast<double>(samples.size()), samples[samples.size() / 2], samples.back());
+}
+
+static const bool g_timerSelfTest = [] {
+    if (std::getenv("APS5_TRACE_TIMERS") == nullptr) return false;
+    std::mutex mutex;
+    std::condition_variable cv;
+    ReportTimedWait("std::condition_variable::wait_for(1 ms)", [&] { std::unique_lock<std::mutex> lock(mutex); cv.wait_for(lock, std::chrono::milliseconds(1)); });
+    PthreadCond cond = nullptr;
+    PthreadMutex guestMutex = nullptr;
+    scePthreadCondInit(&cond, nullptr, nullptr);
+    scePthreadMutexInit(&guestMutex, nullptr, nullptr);
+    scePthreadMutexLock(&guestMutex);
+    ReportTimedWait("scePthreadCondTimedwait(1000 us)", [&] { scePthreadCondTimedwait(&cond, &guestMutex, 1000); });
+    ReportTimedWait("scePthreadCondTimedwait(13000 us)", [&] { scePthreadCondTimedwait(&cond, &guestMutex, 13000); });
+    scePthreadMutexUnlock(&guestMutex);
+    scePthreadMutexDestroy(&guestMutex);
+    scePthreadCondDestroy(&cond);
+    ReportTimedWait("sceKernelUsleep(1000)", [&] { sceKernelUsleep_nid_postfix(1000); });
+    ReportTimedWait("Sleep(1)", [&] { Sleep(1); });
+    HANDLE event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    ReportTimedWait("WaitForSingleObject(event, 1)", [&] { WaitForSingleObject(event, 1); });
+    CloseHandle(event);
+    HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    ReportTimedWait("high-resolution waitable timer 1 ms", [&] { LARGE_INTEGER due{}; due.QuadPart = -10000; SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE); WaitForSingleObject(timer, INFINITE); });
+    CloseHandle(timer);
+    return true;
+}();
+#endif
 
 extern "C" {
 
@@ -199,7 +217,7 @@ void KernelTraceWait_nid_postfix(const char* kind, const void* caller, std::uint
 
 int APS5_VABI sceKernelUsleep_nid_postfix(KernelUseconds microseconds) {
     TraceSleep(__builtin_return_address(0), microseconds);
-    SleepNanos(static_cast<std::uint64_t>(microseconds) * 1000ULL);
+    TimedWait::SleepNanos(static_cast<std::uint64_t>(microseconds) * 1000ULL);
     return 0;
 }
 
@@ -210,8 +228,8 @@ int APS5_VABI sceKernelNanosleep(const KernelTimespec* rqtp, KernelTimespec* rmt
     if (rqtp->tv_sec < 0 || rqtp->tv_nsec < 0 || rqtp->tv_nsec >= 1000000000LL) {
         return -1;
     }
-    SleepNanos(static_cast<std::uint64_t>(rqtp->tv_sec) * 1000000000ULL +
-               static_cast<std::uint64_t>(rqtp->tv_nsec));
+    TimedWait::SleepNanos(static_cast<std::uint64_t>(rqtp->tv_sec) * 1000000000ULL +
+                          static_cast<std::uint64_t>(rqtp->tv_nsec));
     if (rmtp != nullptr) {
         rmtp->tv_sec = 0;
         rmtp->tv_nsec = 0;
@@ -421,7 +439,7 @@ uint64_t APS5_VABI sceKernelGetTscFrequency(void) {
     static const std::uint64_t frequency = [] {
         const std::uint64_t startNanos = RawMonotonicNanos();
         const std::uint64_t startTicks = __rdtsc();
-        SleepNanos(20000000ULL);
+        TimedWait::SleepNanos(20000000ULL);
         const std::uint64_t elapsedNanos = RawMonotonicNanos() - startNanos;
         const std::uint64_t elapsedTicks = __rdtsc() - startTicks;
         return static_cast<std::uint64_t>(static_cast<long double>(elapsedTicks) * 1000000000.0L / static_cast<long double>(elapsedNanos));

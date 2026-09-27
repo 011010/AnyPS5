@@ -45,7 +45,7 @@ int APS5_VABI sceKernelSignalSema(KernelSema sem, int count) {
   return KERNEL_SEMA_ERROR_EINVAL;
  }
  sem->tokenCount += count;
- sem->condition.notify_all();
+ sem->condition.NotifyAll();
  return KERNEL_SEMA_OK;
 }
 
@@ -60,14 +60,13 @@ int APS5_VABI sceKernelWaitSema(KernelSema sem, int need, KernelUseconds* time) 
   KernelTraceWait_nid_postfix("sema", __builtin_return_address(0), static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - waitStart).count()), timedOut);
  };
  if (time == nullptr) {
-  sem->condition.wait(lock, [&] { return sem->tokenCount >= need; });
+  sem->condition.Wait(lock, [&] { return sem->tokenCount >= need; });
   traceWait(false);
   sem->tokenCount -= need;
   return KERNEL_SEMA_OK;
  }
 
- auto timeout = std::chrono::microseconds(*time);
- bool acquired = sem->condition.wait_for(lock, timeout, [&] { return sem->tokenCount >= need; });
+ const bool acquired = sem->condition.WaitUntil(lock, TimedWait::DeadlineNanos(*time), [&] { return sem->tokenCount >= need; });
  traceWait(!acquired);
  if (!acquired) {
   return KERNEL_SEMA_ERROR_ETIMEDOUT;

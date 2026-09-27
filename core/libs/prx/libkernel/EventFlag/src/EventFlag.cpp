@@ -3,8 +3,8 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libkernel/Time/include/Time.hpp"
+#include "prx/libkernel/Time/include/TimedWait.hpp"
 #include <chrono>
-#include <condition_variable>
 #include <mutex>
 #include <string>
 #include <cstdio>
@@ -29,7 +29,7 @@ static constexpr uint32_t EVF_WAITMODE_CLEAR_PAT = 0x20;
 
 struct KernelEventFlagPrivate {
     std::mutex _mutex;
-    std::condition_variable _changed;
+    TimedWait::Condition _changed;
     std::string _name;
     uint64_t _pattern = 0;
     bool _multipleWaiters = false;
@@ -83,7 +83,7 @@ int APS5_VABI sceKernelDeleteEventFlag(KernelEventFlag ef) {
         if (ef->_deleted) return SCE_KERNEL_ERROR_ESRCH;
         ef->_deleted = true;
         if (ef->_waiters != 0) {
-            ef->_changed.notify_all();
+            ef->_changed.NotifyAll();
             return SCE_OK;
         }
     }
@@ -97,7 +97,7 @@ int APS5_VABI sceKernelSetEventFlag(KernelEventFlag ef, uint64_t bit_pattern) {
     if (ef->_deleted) return SCE_KERNEL_ERROR_ESRCH;
     ef->_pattern |= bit_pattern;
     if (TraceSync()) std::fprintf(stderr, "[evf] set %p '%s' |=0x%llx -> 0x%llx\n", static_cast<void*>(ef), ef->_name.c_str(), static_cast<unsigned long long>(bit_pattern), static_cast<unsigned long long>(ef->_pattern));
-    ef->_changed.notify_all();
+    ef->_changed.NotifyAll();
     return SCE_OK;
 }
 
@@ -116,7 +116,7 @@ int APS5_VABI sceKernelCancelEventFlag(KernelEventFlag ef, uint64_t set_pattern,
     if (num_wait_threads) *num_wait_threads = ef->_waiters;
     ef->_pattern = set_pattern;
     ++ef->_cancelGeneration;
-    ef->_changed.notify_all();
+    ef->_changed.NotifyAll();
     return SCE_OK;
 }
 
@@ -147,12 +147,11 @@ int APS5_VABI sceKernelWaitEventFlag(KernelEventFlag ef, uint64_t bit_pattern, u
     bool timedOut = false;
     const auto waitStart = std::chrono::steady_clock::now();
     if (timeout) {
-        const auto deadline = waitStart + std::chrono::microseconds(*timeout);
-        timedOut = !ef->_changed.wait_until(lock, deadline, released);
-        const auto remaining = std::chrono::duration_cast<std::chrono::microseconds>(deadline - std::chrono::steady_clock::now()).count();
-        *timeout = remaining > 0 ? static_cast<KernelUseconds>(remaining) : 0;
+        const std::uint64_t deadline = TimedWait::DeadlineNanos(*timeout);
+        timedOut = !ef->_changed.WaitUntil(lock, deadline, released);
+        *timeout = static_cast<KernelUseconds>(TimedWait::RemainingMicros(deadline));
     } else {
-        ef->_changed.wait(lock, released);
+        ef->_changed.Wait(lock, released);
     }
     KernelTraceWait_nid_postfix("evf", __builtin_return_address(0), static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - waitStart).count()), timedOut);
     --ef->_waiters;

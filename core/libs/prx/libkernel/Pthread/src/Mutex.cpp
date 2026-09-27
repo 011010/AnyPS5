@@ -1,7 +1,9 @@
 #include "../include/Pthread.hpp"
 #include "prx/libc/include/General.hpp"
+#include "prx/libkernel/Time/include/TimedWait.hpp"
 #include <cerrno>
 #include <chrono>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 
@@ -98,9 +100,10 @@ int APS5_VABI scePthreadMutexTimedlock(PthreadMutex* mutex, KernelUseconds usec)
     if (!mutex || !*mutex) throw std::runtime_error("scePthreadMutexTimedlock: null mutex");
     auto* m = *mutex;
     const auto tid = std::this_thread::get_id();
-    const auto timeout = std::chrono::microseconds(usec);
+    const std::uint64_t deadline = TimedWait::DeadlineNanos(usec);
     if (m->_type == MutexType::Recursive) {
-        if (!m->_rmtx.try_lock_for(timeout)) return SCE_KERNEL_ERROR_ETIMEDOUT;
+        const bool locked = TimedWait::AcquireUntil(deadline, [&] { return m->_rmtx.try_lock(); }, [&](std::uint64_t micros) { return m->_rmtx.try_lock_for(std::chrono::microseconds(micros)); });
+        if (!locked) return SCE_KERNEL_ERROR_ETIMEDOUT;
         m->_owner.store(tid, std::memory_order_relaxed);
         ++m->_count;
         return SCE_OK;
@@ -108,7 +111,8 @@ int APS5_VABI scePthreadMutexTimedlock(PthreadMutex* mutex, KernelUseconds usec)
     if (m->_type == MutexType::ErrorCheck) {
         if (m->_owner.load(std::memory_order_acquire) == tid) return SCE_KERNEL_ERROR_EDEADLK;
     }
-    if (!m->_mtx.try_lock_for(timeout)) return SCE_KERNEL_ERROR_ETIMEDOUT;
+    const bool locked = TimedWait::AcquireUntil(deadline, [&] { return m->_mtx.try_lock(); }, [&](std::uint64_t micros) { return m->_mtx.try_lock_for(std::chrono::microseconds(micros)); });
+    if (!locked) return SCE_KERNEL_ERROR_ETIMEDOUT;
     m->_owner.store(tid, std::memory_order_relaxed);
     return SCE_OK;
 }

@@ -3,6 +3,7 @@
 
 #include <sched.h>
 #include "SceTypes.hpp"
+#include "prx/libkernel/Time/include/TimedWait.hpp"
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
@@ -46,7 +47,7 @@ struct PthreadCondattrPrivate {
 };
 
 struct PthreadCondPrivate {
-    std::condition_variable_any _cv;
+    TimedWait::Condition _cv;
     int _clockid = 0;
 };
 

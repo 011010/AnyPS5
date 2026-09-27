@@ -1,5 +1,6 @@
 #include "../include/Pthread.hpp"
 #include "prx/libc/include/General.hpp"
+#include "prx/libc/include/CpuTopology.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -63,6 +64,36 @@ static void ReleaseThread(PthreadPrivate* thread) {
     delete thread;
 }
 
+// The title's job workers ("BPE JobWorkerThread CPU0".."CPU12") spin at full load on one core each.
+// Pinning them to the efficiency cores of a hybrid CPU (APS5_JOB_AFFINITY=1, with the driver's
+// worker pinning) measured 0 to -9 % at the video stage, so the default leaves them free;
+// APS5_JOB_AFFINITY_MASK=<hex> picks the cores.
+static constexpr const char* JOB_WORKER_PREFIX = "BPE JobWorkerThread";
+
+static std::uint64_t JobWorkerMask() {
+    static const std::uint64_t mask = [] {
+        if (std::getenv("APS5_NO_JOB_AFFINITY") != nullptr) return std::uint64_t{0};
+        const auto requested = CpuTopology::MaskFromEnvironment("APS5_JOB_AFFINITY_MASK");
+        if (requested != 0) return requested;
+        if (std::getenv("APS5_JOB_AFFINITY") == nullptr) return std::uint64_t{0};
+        const auto& layout = CpuTopology::Get();
+        return layout.hybrid ? layout.efficient : std::uint64_t{0};
+    }();
+    return mask;
+}
+
+static void ApplyJobAffinity(PthreadPrivate& thread, void* handle) {
+    if (thread.name.compare(0, std::strlen(JOB_WORKER_PREFIX), JOB_WORKER_PREFIX) != 0) return;
+    const auto mask = JobWorkerMask();
+    if (mask == 0) return;
+    static std::once_flag summary;
+    std::call_once(summary, [mask] {
+        const auto& layout = CpuTopology::Get();
+        std::fprintf(stderr, "[affinity] job worker threads -> 0x%llx (hybrid=%d efficient=0x%llx performant=0x%llx process=0x%llx)\n", static_cast<unsigned long long>(mask), layout.hybrid ? 1 : 0, static_cast<unsigned long long>(layout.efficient), static_cast<unsigned long long>(layout.performant), static_cast<unsigned long long>(layout.process));
+    });
+    CpuTopology::PinTraced(thread.name.c_str(), handle, mask);
+}
+
 struct NativeThreadArgs {
     std::unique_ptr<ThreadArgs> guest;
     std::future<bool> start;
@@ -90,6 +121,7 @@ static unsigned __stdcall StartNativeThread(void* opaque) {
         if (!self->name.empty()) {
             const std::wstring description(self->name.begin(), self->name.end());
             SetThreadDescription(GetCurrentThread(), description.c_str());
+            ApplyJobAffinity(*self, nullptr);
         }
         args->initialized.set_value();
     } catch (...) {
@@ -280,6 +312,7 @@ int APS5_VABI scePthreadRename(Pthread thread, const char* name) {
 #ifdef _WIN32
     const std::wstring description(thread->name.begin(), thread->name.end());
     SetThreadDescription(static_cast<HANDLE>(thread->nativeHandle), description.c_str());
+    ApplyJobAffinity(*thread, thread->nativeHandle);
 #endif
     return SCE_OK;
 }

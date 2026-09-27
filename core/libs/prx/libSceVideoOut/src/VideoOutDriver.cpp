@@ -1,6 +1,8 @@
 #include <bit>
 #include <chrono>
 #include <cstdlib>
+#include <cstdio>
+#include <thread>
 #include <limits>
 #include <stdexcept>
 
@@ -42,6 +44,16 @@ public:
         request->outputHandle = info.handle;
         request->flipMode = static_cast<int>(info.mode);
         request->flipArg = info.argument;
+        // Debug aid: APS5_FLIP_QUEUE_WAIT=1 waits for room instead of failing the flip, so a
+        // presenter stall keeps the process alive for a debugger (reported every 5 s).
+        static const bool waitWhenFull = std::getenv("APS5_FLIP_QUEUE_WAIT") != nullptr;
+        if (waitWhenFull) {
+            int waited = 0;
+            while (queue->reservations.load() >= VIDEO_OUT_FLIP_QUEUE_CAPACITY) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                if (++waited % 500 == 0) std::fprintf(stderr, "[flip] queue full for %d s; waiting (APS5_FLIP_QUEUE_WAIT)\n", waited / 100);
+            }
+        }
         std::lock_guard queueLock(queue->mutex);
         if (queue->failure) std::rethrow_exception(queue->failure);
         require(!queue->stopping, "flip during shutdown");
@@ -123,8 +135,10 @@ void FlipRequest::GpuReady(const std::shared_ptr<AgcDriver::FrameTiming>& frameT
     queue->changed.notify_all();
     // The worker is done once the request is queued: hardware does not stall the command processor
     // on a flip, and the title observes completion through flipPendingNum, which processFlip drops
-    // after presenting. A presentation failure reaches the worker through ReportFailure at its next
-    // packet. Debug aid: APS5_SYNC_FLIP=1 parks the worker until the presenter is done, as before.
+    // once the presentation is queued behind the frame's GPU work (up to APS5_FLIP_INFLIGHT
+    // presentations may still be executing then, see Driver::Present). A presentation failure
+    // reaches the worker through ReportFailure at its next packet. Debug aid: APS5_SYNC_FLIP=1
+    // parks the worker until the presenter is done, as before.
     static const bool syncFlip = std::getenv("APS5_SYNC_FLIP") != nullptr;
     if (!syncFlip) return;
     std::unique_lock lock(cfg->mutex);

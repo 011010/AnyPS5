@@ -1,7 +1,9 @@
 #include "../include/Pthread.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libkernel/Time/include/Time.hpp"
+#include "prx/libkernel/Time/include/TimedWait.hpp"
 #include <chrono>
+#include <cstdint>
 #include <optional>
 #include <thread>
 #include <stdexcept>
@@ -10,7 +12,7 @@ static constexpr int SCE_OK = 0;
 static constexpr int SCE_KERNEL_ERROR_ENOMEM = 0x8002000C;
 static constexpr int SCE_KERNEL_ERROR_ETIMEDOUT = 0x8002003C;
 
-static int WaitOn(PthreadCondPrivate* cond, PthreadMutexPrivate* mutex, std::optional<std::chrono::microseconds> timeout, const void* caller) {
+static int WaitOn(PthreadCondPrivate* cond, PthreadMutexPrivate* mutex, std::optional<std::uint64_t> deadlineNanos, const void* caller) {
     const auto self = std::this_thread::get_id();
     bool timedOut = false;
     const auto waitStart = std::chrono::steady_clock::now();
@@ -21,13 +23,13 @@ static int WaitOn(PthreadCondPrivate* cond, PthreadMutexPrivate* mutex, std::opt
     mutex->_owner.store(std::thread::id{}, std::memory_order_relaxed);
     if (mutex->_type == MutexType::Recursive) {
         std::unique_lock<std::recursive_timed_mutex> lock(mutex->_rmtx, std::adopt_lock);
-        if (timeout) timedOut = cond->_cv.wait_for(lock, *timeout) == std::cv_status::timeout;
-        else cond->_cv.wait(lock);
+        if (deadlineNanos) timedOut = !cond->_cv.WaitUntil(lock, *deadlineNanos);
+        else cond->_cv.Wait(lock);
         lock.release();
     } else {
         std::unique_lock<std::timed_mutex> lock(mutex->_mtx, std::adopt_lock);
-        if (timeout) timedOut = cond->_cv.wait_for(lock, *timeout) == std::cv_status::timeout;
-        else cond->_cv.wait(lock);
+        if (deadlineNanos) timedOut = !cond->_cv.WaitUntil(lock, *deadlineNanos);
+        else cond->_cv.Wait(lock);
         lock.release();
     }
     mutex->_owner.store(self, std::memory_order_relaxed);
@@ -69,26 +71,26 @@ int APS5_VABI scePthreadCondDestroy(PthreadCond* cond) {
 
 int APS5_VABI scePthreadCondSignal(PthreadCond* cond) {
     if (!cond || !*cond) throw std::runtime_error("scePthreadCondSignal: null cond");
-    (*cond)->_cv.notify_one();
+    (*cond)->_cv.NotifyOne();
     return SCE_OK;
 }
 
 int APS5_VABI scePthreadCondBroadcast(PthreadCond* cond) {
     if (!cond || !*cond) throw std::runtime_error("scePthreadCondBroadcast: null cond");
-    (*cond)->_cv.notify_all();
+    (*cond)->_cv.NotifyAll();
     return SCE_OK;
 }
 
 int APS5_VABI scePthreadCondTimedwait(PthreadCond* cond, PthreadMutex* mutex, unsigned int usec) {
     if (!cond || !*cond || !mutex || !*mutex)
         throw std::runtime_error("scePthreadCondTimedwait: null arg");
-    return WaitOn(*cond, *mutex, std::chrono::microseconds(usec), __builtin_return_address(0));
+    return WaitOn(*cond, *mutex, TimedWait::DeadlineNanos(usec), __builtin_return_address(0));
 }
 
 int APS5_VABI scePthreadCondSignalto(PthreadCond* cond, Pthread thread) {
     (void)thread;
     if (!cond || !*cond) throw std::runtime_error("scePthreadCondSignalto: null cond");
-    (*cond)->_cv.notify_all();
+    (*cond)->_cv.NotifyAll();
     return SCE_OK;
 }
 
