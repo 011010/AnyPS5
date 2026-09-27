@@ -7,6 +7,8 @@
 
 namespace Relinker {
 
+inline constexpr char GuestModuleSuffix[] = ".guest.prx";
+
 struct GuestSymbol {
     std::string Name;
     std::uint8_t Info;

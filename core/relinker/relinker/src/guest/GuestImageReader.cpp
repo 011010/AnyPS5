@@ -27,7 +27,7 @@ GuestImage GuestImageReader::Read(const std::filesystem::path& path, std::vector
     range(Io::ReadU64(bytes, 32), static_cast<std::uint64_t>(Io::ReadU16(bytes, 56)) * 56);
     GuestImage image;
     image.SourcePath = path;
-    image.OutputName = path.filename().string() + ".guest.prx";
+    image.OutputName = path.filename().string() + GuestModuleSuffix;
     image.Headers = ElfReader(bytes).ReadProgramHeaders();
     const Domain::ProgramHeader* dynamic = nullptr;
     const Domain::ProgramHeader* dynlib = nullptr;

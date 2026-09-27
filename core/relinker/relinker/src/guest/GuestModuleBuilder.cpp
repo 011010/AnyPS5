@@ -26,6 +26,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
     if (!std::filesystem::is_directory(directory)) throw Domain::RelinkerException("Guest module path is not a directory: " + directory.string());
     std::vector<std::filesystem::path> paths;
     for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+        if (entry.path().filename().string().ends_with(GuestModuleSuffix)) continue;
         if (!entry.is_regular_file()) continue;
         std::ifstream stream(entry.path(), std::ios::binary);
         if (!stream) throw Domain::RelinkerException("Cannot read guest candidate: " + entry.path().string());
