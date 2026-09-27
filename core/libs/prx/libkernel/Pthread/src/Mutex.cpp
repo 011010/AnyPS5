@@ -6,7 +6,7 @@
 
 static constexpr int SCE_OK = 0;
 static constexpr int SCE_KERNEL_ERROR_ENOMEM = 0x8002000C;
-static constexpr int SCE_KERNEL_ERROR_EDEADLK = 0x80020023;
+static constexpr int SCE_KERNEL_ERROR_EDEADLK = 0x8002000B;
 static constexpr int SCE_KERNEL_ERROR_EPERM = 0x80020001;
 
 extern "C" {
