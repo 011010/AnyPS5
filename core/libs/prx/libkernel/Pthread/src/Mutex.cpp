@@ -1,6 +1,7 @@
 #include "../include/Pthread.hpp"
 #include "../include/Mutex.hpp"
 #include "prx/libkernel/Time/include/TimedWait.hpp"
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <limits>
@@ -19,20 +20,29 @@ PthreadMutex destroyedMutex() {
     return reinterpret_cast<PthreadMutex>(std::uintptr_t{2});
 }
 
+bool isInitializedMutex(PthreadMutex mutex) {
+    return mutex && mutex != destroyedMutex() && reinterpret_cast<std::uintptr_t>(mutex) != 1;
+}
+
 PthreadMutex resolveMutex(PthreadMutex* mutex, bool initialize) {
     if (!mutex)
         throw std::invalid_argument("Mutex pointer is null");
+    std::atomic_ref<PthreadMutex> slot(*mutex);
+    if (const auto current = slot.load(std::memory_order_acquire); isInitializedMutex(current))
+        return current;
     std::lock_guard lock(initializationMutex);
-    if (*mutex == destroyedMutex())
+    const auto current = slot.load(std::memory_order_acquire);
+    if (current == destroyedMutex())
         throw std::runtime_error("Mutex has been destroyed");
-    if (reinterpret_cast<std::uintptr_t>(*mutex) == 1)
+    if (reinterpret_cast<std::uintptr_t>(current) == 1)
         throw std::runtime_error("Adaptive mutex initializer is unsupported");
-    if (!*mutex) {
-        if (!initialize)
-            throw std::runtime_error("Mutex is not initialized");
-        *mutex = new PthreadMutexPrivate();
-    }
-    return *mutex;
+    if (current)
+        return current;
+    if (!initialize)
+        throw std::runtime_error("Mutex is not initialized");
+    auto* created = new PthreadMutexPrivate();
+    slot.store(created, std::memory_order_release);
+    return created;
 }
 
 template<typename TAcquire>
@@ -122,7 +132,7 @@ int APS5_VABI scePthreadMutexInit(PthreadMutex* mutex, const PthreadMutexattr* a
     if (attr)
         replacement->_type = (*attr)->type;
     std::lock_guard lock(initializationMutex);
-    *mutex = replacement.release();
+    std::atomic_ref<PthreadMutex>(*mutex).store(replacement.release(), std::memory_order_release);
     return 0;
 }
 
@@ -137,7 +147,7 @@ int APS5_VABI scePthreadMutexDestroy(PthreadMutex* mutex) {
     if (*mutex && (*mutex)->_owner.load(std::memory_order_acquire) != std::thread::id{})
         throw std::runtime_error("Cannot destroy a locked mutex");
     delete *mutex;
-    *mutex = destroyedMutex();
+    std::atomic_ref<PthreadMutex>(*mutex).store(destroyedMutex(), std::memory_order_release);
     return 0;
 }
 

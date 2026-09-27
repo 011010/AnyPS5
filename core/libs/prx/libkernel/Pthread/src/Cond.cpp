@@ -4,6 +4,7 @@
 #include "prx/libkernel/Pthread/Posix/Common.hpp"
 #include "prx/libkernel/Time/include/Time.hpp"
 #include "prx/libkernel/Time/include/TimedWait.hpp"
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -23,12 +24,18 @@ PthreadCond destroyedCond() {
 PthreadCond resolveCond(PthreadCond* cond) {
     if (!cond)
         throw std::invalid_argument("Condition variable pointer is null");
+    std::atomic_ref<PthreadCond> slot(*cond);
+    if (const auto current = slot.load(std::memory_order_acquire); current && current != destroyedCond())
+        return current;
     std::lock_guard lock(condInitializationMutex);
-    if (*cond == destroyedCond())
+    const auto current = slot.load(std::memory_order_acquire);
+    if (current == destroyedCond())
         throw std::runtime_error("Condition variable has been destroyed");
-    if (!*cond)
-        *cond = new PthreadCondPrivate();
-    return *cond;
+    if (current)
+        return current;
+    auto* created = new PthreadCondPrivate();
+    slot.store(created, std::memory_order_release);
+    return created;
 }
 
 PthreadMutex lockedMutex(PthreadMutex* mutex) {
@@ -112,7 +119,7 @@ int APS5_VABI scePthreadCondInit(PthreadCond* cond, const PthreadCondattr* attr,
     if (attr)
         replacement->_clockid = (*attr)->_clockid;
     std::lock_guard lock(condInitializationMutex);
-    *cond = replacement.release();
+    std::atomic_ref<PthreadCond>(*cond).store(replacement.release(), std::memory_order_release);
     return 0;
 }
 
@@ -123,7 +130,7 @@ int APS5_VABI scePthreadCondDestroy(PthreadCond* cond) {
     if (*cond == destroyedCond())
         throw std::runtime_error("Condition variable has already been destroyed");
     delete *cond;
-    *cond = destroyedCond();
+    std::atomic_ref<PthreadCond>(*cond).store(destroyedCond(), std::memory_order_release);
     return 0;
 }
 
