@@ -1,4 +1,6 @@
+#include "prx/libkernel/Pthread/include/Pthread.hpp"
 #include "prx/libkernel/Pthread/include/Cond.hpp"
+#include "Common.hpp"
 #include <cstdint>
 #include <stdexcept>
 
@@ -30,6 +32,7 @@ int APS5_VABI pthread_cond_signal_nid_postfix(PthreadCond* cond) {
 }
 
 int APS5_VABI pthread_cond_timedwait_nid_postfix(PthreadCond* cond, PthreadMutex* mutex, const KernelTimespec* abstime) {
+    if (!abstime || abstime->tv_nsec < 0 || abstime->tv_nsec >= 1000000000) return PosixThread::GUEST_EINVAL;
     return toPosix(CondOperations::AbsoluteTimedwait(cond, mutex, abstime));
 }
 
@@ -38,14 +41,17 @@ int APS5_VABI pthread_cond_wait_nid_postfix(PthreadCond* cond, PthreadMutex* mut
 }
 
 int APS5_VABI pthread_condattr_destroy_nid_postfix(PthreadCondattr* attr) {
+    if (!attr || !*attr) return PosixThread::GUEST_EINVAL;
     return toPosix(scePthreadCondattrDestroy(attr));
 }
 
 int APS5_VABI pthread_condattr_init_nid_postfix(PthreadCondattr* attr) {
+    if (!attr) return PosixThread::GUEST_EINVAL;
     return toPosix(scePthreadCondattrInit(attr));
 }
 
 int APS5_VABI pthread_condattr_setclock_nid_postfix(PthreadCondattr* attr, KernelClockid clock_id) {
+    if (!attr || !*attr) return PosixThread::GUEST_EINVAL;
     return toPosix(scePthreadCondattrSetclock(attr, clock_id));
 }
 

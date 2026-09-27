@@ -90,4 +90,11 @@ void FillFileStat(int nativeDescriptor, FileStat* sb) {
     CopyNativeStat(st, sb);
 }
 
+bool FillFileStatFromDescriptor(int fd, FileStat* sb) {
+    NativeStat st{};
+    if (DoFstat(fd, &st) != 0) return false;
+    CopyNativeStat(st, sb);
+    return true;
+}
+
 }

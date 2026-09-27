@@ -9,6 +9,7 @@
 #endif
 
 #include "SceTypes.hpp"
+#include "prx/libc/include/General.hpp"
 #include "prx/libc/include/ApplicationHeap.hpp"
 #include "prx/libc/include/Shutdown.hpp"
 #include "prx/libkernel/DirectMemory/DirectMemory.hpp"
@@ -22,6 +23,7 @@
 #include <fstream>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -32,6 +34,8 @@
 #endif
 
 namespace {
+
+constexpr int sceInvalidArgument = static_cast<int>(0x80020016u);
 
 std::atomic<std::uint32_t> gpoBits{0};
 constexpr std::array<std::uint8_t, 16> openPsId{'A', 'n', 'y', 'P', 'S', '5', 'O', 'p', 'e', 'n', 'P', 's', 'I', 'd', 0, 1};
@@ -215,8 +219,7 @@ void* APS5_VABI sceKernelGetProcParam(void) {
 }
 
 int APS5_VABI sceKernelUuidCreate(std::uint32_t* uuid) {
-    if (!uuid)
-        throw std::invalid_argument("sceKernelUuidCreate: null output");
+    if (!uuid) return sceInvalidArgument;
     static thread_local std::random_device device;
     std::uniform_int_distribution<std::uint32_t> distribution;
     std::array<std::uint32_t, 4> value;
@@ -311,6 +314,10 @@ int APS5_VABI getrusage_nid_postfix(int who, GuestResourceUsage* usage) {
     usage->ru_nvcsw = static_cast<std::int64_t>(native.ru_nvcsw);
     usage->ru_nivcsw = static_cast<std::int64_t>(native.ru_nivcsw);
 #endif
+    return 0;
+}
+
+int APS5_VABI sceKernelIsTrinityMode(void) {
     return 0;
 }
 
