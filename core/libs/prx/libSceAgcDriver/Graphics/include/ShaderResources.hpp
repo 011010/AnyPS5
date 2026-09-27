@@ -21,6 +21,9 @@ namespace AgcDriver::Graphics {
 
 class Recorder;
 
+void FlushCachedTextures(VkDevice device);
+void ClearCachedTextures(VkDevice device);
+
 // The cached storage image of a surface (render targets use it as their resident image); brought up
 // to date with guest memory before it is returned.
 std::shared_ptr<StorageTexture> CachedStorageSurface(const Context& context, const GuestTextureResource& resource);

@@ -515,10 +515,41 @@ std::shared_ptr<StorageTexture> cachedStorageTexture(const Context& context, std
 
 }
 
-// Whether `image` is still the storage cache's image of its surface, i.e. what a lookup would return
-// (an evicted image next to a newer one of the same memory must not be reused: two images of one
-// surface would hold results). A use through the fast Revalidate or a draw recipe's target proof
-// counts as a use for the cache's eviction order, as a lookup would.
+void FlushCachedTextures(VkDevice device) {
+    Require(device != VK_NULL_HANDLE, "cannot flush textures without a Vulkan device");
+    GuestMemory::AssertGpuLockHeld("FlushCachedTextures");
+    auto& cache = StorageTextures();
+    std::lock_guard lock(cache.mutex);
+    for (const auto& entry : cache.entries) {
+        if (entry.key.device == device) entry.texture->Flush();
+    }
+}
+
+void ClearCachedTextures(VkDevice device) {
+    Require(device != VK_NULL_HANDLE, "cannot clear textures without a Vulkan device");
+    auto& sampled = Textures();
+    {
+        std::lock_guard lock(sampled.mutex);
+        for (auto it = sampled.entries.begin(); it != sampled.entries.end();) {
+            if (it->key.device == device) eraseTexture(sampled, it++);
+            else ++it;
+        }
+    }
+    auto& storage = StorageTextures();
+    std::lock_guard lock(storage.mutex);
+    for (auto it = storage.entries.begin(); it != storage.entries.end();) {
+        if (it->key.device != device) {
+            ++it;
+            continue;
+        }
+        it->texture->SetCached(false);
+        storage.bytes -= it->texture->GuestBytes();
+        storage.index.erase(it->key);
+        storage.byImage.erase(it->texture.get());
+        it = storage.entries.erase(it);
+    }
+}
+
 bool StorageImageCached(const Context& context, const StorageTexture* image) {
     auto& cache = StorageTextures();
     std::lock_guard lock(cache.mutex);

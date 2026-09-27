@@ -426,6 +426,7 @@ struct VulkanDevice::State {
             // Every ShaderResources (kept by the recorder or the resource cache) is gone now, so the
             // sets and samplers they borrowed can go.
             resourceCache.Clear();
+            Graphics::ClearCachedTextures(device);
             descriptorCache.reset();
             samplerCache.reset();
             textureCache.reset();
@@ -872,6 +873,14 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
 }
 
 VulkanDevice::~VulkanDevice() = default;
+
+void VulkanDevice::PrepareForReplacement() {
+    GuestMemory::AssertGpuLockHeld("VulkanDevice::PrepareForReplacement");
+    require(state->recorder != nullptr && Graphics::Recorder::Active() == state->recorder.get(), "device replacement requires its active recorder");
+    Graphics::FlushCachedTextures(state->device);
+    Graphics::PublishAllShadows(state->context, Graphics::PublishReason::Teardown);
+    WaitIdle();
+}
 
 void VulkanDevice::WaitIdle() {
     APS5_LOG_CHARS_OUT_DEBUG("VulkanDevice::WaitIdle begin");
