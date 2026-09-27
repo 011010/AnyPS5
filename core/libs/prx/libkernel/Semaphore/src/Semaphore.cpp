@@ -53,24 +53,35 @@ int APS5_VABI sceKernelWaitSema(KernelSema sem, int need, KernelUseconds* time) 
  }
 
  std::unique_lock<std::mutex> lock(sem->mutex);
+ ++sem->waiterCount;
+ struct WaiterGuard {
+  KernelSemaPrivate* sem;
+  ~WaiterGuard() {
+   --sem->waiterCount;
+   sem->condition.notify_all();
+  }
+ } waiterGuard{sem};
+
  if (time == nullptr) {
-  sem->condition.wait(lock, [&] { return sem->tokenCount >= need; });
+  sem->condition.wait(lock, [&] { return sem->tokenCount >= need || sem->deleted; });
+  if (sem->deleted) {
+   return KERNEL_SEMA_ERROR_EACCES;
+  }
   sem->tokenCount -= need;
   return KERNEL_SEMA_OK;
  }
 
  auto timeout = std::chrono::microseconds(*time);
- bool acquired = sem->condition.wait_for(lock, timeout, [&] { return sem->tokenCount >= need; });
+ bool acquired = sem->condition.wait_for(lock, timeout, [&] { return sem->tokenCount >= need || sem->deleted; });
+ if (sem->deleted) {
+  return KERNEL_SEMA_ERROR_EACCES;
+ }
  if (!acquired) {
   return KERNEL_SEMA_ERROR_ETIMEDOUT;
  }
  sem->tokenCount -= need;
  return KERNEL_SEMA_OK;
 }
-
-// ---------------------------------------------------------------------------
-// Moved as-is (not yet implemented) from the monolithic libkernel/Export.cpp.
-// ---------------------------------------------------------------------------
 
 int APS5_VABI sceKernelCancelSema(KernelSema sem, int count, int* threads) {
  (void)sem;
@@ -81,9 +92,19 @@ int APS5_VABI sceKernelCancelSema(KernelSema sem, int count, int* threads) {
 }
 
 int APS5_VABI sceKernelDeleteSema(KernelSema sem) {
- (void)sem;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+ if (sem == nullptr) {
+  APS5_INVALID_ARG_EX;
+ }
+
+ std::unique_lock<std::mutex> lock(sem->mutex);
+ sem->deleted = true;
+ sem->condition.notify_all();
+ while (sem->waiterCount > 0) {
+  sem->condition.wait(lock);
+ }
+ lock.unlock();
+ delete sem;
+ return KERNEL_SEMA_OK;
 }
 
 }
