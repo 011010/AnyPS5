@@ -1852,7 +1852,7 @@ private:
     // user[8..11], stride-4 32_UINT V#s and a stride-16 one). Demon's Souls runs it ~27 times per
     // frame at the movie stage, mostly on small records whose destinations later captures read, so
     // every such capture waited for the kernel's batch. Matched by the code hash and the exact V#
-    // control words (Kyty's guard set) and done by VulkanDevice::CopyBuffer: a CPU copy at packet
+    // control words and done by VulkanDevice::CopyBuffer: a CPU copy at packet
     // time when the copy is small and nothing recorded may still read the destination in place
     // (the recorder's read tracking) or write either range (the bytes are settled, with no pending
     // write for readers to wait on), else a transfer between the host imports.
@@ -2021,7 +2021,7 @@ private:
         std::memcpy(&period, reinterpret_cast<const void*>(record + 4), 4);
         const auto bytes = static_cast<std::size_t>(count) * 4u;
         // A plain copy only: n >= count (no repetition), every record inside both V#s, exactly the
-        // groups for the count (Kyty's guard), at most 16 MiB, dword-aligned ranges, and the count
+        // groups for the count, at most 16 MiB, dword-aligned ranges, and the count
         // record outside the destination (every wave of the kernel re-reads it after other waves
         // stored, while the HLE reads it once).
         if (count == 0 || period < count || groups[0] != (count + 63u) / 64u || count > userData[2] || count > userData[6] || bytes > (16u << 20u) || source % 4 != 0 || destination % 4 != 0 || (record < destination + bytes && destination < record + 8)) {
