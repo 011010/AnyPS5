@@ -6,6 +6,8 @@ Includes a [relinker](core/relinker) that converts executable to the target syst
 
 `relinker --to-intel` rewrites the Zen 2-only instructions a title may contain (EXTRQ, INSERTQ, MOVNTSS, MOVNTSD) at relink time, in place when an equal-length Intel encoding exists and otherwise through a jump to a generated stub section, so Intel hosts need no runtime emulation.
 
+By default the relinker also converts the title's own `sce_module`/`sce_modules` prx files into guest modules that take priority at link time (they require eager binding). A title whose `sce_module` ships its own `libc.prx`, such as Demon's Souls (PPSA01342), is relinked with `--skip-sce-module`: its libc would replace the project's [libc.prx](core/libs/prx/libc) (guest memory arena, heap, crash reporting) and imports kernel functions that are not implemented, so the executable fails to bind at startup.
+
 Releases will be published after the first full successful launch of at least one game.
 
 ## Status
