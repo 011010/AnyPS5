@@ -82,6 +82,7 @@ WindowsEntryStub WindowsEntryStubBuilder::Build(const std::uint32_t dataRva, con
     const auto loading = addString("Loading PRX: ");
     const auto loaded = addString(" -> OK\n");
     const auto loadFailed = addString(" -> FAILED\n");
+    const auto failedModule = addString("Failed to load module: ");
     const auto errorPrefix = addString("GetLastError: ");
     const auto messageSeparator = addString(" - ");
     const auto newline = addString("\n");
@@ -257,6 +258,9 @@ WindowsEntryStub WindowsEntryStubBuilder::Build(const std::uint32_t dataRva, con
         const auto loadSucceeded = code.Branch({0x0f, 0x85});
         captureLastError();
         writeString(loadFailed, true);
+        writeString(failedModule, true);
+        writeString(resolvedPaths[index], true);
+        writeString(newline, true);
         writeLastError();
         if (dependencyDiagnostics) {
             code.Rip({0x48, 0x8d, 0x0d}, resolvedPaths[index]);
