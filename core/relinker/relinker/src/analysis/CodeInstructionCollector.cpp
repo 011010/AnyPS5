@@ -2,8 +2,11 @@
 #include <relinker/analysis/UnusedNidFilter/IControlFlowGraph.hpp>
 #include <relinker/analysis/UnusedNidFilter/EhFrameReader.hpp>
 #include <codegen/x86/X64InstructionDecoder.hpp>
+#include <codegen/CodegenException.hpp>
 #include <io/BufferUtils.hpp>
 #include <limits>
+#include <map>
+#include <string>
 
 namespace Relinker {
 
@@ -73,7 +76,27 @@ std::set<Domain::VirtualAddress> CodeInstructionCollector::Collect(const std::ve
         return offset;
     };
     std::set<std::uint64_t> roots;
+    std::map<std::uint64_t, std::uint64_t> functions;
     const auto addRoot = [&](std::uint64_t address) { if (isCode(address)) roots.insert(address); };
+    const auto addFunction = [&](std::uint64_t begin, std::uint64_t size) {
+        if (size == 0) return;
+        if (!isCode(begin) || size > std::numeric_limits<std::uint64_t>::max() - begin)
+            throw Domain::RelinkerException("Code analysis: invalid function range", begin);
+        bool mapped = false;
+        for (const auto& header : headers) {
+            if (header.Type != 1 || (header.Flags & 1) == 0 || begin < header.MappedAddress || begin - header.MappedAddress >= header.FileSize) continue;
+            if (size > header.FileSize - (begin - header.MappedAddress))
+                throw Domain::RelinkerException("Code analysis: function exceeds executable segment", begin);
+            range(header.Offset + begin - header.MappedAddress, size);
+            mapped = true;
+            break;
+        }
+        if (!mapped) throw Domain::RelinkerException("Code analysis: function is not file-backed", begin);
+        const auto [position, inserted] = functions.emplace(begin, begin + size);
+        if (!inserted && position->second != begin + size)
+            throw Domain::RelinkerException("Code analysis: conflicting function ranges", begin);
+        roots.insert(begin);
+    };
     range(0, 64);
     if (const auto entry = Io::ReadU64(bytes, 24); entry != 0) addRoot(entry);
     for (const auto tag : {12u, 13u}) if (const auto address = value(tag, 0x60000000 + tag); address && *address != 0) addRoot(*address);
@@ -89,7 +112,11 @@ std::set<Domain::VirtualAddress> CodeInstructionCollector::Collect(const std::ve
         symbols = table(6, 0x61000039, symbolCount * 24);
         for (std::uint64_t index = 0; index < symbolCount; ++index) {
             const auto offset = symbols + index * 24;
-            if ((bytes[offset + 4] & 15) == 2 && Io::ReadU16(bytes, offset + 6) != 0) addRoot(Io::ReadU64(bytes, offset + 8));
+            if ((bytes[offset + 4] & 15) == 2 && Io::ReadU16(bytes, offset + 6) != 0) {
+                const auto address = Io::ReadU64(bytes, offset + 8);
+                addRoot(address);
+                addFunction(address, Io::ReadU64(bytes, offset + 16));
+            }
         }
     }
     CodePointers pointers;
@@ -139,12 +166,30 @@ std::set<Domain::VirtualAddress> CodeInstructionCollector::Collect(const std::ve
         }
     }
     for (const auto& function : UnusedNidFilter::ReadExceptionFunctions(bytes, headers, pointers.Values, importSlots)) {
-        addRoot(function.Begin);
+        if (function.End <= function.Begin) throw Domain::RelinkerException("Code analysis: invalid unwind function range", function.Begin);
+        addFunction(function.Begin, function.End - function.Begin);
         for (const auto target : function.ExtraTargets) addRoot(target);
     }
     if (roots.empty()) throw Domain::RelinkerException("Code analysis: no code entry points");
     std::set<std::uint64_t> instructions;
     const Codegen::X64InstructionDecoder decoder;
+    for (const auto& [begin, end] : functions) {
+        const auto offset = fileOffset(begin, end - begin);
+        for (auto address = begin; address < end;) {
+            Codegen::DecodedInstructionInfo info;
+            try {
+                info = decoder.DecodeInstruction(bytes.data() + offset + address - begin, end - address);
+            } catch (const Codegen::CodegenException& error) {
+                throw Domain::RelinkerException(std::string("Code analysis: ") + error.what(), address);
+            }
+            if (info.Length == 0 || info.Length > end - address)
+                throw Domain::RelinkerException("Code analysis: instruction crosses function boundary", address);
+            instructions.insert(address);
+            if (info.HasBranchTarget && !info.HasRipRelativeDisp)
+                addRoot(address + info.Length + static_cast<std::uint64_t>(info.BranchDisp));
+            address += info.Length;
+        }
+    }
     std::size_t previousRoots = 0;
     do {
         previousRoots = roots.size();

@@ -86,8 +86,10 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_optional_plt.py $<TARGET_FILE:relinker>)
         add_test(NAME empty_tls COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_empty_tls.py $<TARGET_FILE:relinker>)
+        add_test(NAME tls_function_coverage COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_tls_function_coverage.py $<TARGET_FILE:relinker>)
     else()
-        message(STATUS "Python3 interpreter not found; skipping optional_plt and empty_tls tests")
+        message(STATUS "Python3 interpreter not found; skipping Python relinker tests")
     endif()
     add_executable(strict_nid_filter_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/StrictNidFilterTests.cpp
