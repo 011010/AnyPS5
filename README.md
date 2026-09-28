@@ -30,7 +30,7 @@ The project targets maximum compiler portability. Support for additional compile
 
 ## Input mapping
 
-Keyboard and mouse controls can be configured with an `anyps5-input.ini` file. See [input mapping](docs/INPUT_MAPPING.md) for the format and behavior.
+SDL-mapped game controllers are supported, including analog sticks and triggers. Keyboard and mouse controls can be configured with an `anyps5-input.ini` file. See [input mapping](docs/INPUT_MAPPING.md) for the supported devices and configuration format.
 
 ## Disclaimer
 
