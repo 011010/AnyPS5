@@ -8,6 +8,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/Recorder.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureFormat.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Execution/include/CaptureTrace.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include "prx/libc/include/General.hpp"
 #include "Optimization/include/Optimization/ShaderStageInputInfo.hpp"
@@ -998,6 +999,72 @@ struct RecordedDraw {
 // attachments with nothing recorded between them share one pass; the host-write and host-read
 // barriers are implicit in the submission and the fence. Then the kept objects, the completion
 // work and, for a waited-for draw, the recorder sync.
+bool CaptureInputsEnabled() {
+    static const bool enabled = std::getenv("APS5_CAPTURE_INPUTS") != nullptr;
+    Require(!enabled || CaptureTrace::Enabled(), "APS5_CAPTURE_INPUTS requires APS5_CAPTURE_TRACE");
+    return enabled;
+}
+
+void captureInputs(const Context& context, Recorder& recorder, VkCommandBuffer commands, const ShaderResources& resources, std::uint64_t target) {
+    struct Sample {
+        std::uint64_t address;
+        std::size_t offset;
+        std::vector<std::byte> expected;
+        VkBuffer source;
+        VkDeviceSize sourceOffset;
+    };
+    static unsigned long long nextDraw = 0;
+    const auto draw = ++nextDraw;
+    const auto batch = static_cast<unsigned long long>(recorder.Submissions() + 1);
+    std::vector<Sample> samples;
+    std::size_t total = 0;
+    for (const auto& [begin, end] : resources.InPlaceReads()) {
+        Require(end >= begin, "invalid capture input range");
+        const auto bytes = static_cast<std::size_t>(end - begin);
+        if (bytes == 0 || bytes > 512) continue;
+        if (resources.WritesOverlap(begin, bytes) || recorder.PendingWriteOverlaps(begin, bytes)) {
+            CaptureTrace::Log("input-skip draw=%llu batch=%llu address=%llx bytes=%zu reason=gpu-writer", draw, batch, static_cast<unsigned long long>(begin), bytes);
+            continue;
+        }
+        const auto* imported = HostImportFor(context, begin, bytes);
+        Require(imported != nullptr, "capture input has no host import");
+        Require(begin % 4 == 0 && bytes % 4 == 0, "capture input is not aligned for a Vulkan buffer copy");
+        Require(total + bytes <= 65536, "capture inputs exceed 64 KiB per draw");
+        Sample sample{begin, total, std::vector<std::byte>(bytes), imported->buffer, begin - imported->base};
+        std::memcpy(sample.expected.data(), reinterpret_cast<const void*>(begin), bytes);
+        total += bytes;
+        samples.push_back(std::move(sample));
+    }
+    CaptureTrace::Log("input-capture draw=%llu batch=%llu target=%llx ranges=%zu bytes=%zu", draw, batch, static_cast<unsigned long long>(target), samples.size(), total);
+    if (samples.empty()) return;
+    auto readback = std::make_shared<Buffer>(context, total, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+    const auto copy = context.Function<PFN_vkCmdCopyBuffer>("vkCmdCopyBuffer");
+    for (const auto& sample : samples) {
+        const VkBufferCopy region{sample.sourceOffset, sample.offset, sample.expected.size()};
+        copy(commands, sample.source, readback->Handle(), 1, &region);
+    }
+    RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_HOST_READ_BIT | VK_ACCESS_SHADER_READ_BIT);
+    recorder.OnComplete([draw, batch, target, readback, samples = std::move(samples)] {
+        const auto actual = readback->Bytes();
+        std::size_t differences = 0;
+        for (const auto& sample : samples) {
+            std::size_t changed = 0;
+            for (std::size_t index = 0; index < sample.expected.size(); ++index) {
+                const auto gpu = actual[sample.offset + index];
+                if (sample.expected[index] == gpu) continue;
+                if (changed < 16) CaptureTrace::Log("input-byte draw=%llu batch=%llu address=%llx offset=%zu cpu=%02x gpu=%02x", draw, batch, static_cast<unsigned long long>(sample.address), index, std::to_integer<unsigned>(sample.expected[index]), std::to_integer<unsigned>(gpu));
+                ++changed;
+            }
+            if (changed != 0) {
+                ++differences;
+                CaptureTrace::Log("input-mismatch draw=%llu batch=%llu target=%llx address=%llx bytes=%zu changed=%zu", draw, batch, static_cast<unsigned long long>(target), static_cast<unsigned long long>(sample.address), sample.expected.size(), changed);
+            }
+        }
+        CaptureTrace::Log("input-result draw=%llu batch=%llu ranges=%zu mismatched=%zu", draw, batch, samples.size(), differences);
+    });
+}
+
 void recordDraw(const Context& context, const State& state, const Pm4::DrawParameters& draw, std::span<const CompiledShader> shaders, DrawInputs& inputs, RecordedDraw& record, DrawOutcome& outcome, DrawTimer& timer, double& ownWaitedMs) {
     auto* recorder = record.recorder;
     auto& resources = *record.resources;
@@ -1030,10 +1097,12 @@ void recordDraw(const Context& context, const State& state, const Pm4::DrawParam
     if (recorder->HasQueuedKeyStores() && (resources.HoldsLease() || recorder->AnyQueuedKeyStore(touches))) recorder->FlushKeyStores();
     // A queued label store over such memory likewise (Recorder::RecordStore).
     if (recorder->HasQueuedStores() && (resources.HoldsLease() || recorder->AnyQueuedStore(touches))) recorder->FlushStores();
-    const bool continued = !readsTarget && !gpuIndirect && recorder->ContinuesRenderPass(passKey);
+    const bool capture = CaptureInputsEnabled();
+    const bool continued = !capture && !readsTarget && !gpuIndirect && recorder->ContinuesRenderPass(passKey);
     outcome.passContinued = continued;
     outcome.passBegun = !continued;
     const auto commands = continued ? recorder->CommandsInRenderPass() : recorder->Commands();
+    if (capture) captureInputs(context, *recorder, commands, resources, record.targets.empty() || record.targets.front() == nullptr ? 0 : record.targets.front()->Descriptor().baseAddress);
     // The draw's [gputime] class range: from its first barrier to the pass's trailing barrier (a
     // continued draw lies inside its pass's range).
     const auto drawTiming = !continued ? recorder->BeginGpuTiming(CommandClass::Draw) : Recorder::NoTiming;
