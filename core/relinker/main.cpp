@@ -19,6 +19,7 @@
 #include <relinker/pipeline/RelinkerPipeline.hpp>
 #include <relinker/guest/GuestImage.hpp>
 #include <codegen/IAmd64OnlyConverter.hpp>
+#include <codegen/CodegenException.hpp>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -41,17 +42,15 @@ int main(const int argc, char* argv[]) {
         auto sourceBytes = fileReader.Read(args.inputPath);
         const std::string absPath = std::filesystem::absolute(args.outputPath).string();
 
+        std::vector<Codegen::TrampolineSite> trampolines;
         if (args.toIntel) {
-            std::cout << "Mode: Intel instruction conversion; system unchanged; unused-filter=" << args.unusedFilterLevel << " (not applied)\n";
-
-            const Relinker::ElfReader elfReader(sourceBytes);
-            const auto converter = Codegen::MakeAmd64OnlyConverter();
-
-            auto codeSegments = elfReader.ReadCodeSegments();
-            auto result = converter->Convert(std::move(sourceBytes), codeSegments);
-
-            sourceBytes = std::move(result.Bytes);
-            std::cout << "OK: " << result.ReplacedCount << " instructions replaced\n";
+            const auto codeSegments = Relinker::ElfReader(sourceBytes).ReadCodeSegments();
+            auto converted = Codegen::MakeAmd64OnlyConverter()->Convert(std::move(sourceBytes), codeSegments);
+            sourceBytes = std::move(converted.Bytes);
+            trampolines = std::move(converted.Trampolines);
+            for (const auto& report : converted.Reports)
+                std::cout << "Intel substitution: " << report.InstructionName << " at 0x" << std::hex << report.Offset << std::dec << " (" << report.OriginalLength << " bytes) -> " << (report.Lowering == Codegen::Amd64OnlyLowering::InPlace ? "in place " : "stub ") << report.ReplacementLength << " bytes\n";
+            std::cout << "Intel conversion: " << converted.ReplacedCount << " in place, " << trampolines.size() << " stubs\n";
         }
 
         auto elfReader = std::make_shared<Relinker::ElfReader>(sourceBytes);
@@ -91,7 +90,7 @@ int main(const int argc, char* argv[]) {
 
         std::shared_ptr<Elfpatcher::IElfPatcher> patcher;
         if (args.toWindows) {
-            patcher = std::make_shared<Elfpatcher::Windows::WindowsPePatcher>();
+            patcher = std::make_shared<Elfpatcher::Windows::WindowsPePatcher>(args.windowsGui);
         } else {
             patcher = std::make_shared<Elfpatcher::Linux::LinuxElfPatcher>(
                 std::make_shared<Elfpatcher::EntryStubBuilder>(),
@@ -104,7 +103,7 @@ int main(const int argc, char* argv[]) {
             );
         }
 
-        const auto executableBytes = patcher->Patch(sourceBytes, result.OriginalHeaders, result.DynamicSection, result.OriginalPltGotVaddr, args.runPath, args.lazyBinding, args.windowsDiagnostics);
+        const auto executableBytes = patcher->Patch(sourceBytes, result.OriginalHeaders, result.DynamicSection, result.OriginalPltGotVaddr, args.runPath, args.lazyBinding, args.windowsDiagnostics, trampolines);
         for (const auto& artifact : guestArtifacts) {
             std::filesystem::create_directories(artifact.Path.parent_path());
             fileWriter.Write(artifact.Path.string(), artifact.Bytes);
@@ -116,6 +115,11 @@ int main(const int argc, char* argv[]) {
         if (args.autorun) return Cli::Autorun(absPath, args.toWindows);
 
     } catch (const Domain::RelinkerException& e) {
+        std::cerr << "FAIL: " << e.what();
+        if (e.FailureOffset != 0) std::cerr << " (offset 0x" << std::hex << e.FailureOffset << ")";
+        std::cerr << "\n";
+        return 2;
+    } catch (const Codegen::CodegenException& e) {
         std::cerr << "FAIL: " << e.what();
         if (e.FailureOffset != 0) std::cerr << " (offset 0x" << std::hex << e.FailureOffset << ")";
         std::cerr << "\n";

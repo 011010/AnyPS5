@@ -1,9 +1,16 @@
 #include "prx/libkernel/Pthread/include/Pthread.hpp"
 #include "prx/libkernel/Pthread/include/Mutex.hpp"
 #include "prx/libkernel/Pthread/include/Cond.hpp"
+#include "prx/libkernel/Pthread/Posix/Common.hpp"
+#include "prx/libkernel/Time/include/Time.hpp"
+#include "prx/libkernel/Time/include/TimedWait.hpp"
+#include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <stdexcept>
+#include <thread>
 
 namespace {
 
@@ -17,12 +24,18 @@ PthreadCond destroyedCond() {
 PthreadCond resolveCond(PthreadCond* cond) {
     if (!cond)
         throw std::invalid_argument("Condition variable pointer is null");
+    std::atomic_ref<PthreadCond> slot(*cond);
+    if (const auto current = slot.load(std::memory_order_acquire); current && current != destroyedCond())
+        return current;
     std::lock_guard lock(condInitializationMutex);
-    if (*cond == destroyedCond())
+    const auto current = slot.load(std::memory_order_acquire);
+    if (current == destroyedCond())
         throw std::runtime_error("Condition variable has been destroyed");
-    if (!*cond)
-        *cond = new PthreadCondPrivate();
-    return *cond;
+    if (current)
+        return current;
+    auto* created = new PthreadCondPrivate();
+    slot.store(created, std::memory_order_release);
+    return created;
 }
 
 PthreadMutex lockedMutex(PthreadMutex* mutex) {
@@ -34,17 +47,22 @@ PthreadMutex lockedMutex(PthreadMutex* mutex) {
     return current;
 }
 
-int waitUntil(PthreadCond* cond, PthreadMutex* mutex, const std::chrono::system_clock::time_point* deadline) {
+int waitUntil(PthreadCond* cond, PthreadMutex* mutex, std::optional<std::uint64_t> deadlineNanos, const void* caller) {
     auto* c = resolveCond(cond);
     auto* m = lockedMutex(mutex);
+    bool timedOut = false;
+    const auto waitStart = std::chrono::steady_clock::now();
+    struct Trace {
+        const void* caller; const bool& timedOut; std::chrono::steady_clock::time_point start;
+        ~Trace() { KernelTraceWait_nid_postfix("cond", caller, static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count()), timedOut); }
+    } trace{caller, timedOut, waitStart};
     if (m->_type == MutexType::Recursive) {
         std::unique_lock<std::recursive_timed_mutex> lock(m->_rmtx, std::adopt_lock);
         const auto previousCount = m->_count;
         m->_count = 0;
         m->_owner.store(std::thread::id{}, std::memory_order_release);
-        const bool timedOut = deadline && c->_cv.wait_until(lock, *deadline) == std::cv_status::timeout;
-        if (!deadline)
-            c->_cv.wait(lock);
+        if (deadlineNanos) timedOut = !c->_cv.WaitUntil(lock, *deadlineNanos);
+        else c->_cv.Wait(lock);
         m->_owner.store(std::this_thread::get_id(), std::memory_order_release);
         m->_count = previousCount;
         lock.release();
@@ -52,31 +70,20 @@ int waitUntil(PthreadCond* cond, PthreadMutex* mutex, const std::chrono::system_
     }
     std::unique_lock<std::timed_mutex> lock(m->_mtx, std::adopt_lock);
     m->_owner.store(std::thread::id{}, std::memory_order_release);
-    const bool timedOut = deadline && c->_cv.wait_until(lock, *deadline) == std::cv_status::timeout;
-    if (!deadline)
-        c->_cv.wait(lock);
+    if (deadlineNanos) timedOut = !c->_cv.WaitUntil(lock, *deadlineNanos);
+    else c->_cv.Wait(lock);
     m->_owner.store(std::this_thread::get_id(), std::memory_order_release);
     lock.release();
     return timedOut ? sceTimedOut : 0;
 }
 
-std::chrono::system_clock::time_point toDeadline(const KernelTimespec* abstime) {
-    if (!abstime || abstime->tv_sec < 0 || abstime->tv_nsec < 0 || abstime->tv_nsec >= 1000000000)
-        throw std::invalid_argument("Invalid absolute condition variable timeout");
-    const auto maximum = std::chrono::nanoseconds::max().count();
-    if (abstime->tv_sec > (maximum - abstime->tv_nsec) / 1000000000)
-        throw std::overflow_error("Absolute condition variable timeout exceeds the host clock range");
-    const auto duration = std::chrono::nanoseconds(abstime->tv_sec * 1000000000 + abstime->tv_nsec);
-    if (std::chrono::duration<long double>(duration) >= std::chrono::duration<long double>(std::chrono::system_clock::duration::max()))
-        throw std::overflow_error("Absolute condition variable timeout exceeds the host clock range");
-    return std::chrono::system_clock::time_point(std::chrono::duration_cast<std::chrono::system_clock::duration>(duration));
-}
-
 }
 
 int CondOperations::AbsoluteTimedwait(PthreadCond* cond, PthreadMutex* mutex, const KernelTimespec* abstime) {
-    const auto deadline = toDeadline(abstime);
-    return waitUntil(cond, mutex, &deadline);
+    KernelUseconds usec = 0;
+    if (!PosixThread::RelativeMicroseconds(resolveCond(cond)->_clockid, abstime, &usec))
+        throw std::invalid_argument("Invalid absolute condition variable timeout");
+    return waitUntil(cond, mutex, TimedWait::DeadlineNanos(usec), __builtin_return_address(0));
 }
 
 extern "C" {
@@ -109,8 +116,10 @@ int APS5_VABI scePthreadCondInit(PthreadCond* cond, const PthreadCondattr* attr,
     if (attr && !*attr)
         throw std::invalid_argument("Condition attributes are not initialized");
     auto replacement = std::make_unique<PthreadCondPrivate>();
+    if (attr)
+        replacement->_clockid = (*attr)->_clockid;
     std::lock_guard lock(condInitializationMutex);
-    *cond = replacement.release();
+    std::atomic_ref<PthreadCond>(*cond).store(replacement.release(), std::memory_order_release);
     return 0;
 }
 
@@ -121,33 +130,32 @@ int APS5_VABI scePthreadCondDestroy(PthreadCond* cond) {
     if (*cond == destroyedCond())
         throw std::runtime_error("Condition variable has already been destroyed");
     delete *cond;
-    *cond = destroyedCond();
+    std::atomic_ref<PthreadCond>(*cond).store(destroyedCond(), std::memory_order_release);
     return 0;
 }
 
 int APS5_VABI scePthreadCondSignal(PthreadCond* cond) {
-    resolveCond(cond)->_cv.notify_one();
+    resolveCond(cond)->_cv.NotifyOne();
     return 0;
 }
 
 int APS5_VABI scePthreadCondBroadcast(PthreadCond* cond) {
-    resolveCond(cond)->_cv.notify_all();
+    resolveCond(cond)->_cv.NotifyAll();
     return 0;
 }
 
 int APS5_VABI scePthreadCondSignalto(PthreadCond* cond, Pthread thread) {
     (void)thread;
-    resolveCond(cond)->_cv.notify_all();
+    resolveCond(cond)->_cv.NotifyAll();
     return 0;
 }
 
 int APS5_VABI scePthreadCondWait(PthreadCond* cond, PthreadMutex* mutex) {
-    return waitUntil(cond, mutex, nullptr);
+    return waitUntil(cond, mutex, std::nullopt, __builtin_return_address(0));
 }
 
 int APS5_VABI scePthreadCondTimedwait(PthreadCond* cond, PthreadMutex* mutex, KernelUseconds usec) {
-    const auto deadline = std::chrono::system_clock::now() + std::chrono::microseconds(usec);
-    return waitUntil(cond, mutex, &deadline);
+    return waitUntil(cond, mutex, TimedWait::DeadlineNanos(usec), __builtin_return_address(0));
 }
 
 }
