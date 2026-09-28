@@ -5,9 +5,14 @@
 #include "prx/libc/include/General.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
 #include "DirectMemory.hpp"
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#else
+#include <fstream>
+#include <sstream>
+#endif
 #include <algorithm>
 #include <stdexcept>
 #include <string>
@@ -179,12 +184,33 @@ int APS5_VABI sceKernelVirtualQuery(const void* addr, int flags, VirtualQueryInf
  }
  // Memory the registry does not know (the title's own heap blocks, stacks): the host's committed
  // region around the address is the honest extent; unmapped memory is an error, as on the PS5.
+ #ifdef _WIN32
  MEMORY_BASIC_INFORMATION host{};
  if (VirtualQuery(addr, &host, sizeof(host)) == 0 || host.State != MEM_COMMIT) return SCE_KERNEL_ERROR_EACCES;
  info->start = reinterpret_cast<uintptr_t>(host.BaseAddress);
  info->end = info->start + host.RegionSize;
  const bool writable = (host.Protect & (PAGE_READWRITE | PAGE_EXECUTE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_WRITECOPY)) != 0;
  const bool executable = (host.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
+ #else
+ std::ifstream maps("/proc/self/maps");
+ std::string line;
+ bool found = false, writable = false, executable = false;
+ while (std::getline(maps, line)) {
+  std::istringstream fields(line);
+  uintptr_t begin = 0, end = 0;
+  char dash = 0;
+  std::string perms;
+  if (!(fields >> std::hex >> begin >> dash >> end >> perms) || address < begin || address >= end) continue;
+  if (perms.size() < 3 || perms[0] != 'r') return SCE_KERNEL_ERROR_EACCES;
+  info->start = begin;
+  info->end = end;
+  writable = perms[1] == 'w';
+  executable = perms[2] == 'x';
+  found = true;
+  break;
+ }
+ if (!found) return SCE_KERNEL_ERROR_EACCES;
+ #endif
  info->protection = 1 | (writable ? 2 : 0) | (executable ? 4 : 0);
  info->is_flexible = 1;
  info->is_committed = 1;
