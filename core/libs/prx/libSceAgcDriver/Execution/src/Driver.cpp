@@ -3836,8 +3836,15 @@ private:
             const bool colorWrites = targetMask != queue.context.end() && shaderMask != queue.context.end() && (targetMask->second & shaderMask->second) != 0;
             if (!colorWrites && !queue.shader.contains(0x8)) return DrawVerdict::Nothing;
         }
+        if (drawParameters.indexed) {
+            const auto restart = queue.userConfig.find(0x24b);
+            if (restart != queue.userConfig.end() && restart->second != 0) {
+                rejected = "AGC graphics: primitive restart (GE_MULTI_PRIM_IB_RESET_EN) is unsupported for indexed draws";
+                return DrawVerdict::Rejected;
+            }
+        }
         if (DrawPrecheck()) {
-            rejected = Graphics::DrawRejection(queue);
+            rejected = Graphics::DrawRejection(queue, drawParameters.indexed);
             if (!rejected.empty()) return DrawVerdict::Rejected;
         }
         phase(DrawRowPrecheck);
