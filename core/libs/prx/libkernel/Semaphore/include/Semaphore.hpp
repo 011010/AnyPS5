@@ -2,7 +2,6 @@
 #define CORE_LIBS_PRX_LIBKERNEL_SEMAPHORE_SEMAPHORE_HPP
 
 #include <chrono>
-#include <condition_variable>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -10,6 +9,7 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libkernel/KernelErrors.hpp"
+#include "prx/libkernel/Time/include/TimedWait.hpp"
 
 constexpr int KERNEL_SEMA_OK = 0;
 
@@ -17,7 +17,7 @@ struct KernelSemaPrivate {
     KernelSemaPrivate(std::int32_t initCount, std::int32_t maxCount, std::string name, bool isFifo);
 
     std::mutex mutex;
-    std::condition_variable condition;
+    TimedWait::Condition condition;
     std::string name;
     std::int32_t tokenCount;
     std::int32_t maxCount;

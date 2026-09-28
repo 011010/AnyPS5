@@ -1,4 +1,6 @@
 #include "prx/libkernel/Semaphore/include/Semaphore.hpp"
+#include "prx/libkernel/Time/include/Time.hpp"
+#include <chrono>
 
 #include <stdexcept>
 #include <string>
@@ -43,7 +45,7 @@ int APS5_VABI sceKernelSignalSema(KernelSema sem, int count) {
   return SCE_KERNEL_ERROR_EINVAL;
  }
  sem->tokenCount += count;
- sem->condition.notify_all();
+ sem->condition.NotifyAll();
  return KERNEL_SEMA_OK;
 }
 
@@ -58,12 +60,17 @@ int APS5_VABI sceKernelWaitSema(KernelSema sem, int need, KernelUseconds* time) 
   KernelSemaPrivate* sem;
   ~WaiterGuard() {
    --sem->waiterCount;
-   sem->condition.notify_all();
+   sem->condition.NotifyAll();
   }
  } waiterGuard{sem};
 
+ const auto waitStart = std::chrono::steady_clock::now();
+ const auto traceWait = [&](bool timedOut) {
+  KernelTraceWait_nid_postfix("sema", __builtin_return_address(0), static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - waitStart).count()), timedOut);
+ };
  if (time == nullptr) {
-  sem->condition.wait(lock, [&] { return sem->tokenCount >= need || sem->deleted; });
+  sem->condition.Wait(lock, [&] { return sem->tokenCount >= need || sem->deleted; });
+  traceWait(false);
   if (sem->deleted) {
    return SCE_KERNEL_ERROR_EACCES;
   }
@@ -71,8 +78,8 @@ int APS5_VABI sceKernelWaitSema(KernelSema sem, int need, KernelUseconds* time) 
   return KERNEL_SEMA_OK;
  }
 
- auto timeout = std::chrono::microseconds(*time);
- bool acquired = sem->condition.wait_for(lock, timeout, [&] { return sem->tokenCount >= need || sem->deleted; });
+ const bool acquired = sem->condition.WaitUntil(lock, TimedWait::DeadlineNanos(*time), [&] { return sem->tokenCount >= need || sem->deleted; });
+ traceWait(!acquired);
  if (sem->deleted) {
   return SCE_KERNEL_ERROR_EACCES;
  }
@@ -98,10 +105,8 @@ int APS5_VABI sceKernelDeleteSema(KernelSema sem) {
 
  std::unique_lock<std::mutex> lock(sem->mutex);
  sem->deleted = true;
- sem->condition.notify_all();
- while (sem->waiterCount > 0) {
-  sem->condition.wait(lock);
- }
+ sem->condition.NotifyAll();
+ sem->condition.Wait(lock, [&] { return sem->waiterCount == 0; });
  lock.unlock();
  delete sem;
  return KERNEL_SEMA_OK;
