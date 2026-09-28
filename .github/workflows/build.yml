@@ -34,6 +34,7 @@ jobs:
           evict-old-files: job
       - run: cmake -S . -B build $CONFIGURE
       - run: cmake --build build
+      - run: cmake --build build --target libs
       - run: ctest --test-dir build --output-on-failure --timeout 120
 
   windows:
@@ -68,5 +69,7 @@ jobs:
         run: cmake -S . -B build %CONFIGURE%
       - shell: cmd
         run: cmake --build build
+      - shell: cmd
+        run: cmake --build build --target libs
       - shell: cmd
         run: ctest --test-dir build --output-on-failure --timeout 120
