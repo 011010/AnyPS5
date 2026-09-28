@@ -67,6 +67,45 @@ public:
         flipReached = reached;
     }
 
+    Clock::time_point FlipReached() {
+        std::lock_guard lock(mutex);
+        return flipReached;
+    }
+
+    // Recorder batches at the flip packet (after its submit) and how many had not signaled.
+    void NoteFlipBatches(std::uint64_t atFlip, std::uint64_t unsignaled) {
+        std::lock_guard lock(mutex);
+        batchesAtFlip = atFlip;
+        unsignaledAtFlip = unsignaled;
+    }
+
+    // 0 until the flip packet sampled the recorder (the drain paths never do).
+    std::uint64_t BatchesAtFlip() {
+        std::lock_guard lock(mutex);
+        return batchesAtFlip;
+    }
+
+    // At the presentation's blit: the batches ahead of it, the newest batch's vkQueueSubmit time
+    // and the blit's own, both measured from the flip packet.
+    void NoteBlit(std::uint64_t atBlit, Clock::time_point lastSubmitted, Clock::time_point blitSubmitted) {
+        std::lock_guard lock(mutex);
+        batchesAtBlit = atBlit;
+        if (flipReached == Clock::time_point{}) return;
+        blitSubmitAfterFlip = blitSubmitted - flipReached;
+        lastSubmitAfterFlip = std::max(lastSubmitted, blitSubmitted) - flipReached;
+    }
+
+    // A presentation retired during this present (with APS5_FLIP_INFLIGHT=1 the previous frame's):
+    // the batches submitted behind its blit; and, for a retired presentation whose batches all
+    // have their completion record by this present (VulkanDevice's SettleRetired: usually one
+    // present later than the retire), the GPU's busy time and idle gaps over those batches.
+    void NoteRetired(std::uint64_t afterFlip, double busyMs, double gapMs) {
+        std::lock_guard lock(mutex);
+        batchesAfterFlip += afterFlip;
+        gpuBusyMs += busyMs;
+        gpuGapMs += gapMs;
+    }
+
     void Print(std::uint32_t outputHandle, std::int32_t buffer, std::int64_t argument, Clock::time_point finished, Clock::duration interval) {
         std::lock_guard lock(mutex);
         if (firstSerial == 0 || flipSerial == 0) throw std::runtime_error("Frame timing: incomplete submission lineage");
@@ -89,6 +128,9 @@ public:
         }
         output << " worker_unattributed_ms=" << milliseconds(flipReached - executionStart - accounted);
         if (interval != Clock::duration::zero()) output << " flip_interval_ms=" << milliseconds(interval);
+        output << " batches_at_flip=" << batchesAtFlip << " unsignaled_at_flip=" << unsignaledAtFlip << " batches_at_blit=" << batchesAtBlit << " batches_after_flip=" << batchesAfterFlip;
+        output << " gpu_busy_ms=" << gpuBusyMs << " gpu_gap_ms=" << gpuGapMs;
+        output << " last_submit_after_flip_ms=" << milliseconds(lastSubmitAfterFlip) << " blit_submit_after_flip_ms=" << milliseconds(blitSubmitAfterFlip);
         output << " metrics=inclusive(count,sum_ms,max_ms[,bytes])";
         for (const auto& [key, metric] : metrics) {
             if (metric.count == 0) continue;
@@ -117,6 +159,14 @@ private:
     Clock::time_point executionStart{};
     Clock::time_point flipReceived{};
     Clock::time_point flipReached{};
+    std::uint64_t batchesAtFlip = 0;
+    std::uint64_t unsignaledAtFlip = 0;
+    std::uint64_t batchesAtBlit = 0;
+    std::uint64_t batchesAfterFlip = 0;
+    double gpuBusyMs = 0;
+    double gpuGapMs = 0;
+    Clock::duration lastSubmitAfterFlip{};
+    Clock::duration blitSubmitAfterFlip{};
 };
 
 class PerformanceContext {
