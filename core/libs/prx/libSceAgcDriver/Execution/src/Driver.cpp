@@ -6144,12 +6144,8 @@ private:
             } catch (...) {
                 std::fprintf(stderr, "[gpu] worker failed with a non-standard exception\n");
             }
-            for (const auto& [offset, flip] : submission.flips) flip->Fail(error);
-            ReportFailure(error);
-            {
-                std::lock_guard gpuLock(GuestMemory::GpuMutex());
-                device.reset();
-            }
+            std::fflush(stderr);
+            std::terminate();
         }
     }
 };
