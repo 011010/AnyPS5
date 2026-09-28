@@ -20,7 +20,7 @@ The [shader recompiler](core/shader/recompiler/Recompiler.cpp) successfully prod
 
 The real game reaches the logo, main menu, and [gameplay](https://gist.github.com/user-attachments/assets/81d28e9b-c237-4545-b2ca-720071129816) with audio.
 
-[Technical debt of the project](docs/TechnicalDebt.md), [code style conventions](docs/CONVENTIONS.md)
+[Technical debt of the project](docs/dev/TechnicalDebt.md), [code style conventions](docs/dev/CONVENTIONS.md)
 
 ## Build
 
@@ -30,9 +30,13 @@ The relinker uses only the C++20 standard library and should build with any conf
 
 The project targets maximum compiler portability. Support for additional compilers will be addressed after the first successful game launch.
 
+## Compatibility
+
+See the [game compatibility list](docs/user/COMPATIBILITY.md) for tested games and known issues.
+
 ## Input mapping
 
-SDL-mapped game controllers are supported, including analog sticks and triggers. Keyboard and mouse controls can be configured with an `anyps5-input.ini` file. See [input mapping](docs/INPUT_MAPPING.md) for the supported devices and configuration format.
+SDL-mapped game controllers are supported, including analog sticks and triggers. Keyboard and mouse controls can be configured with an `anyps5-input.ini` file. See [input mapping](docs/user/INPUT_MAPPING.md) for the supported devices and configuration format.
 
 ## Disclaimer
 
