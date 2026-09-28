@@ -57,6 +57,9 @@ bool IsScalarAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::SOrn2SaveexecB32:
         case RdnaOpcode::SAndn1SaveexecB32:
         case RdnaOpcode::SAndSaveexecB64:
+        case RdnaOpcode::SOrSaveexecB64:
+        case RdnaOpcode::SXorSaveexecB64:
+        case RdnaOpcode::SAndn2SaveexecB64:
         case RdnaOpcode::SOrn2SaveexecB64:
         case RdnaOpcode::SAndn1SaveexecB64:
         case RdnaOpcode::SNotB32:

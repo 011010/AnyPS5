@@ -68,6 +68,15 @@ bool TranslationContext::emitScalar(const RdnaInstruction& inst) {
     case RdnaOpcode::SAndSaveexecB64:
         sSaveexec(inst, IrOpcode::LogicalAnd, false, false, true);
         return true;
+    case RdnaOpcode::SOrSaveexecB64:
+        sSaveexec(inst, IrOpcode::LogicalOr, false, false, true);
+        return true;
+    case RdnaOpcode::SXorSaveexecB64:
+        sSaveexec(inst, IrOpcode::LogicalXor, false, false, true);
+        return true;
+    case RdnaOpcode::SAndn2SaveexecB64:
+        sSaveexec(inst, IrOpcode::LogicalAnd, true, false, true);
+        return true;
     case RdnaOpcode::SAndn1SaveexecB64:
         sSaveexec(inst, IrOpcode::LogicalAnd, false, true, true);
         return true;
