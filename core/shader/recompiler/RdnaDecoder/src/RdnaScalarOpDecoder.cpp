@@ -23,6 +23,8 @@ RdnaOpcode decodeSop1Opcode(std::uint32_t opcode) {
         case 0x14u: return RdnaOpcode::SFf1I32B64;
         case 0x15u: return RdnaOpcode::SFlbitI32B32;
         case 0x16u: return RdnaOpcode::SFlbitI32B64;
+        case 0x19u: return RdnaOpcode::SSextI32I8;
+        case 0x1au: return RdnaOpcode::SSextI32I16;
         case 0x1bu: return RdnaOpcode::SBitset0B32;
         case 0x1cu: return RdnaOpcode::SBitset0B64;
         case 0x1du: return RdnaOpcode::SBitset1B32;
