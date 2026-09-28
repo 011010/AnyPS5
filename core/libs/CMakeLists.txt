@@ -13,6 +13,7 @@ add_executable(nid_patcher
         ${CMAKE_CURRENT_SOURCE_DIR}/nid/src/BinaryPatcherFactory.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/nid/src/main.cpp
 )
+
 target_include_directories(nid_patcher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/nid/include)
 target_compile_features(nid_patcher PRIVATE cxx_std_20)
 
@@ -396,6 +397,14 @@ if(BUILD_TESTING)
     if(WIN32)
         set_tests_properties(guest_rtc PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceRtc>")
+    endif()
+    add_executable(guest_font_tests tests/GuestFont.cpp)
+    target_include_directories(guest_font_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(guest_font_tests PRIVATE libSceFont libSceFontFt libc)
+    add_test(NAME guest_font COMMAND guest_font_tests)
+    if(WIN32)
+        set_tests_properties(guest_font PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceFont>")
     endif()
     add_executable(guest_json_tests tests/GuestJson.cpp)
     target_include_directories(guest_json_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
