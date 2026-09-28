@@ -291,6 +291,7 @@ bool TranslationContext::emitScalar(const RdnaInstruction& inst) {
     case RdnaOpcode::SSleep:
     case RdnaOpcode::SSetprio:
     case RdnaOpcode::STrap:
+    case RdnaOpcode::SClause:
         emitControlNop();
         return true;
     case RdnaOpcode::SWaitcntDepctr:
