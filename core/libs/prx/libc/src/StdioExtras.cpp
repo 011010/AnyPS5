@@ -6,6 +6,7 @@
 
 #include "prx/libc/include/FileStream.hpp"
 #include "prx/libc/include/GuestHeap.hpp"
+#include "prx/libc/include/ApplicationHeap.hpp"
 #include "prx/libc/include/General.hpp"
 #include "SceTypes.hpp"
 
@@ -18,6 +19,10 @@ namespace {
 using GuestNewHandler = void (APS5_VABI*)();
 
 GuestNewHandler g_newHandler = nullptr;
+
+void* Allocate(std::size_t size) {
+    return ApplicationHeapAllocate_nid_no_patch(size == 0 ? 1 : size);
+}
 
 }
 
@@ -56,6 +61,44 @@ GuestNewHandler APS5_VABI _ZSt15set_new_handlerPFvvE_nid_postfix(GuestNewHandler
     const auto previous = g_newHandler;
     g_newHandler = handler;
     return previous;
+}
+
+GuestNewHandler APS5_VABI _ZSt15get_new_handlerv_nid_postfix() {
+    return g_newHandler;
+}
+
+unsigned char _ZSt7nothrow_nid_postfix = 0;
+
+void* APS5_VABI _Znwm_nid_postfix(std::size_t size) {
+    return Allocate(size);
+}
+
+void* APS5_VABI _Znam_nid_postfix(std::size_t size) {
+    return Allocate(size);
+}
+
+void* APS5_VABI _ZnwmRKSt9nothrow_t_nid_postfix(std::size_t size, const void*) {
+    return Allocate(size);
+}
+
+void* APS5_VABI _ZnamRKSt9nothrow_t_nid_postfix(std::size_t size, const void*) {
+    return Allocate(size);
+}
+
+void APS5_VABI _ZdlPv_nid_postfix(void* pointer) {
+    if (pointer != nullptr) ApplicationHeapFree_nid_no_patch(pointer);
+}
+
+void APS5_VABI _ZdaPv_nid_postfix(void* pointer) {
+    if (pointer != nullptr) ApplicationHeapFree_nid_no_patch(pointer);
+}
+
+void APS5_VABI _ZdlPvm_nid_postfix(void* pointer, std::size_t) {
+    if (pointer != nullptr) ApplicationHeapFree_nid_no_patch(pointer);
+}
+
+void APS5_VABI _ZdaPvm_nid_postfix(void* pointer, std::size_t) {
+    if (pointer != nullptr) ApplicationHeapFree_nid_no_patch(pointer);
 }
 
 void APS5_VABI _ZdlPvSt11align_val_t_nid_postfix(void* pointer, std::size_t alignment) {

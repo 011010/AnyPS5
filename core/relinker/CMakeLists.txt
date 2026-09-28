@@ -106,6 +106,19 @@ endif()
 
 
 if(BUILD_TESTING)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(file_writer_tests
+            ${CMAKE_CURRENT_SOURCE_DIR}/io/tests/FileWriterTests.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/io/src/FileWriter.cpp
+        )
+        target_include_directories(file_writer_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/domain/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/io/include
+        )
+        add_test(NAME file_writer_binary COMMAND file_writer_tests binary)
+        add_test(NAME file_writer_text COMMAND file_writer_tests text)
+    endif()
+
     add_executable(amd64_only_converter_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/codegen/tests/Amd64OnlyConverterTests.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/codegen/src/Amd64OnlyConverter.cpp
@@ -140,6 +153,8 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_empty_tls.py $<TARGET_FILE:relinker>)
         add_test(NAME tls_function_coverage COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_tls_function_coverage.py $<TARGET_FILE:relinker>)
+        add_test(NAME linux_load_alignment COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_linux_load_alignment.py $<TARGET_FILE:relinker>)
     else()
         message(STATUS "Python3 interpreter not found; skipping Python relinker tests")
     endif()
