@@ -15,6 +15,10 @@
 
 #if defined(__linux__)
 #include <sys/mman.h>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
 #else
 #include <windows.h>
 
@@ -128,6 +132,37 @@ static int mprotect(void* addr, size_t len, int prot) {
 
 namespace {
 
+constexpr int GuestMapFixedFlag = 0x10;
+
+#if defined(__linux__)
+void* MapAtOrAbove(std::uintptr_t start, size_t len, int prot, size_t alignment) {
+    constexpr std::uintptr_t UserLimit = 0x7fff00000000ull;
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        std::vector<std::pair<std::uintptr_t, std::uintptr_t>> used;
+        std::ifstream maps("/proc/self/maps");
+        std::string line;
+        while (std::getline(maps, line)) {
+            std::istringstream fields(line);
+            std::uintptr_t begin = 0, end = 0;
+            char dash = 0;
+            if (fields >> std::hex >> begin >> dash >> end) used.emplace_back(begin, end);
+        }
+        std::sort(used.begin(), used.end());
+        auto candidate = (start + alignment - 1) & ~(static_cast<std::uintptr_t>(alignment) - 1);
+        for (const auto& [begin, end] : used) {
+            if (end <= candidate) continue;
+            if (begin >= candidate + len) break;
+            candidate = (end + alignment - 1) & ~(static_cast<std::uintptr_t>(alignment) - 1);
+        }
+        if (candidate + len > UserLimit || candidate + len < candidate) throw std::runtime_error("No free range above the mapping address hint");
+        void* result = mmap(reinterpret_cast<void*>(candidate), len, prot, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+        if (result != MAP_FAILED) return result;
+        if (errno != EEXIST) throw std::system_error(errno, std::generic_category(), "Hinted mmap failed");
+    }
+    throw std::runtime_error("Hinted mmap kept racing with other mappings");
+}
+#endif
+
 void ValidateLength(size_t len) {
     if (len == 0 || (len & (PS5_PAGE_SIZE - 1)) != 0) {
         // return SCE_KERNEL_ERROR_EINVAL;
@@ -182,7 +217,8 @@ void Trace(const char* format, ...) {
 
 bool RemapFixedIntoRegistered(GuestAllocations::Mutation& mutation, void* addr, size_t len, int prot, int flags, int64_t physStart = -1) {
     constexpr int GuestMapFixed = 0x10;
-    if (addr == nullptr || (flags & GuestMapFixed) == 0 || !mutation.Covers(addr, len)) return false;
+    constexpr int GuestMapNoOverwrite = 0x80;
+    if (addr == nullptr || (flags & GuestMapFixed) == 0 || (flags & GuestMapNoOverwrite) != 0 || !mutation.Covers(addr, len)) return false;
     ValidateRange(addr, len, PS5_PAGE_SIZE);
     Trace("remap fixed %p+0x%zx prot=0x%x phys=0x%llx", addr, len, prot, static_cast<long long>(physStart));
     const auto nativeProtection = LinuxProtFromSce(prot);
@@ -208,13 +244,26 @@ void* MapAligned(void* addr, size_t len, int prot, int flags, size_t alignment) 
     ValidateLength(len);
     alignment = ValidateAlignment(alignment);
     constexpr int GuestMapFixed = 0x10;
+    constexpr int GuestMapNoOverwrite = 0x80;
     constexpr int GuestMapNoCoalesce = 0x400000;
-    if ((flags & ~(GuestMapFixed | GuestMapNoCoalesce)) != 0) {
-        throw std::invalid_argument("Unsupported memory mapping flags");
+#if defined(__linux__)
+    constexpr int SupportedFlags = GuestMapFixed | GuestMapNoOverwrite | GuestMapNoCoalesce;
+#else
+    constexpr int SupportedFlags = GuestMapFixed | GuestMapNoCoalesce;
+#endif
+    if ((flags & ~SupportedFlags) != 0) {
+        char message[64];
+        std::snprintf(message, sizeof(message), "Unsupported memory mapping flags 0x%x", flags);
+        throw std::invalid_argument(message);
     }
     if ((flags & GuestMapFixed) != 0) {
         ValidateRange(addr, len, alignment);
-        void* result = mmap(addr, len, prot, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+#if defined(__linux__)
+        const int placement = (flags & GuestMapNoOverwrite) != 0 ? MAP_FIXED_NOREPLACE : MAP_FIXED;
+#else
+        const int placement = MAP_FIXED;
+#endif
+        void* result = mmap(addr, len, prot, MAP_PRIVATE | MAP_ANONYMOUS | placement, -1, 0);
         if (result == MAP_FAILED) {
             // return SCE_KERNEL_ERROR_ENOMEM;
             throw std::system_error(errno, std::generic_category(), "Fixed mmap failed");
@@ -222,7 +271,11 @@ void* MapAligned(void* addr, size_t len, int prot, int flags, size_t alignment) 
         return result;
     }
     if (addr) {
+#if defined(__linux__)
+        return MapAtOrAbove(reinterpret_cast<std::uintptr_t>(addr), len, prot, alignment);
+#else
         throw std::invalid_argument("Non-fixed mapping address hints are not implemented");
+#endif
     }
 #ifdef _WIN32
     return mmap_aligned(len, prot, alignment);
@@ -270,7 +323,7 @@ int DoMapDirect(void** addr, size_t len, int prot, int flags, int64_t physStart,
     }
     GuestAllocations::Mutation mutation;
     if (RemapFixedIntoRegistered(mutation, *addr, len, prot, flags)) return 0;
-    if (*addr != nullptr) mutation.RequireAvailable(*addr, len);
+    if (*addr != nullptr && (flags & GuestMapFixedFlag) != 0) mutation.RequireAvailable(*addr, len);
     void* mapped = MapAligned(*addr, len, LinuxProtFromSce(prot), flags, alignment);
     try {
         mutation.Add(mapped, len, (prot & 3) != 0, (prot & 2) != 0);
@@ -288,7 +341,7 @@ int DoMapAnon(void** addr, size_t len, int prot, int flags) {
     if (len == 0 || (len & (PS5_PAGE_SIZE - 1)) != 0) return SCE_KERNEL_ERROR_EINVAL;
     GuestAllocations::Mutation mutation;
     if (RemapFixedIntoRegistered(mutation, *addr, len, prot, flags)) return 0;
-    if (*addr != nullptr) mutation.RequireAvailable(*addr, len);
+    if (*addr != nullptr && (flags & GuestMapFixedFlag) != 0) mutation.RequireAvailable(*addr, len);
     void* mapped = MapAligned(*addr, len, LinuxProtFromSce(prot), flags, PS5_PAGE_SIZE);
     try {
         mutation.Add(mapped, len, (prot & 3) != 0, (prot & 2) != 0);
