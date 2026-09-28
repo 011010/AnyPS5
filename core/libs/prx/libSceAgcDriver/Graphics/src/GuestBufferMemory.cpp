@@ -17,6 +17,7 @@
 #include <mutex>
 #include <set>
 #include <thread>
+#include <stop_token>
 #include <cstdlib>
 #include <cstdio>
 #include <chrono>
@@ -382,19 +383,15 @@ bool compareBlock(const RefreshBlock& block) {
     return true;
 }
 
-// Helper threads for the block compares. An address-based build refreshes every writable image range
-// (~15 MiB in ~300 blocks) under the device lock, and that memcmp was most of its cost; the blocks
-// are handed out by an atomic cursor to the helpers and the calling thread alike, and Run returns
-// once every block was taken and finished. The threads are started on first use and never joined
-// (they only wait on the condition variable). APS5_MIRROR_REFRESH_THREADS sets the helper count
-// (default 3); APS5_NO_PARALLEL_MIRROR_REFRESH=1 compares on the calling thread only.
 class RefreshPool {
 public:
     static RefreshPool& Get() {
-        // Never destroyed (as WorkerSampler's): the helpers block on its condition variable, which a
-        // static destructor at std::exit would tear down under them.
-        static RefreshPool* pool = new RefreshPool;
-        return *pool;
+        if (instance == nullptr) instance = new RefreshPool;
+        return *instance;
+    }
+
+    static void Shutdown() {
+        delete std::exchange(instance, nullptr);
     }
 
     // Compares `blocks` and returns how many were copied.
@@ -429,19 +426,12 @@ private:
         const char* text = std::getenv("APS5_MIRROR_REFRESH_THREADS");
         const auto requested = text != nullptr ? std::atoi(text) : 3;
         const auto wanted = disabled ? 0u : static_cast<unsigned>(std::clamp(requested, 0, 16));
-        // Only started threads are counted: Run waits for `helpers` finishes, and a thread that could
-        // not be started would leave it waiting forever.
         for (unsigned i = 0; i < wanted; ++i) {
-            try {
-                std::thread([this] {
-                    CpuTopology::PinHelperThread("mirror refresh");
-                    helper();
-                }).detach();
-                ++helpers;
-            } catch (const std::system_error& error) {
-                std::fprintf(stderr, "[gpu] mirror refresh helper %u not started: %s\n", i, error.what());
-                break;
-            }
+            threads.emplace_back([this](std::stop_token token) {
+                CpuTopology::PinHelperThread("mirror refresh");
+                helper(token);
+            });
+            ++helpers;
         }
     }
 
@@ -452,13 +442,13 @@ private:
         copiedBlocks.fetch_add(copied, std::memory_order_relaxed);
     }
 
-    void helper() {
+    void helper(std::stop_token token) {
         std::uint64_t seen = 0;
         for (;;) {
             std::span<const RefreshBlock> blocks;
             {
                 std::unique_lock lock(mutex);
-                wake.wait(lock, [&] { return serial != seen; });
+                if (!wake.wait(lock, token, [&] { return serial != seen; })) return;
                 seen = serial;
                 blocks = job;
             }
@@ -471,16 +461,18 @@ private:
         }
     }
 
+    inline static RefreshPool* instance = nullptr;
     unsigned helpers = 0;
     std::mutex runMutex;
     std::mutex mutex;
-    std::condition_variable wake;
+    std::condition_variable_any wake;
     std::condition_variable done;
     std::span<const RefreshBlock> job;
     std::uint64_t serial = 0;
     unsigned finished = 0;
     std::atomic<std::size_t> next{0};
     std::atomic<std::uint64_t> copiedBlocks{0};
+    std::vector<std::jthread> threads;
 };
 
 // The device-lock work before [address, address + bytes) of a writable mirror can be compared with
@@ -1355,6 +1347,10 @@ void reportStaging() {
     lastOut = out;
 }
 
+}
+
+void ShutdownGuestBufferWorkers() {
+    RefreshPool::Shutdown();
 }
 
 GuestBufferMemory::~GuestBufferMemory() {
