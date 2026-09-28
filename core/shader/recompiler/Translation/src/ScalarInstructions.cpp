@@ -187,6 +187,14 @@ bool TranslationContext::emitScalar(const RdnaInstruction& inst) {
         return simpleInteger(inst, IrOpcode::BitwiseNot32, IrType::U32, false, false, true);
     case RdnaOpcode::SBrevB32:
         return simpleInteger(inst, IrOpcode::BitReverse32, IrType::U32, false, false, false);
+    case RdnaOpcode::SSextI32I8:
+    case RdnaOpcode::SSextI32I16: {
+        const auto source = readU32(sourceAt(inst, 0u));
+        const auto width = inst.op == RdnaOpcode::SSextI32I8 ? 8u : 16u;
+        auto& result = ir.Emit(IrOpcode::BitFieldSExtract, IrType::U32, {&source.Value(), &ir.Constant(0u), &ir.Constant(width)});
+        writeOperand(inst.destination, &result);
+        return true;
+    }
     case RdnaOpcode::SBcnt1I32B32:
         return simpleInteger(inst, IrOpcode::BitCount32, IrType::U32, false, false, true);
     case RdnaOpcode::SBcnt1I32B64:
