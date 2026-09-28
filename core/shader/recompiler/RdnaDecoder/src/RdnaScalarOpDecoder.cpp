@@ -11,14 +11,17 @@ RdnaOpcode decodeSop1Opcode(std::uint32_t opcode) {
     switch (opcode) {
         case 0x03u: return RdnaOpcode::SMovB32;
         case 0x04u: return RdnaOpcode::SMovB64;
+        case 0x05u: return RdnaOpcode::SCmovB32;
         case 0x06u: return RdnaOpcode::SCmovB64;
         case 0x07u: return RdnaOpcode::SNotB32;
         case 0x08u: return RdnaOpcode::SNotB64;
         case 0x09u: return RdnaOpcode::SWqmB32;
         case 0x0au: return RdnaOpcode::SWqmB64;
         case 0x0bu: return RdnaOpcode::SBrevB32;
+        case 0x0du: return RdnaOpcode::SBcnt0I32B32;
         case 0x0fu: return RdnaOpcode::SBcnt1I32B32;
         case 0x10u: return RdnaOpcode::SBcnt1I32B64;
+        case 0x11u: return RdnaOpcode::SFf0I32B32;
         case 0x13u: return RdnaOpcode::SFf1I32B32;
         case 0x14u: return RdnaOpcode::SFf1I32B64;
         case 0x15u: return RdnaOpcode::SFlbitI32B32;
