@@ -4,6 +4,7 @@
 <!-- OS, title or homebrew, what was checked. "Not tested" is a valid answer. -->
 
 ### Checklist
+<!-- Rules behind each item: https://github.com/boykopovar/AnyPS5/blob/main/docs/CONTRIBUTING.md -->
 - [ ] Based on current `main`; no other open PR implements the same functions
 - [ ] One topic per PR; follow-ups go in a new PR
 - [ ] No comments in code except [technical debt](https://github.com/boykopovar/AnyPS5/blob/main/docs/CONVENTIONS.md)
