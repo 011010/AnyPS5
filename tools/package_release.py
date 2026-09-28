@@ -1,11 +1,14 @@
 import argparse
+import re
 import shutil
 import tarfile
 import zipfile
 from pathlib import Path
 
 
-def package(platform, build, output):
+def package(platform, build, output, version):
+    if not re.fullmatch(r"v[0-9A-Za-z][0-9A-Za-z._-]*", version) or version.endswith("."):
+        raise ValueError(f"Invalid release tag for asset filenames: {version}")
     libraries = sorted((build / "core/libs/libs").glob("*.prx"))
     expected = {f"{directory.name}.prx" for directory in Path("core/libs/prx").iterdir() if directory.is_dir()}
     expected.add("libcohtml.Prospero.prx")
@@ -22,13 +25,14 @@ def package(platform, build, output):
         if not file.is_file() or file.stat().st_size == 0:
             raise RuntimeError(f"Missing or empty release file: {file}")
     output.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(output / f"prx-{platform}.zip", "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    with zipfile.ZipFile(output / f"prx-{platform}-{version}.zip", "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for file in files:
             archive.write(file, arcname=file.name)
-    with tarfile.open(output / f"prx-{platform}.tar.gz", "w:gz") as archive:
+    with tarfile.open(output / f"prx-{platform}-{version}.tar.gz", "w:gz") as archive:
         for file in files:
             archive.add(file, arcname=file.name)
-    shutil.copy2(binary, output / executable)
+    asset = f"relinker-{version}.exe" if platform == "windows" else f"relinker-{version}"
+    shutil.copy2(binary, output / asset)
 
 
 def collect_docs(source, output):
@@ -49,17 +53,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--platform", choices=("linux", "windows"))
     parser.add_argument("--build", type=Path)
+    parser.add_argument("--version")
     parser.add_argument("--docs", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     if args.docs is not None:
-        if args.platform is not None or args.build is not None:
-            parser.error("--docs cannot be combined with --platform or --build")
+        if args.platform is not None or args.build is not None or args.version is not None:
+            parser.error("--docs cannot be combined with --platform, --build or --version")
         collect_docs(args.docs, args.output)
     else:
-        if args.platform is None or args.build is None:
-            parser.error("--platform and --build are required when --docs is not specified")
-        package(args.platform, args.build, args.output)
+        if args.platform is None or args.build is None or args.version is None:
+            parser.error("--platform, --build and --version are required when --docs is not specified")
+        package(args.platform, args.build, args.output, args.version)
 
 
 if __name__ == "__main__":
