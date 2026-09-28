@@ -65,11 +65,26 @@ jobs:
         if: matrix.platform == 'windows'
         shell: cmd
         run: cmake -S . -B build %CONFIGURE%
-      - name: Build project and tests
+      - name: Build project and tests (Linux)
+        if: matrix.platform == 'linux'
         run: cmake --build build
-      - name: Run tests
+      - name: Build project and tests (Windows)
+        if: matrix.platform == 'windows'
+        shell: cmd
+        run: cmake --build build
+      - name: Run tests (Linux)
+        if: matrix.platform == 'linux'
         run: ctest --test-dir build --output-on-failure --timeout 120 --stop-on-failure --no-tests=error
-      - name: Build patched libraries
+      - name: Run tests (Windows)
+        if: matrix.platform == 'windows'
+        shell: cmd
+        run: ctest --test-dir build --output-on-failure --timeout 120 --stop-on-failure --no-tests=error
+      - name: Build patched libraries (Linux)
+        if: matrix.platform == 'linux'
+        run: cmake --build build --target libs
+      - name: Build patched libraries (Windows)
+        if: matrix.platform == 'windows'
+        shell: cmd
         run: cmake --build build --target libs
       - name: Package release files
         run: python tools/package_release.py --platform "${{ matrix.platform }}" --build build --output dist --version "$RELEASE_TAG"
