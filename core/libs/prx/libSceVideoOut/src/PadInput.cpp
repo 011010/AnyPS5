@@ -10,7 +10,7 @@
 #include "prx/libSceVideoOut/include/DisplayWindow.hpp"
 #include "prx/libScePad/include/PadState.hpp"
 #include "prx/libScePad/include/PadInputTypes.hpp"
-#include "general/LogMacros.hpp"
+#include "prx/libc/include/General.hpp"
 
 PadInput::PadInput()
     : bindings(Pad::LoadInputMapping()), pressed(bindings.size()), wheelReleaseTimes(bindings.size()) {
