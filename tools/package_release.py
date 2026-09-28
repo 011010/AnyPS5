@@ -25,12 +25,12 @@ def package(platform, build, output, version):
         if not file.is_file() or file.stat().st_size == 0:
             raise RuntimeError(f"Missing or empty release file: {file}")
     output.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(output / f"prx-{platform}-{version}.zip", "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    with zipfile.ZipFile(output / f"prx-{platform}-{version}.zip", "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for file in files:
-            archive.write(file, arcname=file.name)
-    with tarfile.open(output / f"prx-{platform}-{version}.tar.gz", "w:gz") as archive:
+            archive.write(file, arcname=f"libs/{file.name}")
+    with tarfile.open(output / f"prx-{platform}-{version}.tar.gz", "w:gz", compresslevel=9) as archive:
         for file in files:
-            archive.add(file, arcname=file.name)
+            archive.add(file, arcname=f"libs/{file.name}")
     asset = f"relinker-{version}.exe" if platform == "windows" else f"relinker-{version}"
     shutil.copy2(binary, output / asset)
 
