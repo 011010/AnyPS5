@@ -4,6 +4,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/Recorder.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/UnitShadow.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Execution/include/CaptureTrace.hpp"
 #include "prx/libc/include/CpuTopology.hpp"
 #ifdef _WIN32
 #include <windows.h>
@@ -1767,6 +1768,8 @@ void GuestBufferMemory::copyRegion(Region& region, bool addressable) {
 
 void GuestBufferMemory::recordGpuCopies(std::span<Region* const> copies, bool addressable) {
     static const bool profile = std::getenv("APS5_PROFILE_DRAW") != nullptr;
+    static const bool capture = std::getenv("APS5_CAPTURE_GPU_COPIES") != nullptr;
+    Require(!capture || CaptureTrace::Enabled(), "GPU copy capture requires APS5_CAPTURE_TRACE");
     auto* recorder = Recorder::Active();
     Require(recorder != nullptr, "GPU buffer copies need an active recorder");
     // A queued DCC key store or label store over a copied range lands before the copy reads it.
@@ -1781,9 +1784,6 @@ void GuestBufferMemory::recordGpuCopies(std::span<Region* const> copies, bool ad
         for (const auto* region : copies) reads.emplace_back(region->begin, region->end);
         recorder->NoteAccess(Recorder::CommandClass::StagingIn, Recorder::Access{reads, {}, {}, VK_PIPELINE_STAGE_TRANSFER_BIT});
     }
-    // Every earlier recorded store into the imports (dispatches in place, fills, GPU labels,
-    // GPU-direct write-backs and the flushes just recorded) and the host's own writes precede the
-    // copies. A CPU write made after the batch is submitted is the game's race, as on hardware.
     RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
     Recorder::CountBarriers(Recorder::CommandClass::StagingIn);
     bool stagedAny = false;
@@ -1803,10 +1803,47 @@ void GuestBufferMemory::recordGpuCopies(std::span<Region* const> copies, bool ad
             }
             if (profile) allocateUs.fetch_add(microsecondsSince(allocateStart), std::memory_order_relaxed);
         }
-        CopyBuffer(context, commands, region->copySource, region->begin - region->copySourceBase, region->buffer->Handle(), 0, bytes);
-        // The copy reads the import in place when the batch runs: a CPU store into the range before
-        // then would be copied instead of the bytes recorded here.
-        recorder->NotePendingRead(region->begin, static_cast<std::size_t>(bytes), Recorder::ReadKind::GpuCopy);
+        std::vector<std::byte> expected;
+        const auto address = region->begin;
+        const auto batch = static_cast<unsigned long long>(recorder->Submissions() + 1);
+        const bool pendingWriter = recorder->PendingWriteOverlaps(address, static_cast<std::size_t>(bytes));
+        const bool writable = WritesOverlap(address, static_cast<std::size_t>(bytes));
+        std::shared_ptr<Buffer> inputSnapshot;
+        auto copySource = region->copySource;
+        auto copyOffset = region->begin - region->copySourceBase;
+        if (!pendingWriter && !writable) {
+            inputSnapshot = std::make_shared<Buffer>(context, static_cast<std::size_t>(bytes), VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+            std::memcpy(inputSnapshot->Bytes().data(), reinterpret_cast<const void*>(address), static_cast<std::size_t>(bytes));
+            copySource = inputSnapshot->Handle();
+            copyOffset = 0;
+            recorder->Keep(inputSnapshot);
+            CaptureTrace::Log("copy-input-snapshot batch=%llu address=%llx bytes=%llu", batch, static_cast<unsigned long long>(address), static_cast<unsigned long long>(bytes));
+        }
+        if (capture && bytes == 32) {
+            CaptureTrace::Log("copy-input-candidate batch=%llu address=%llx bytes=%llu pendingWriter=%d writable=%d", batch, static_cast<unsigned long long>(address), static_cast<unsigned long long>(bytes), pendingWriter, writable);
+            if (inputSnapshot != nullptr) {
+                const auto snapshotBytes = inputSnapshot->Bytes();
+                expected.assign(snapshotBytes.begin(), snapshotBytes.end());
+            }
+        }
+        CopyBuffer(context, commands, copySource, copyOffset, region->buffer->Handle(), 0, bytes);
+        if (!expected.empty()) {
+            auto readback = std::make_shared<Buffer>(context, expected.size(), VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+            RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+            CopyBuffer(context, commands, region->buffer->Handle(), 0, readback->Handle(), 0, bytes);
+            RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_HOST_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT);
+            recorder->OnComplete([readback, expected = std::move(expected), address, batch] {
+                const auto actual = readback->Bytes();
+                std::size_t changed = 0;
+                for (std::size_t index = 0; index < expected.size(); ++index) {
+                    if (expected[index] == actual[index]) continue;
+                    ++changed;
+                    CaptureTrace::Log("copy-input-byte batch=%llu address=%llx offset=%zu cpu=%02x gpu=%02x", batch, static_cast<unsigned long long>(address), index, std::to_integer<unsigned>(expected[index]), std::to_integer<unsigned>(actual[index]));
+                }
+                CaptureTrace::Log("copy-input-result batch=%llu address=%llx bytes=%zu changed=%zu", batch, static_cast<unsigned long long>(address), expected.size(), changed);
+            });
+        }
+        if (inputSnapshot == nullptr) recorder->NotePendingRead(region->begin, static_cast<std::size_t>(bytes), Recorder::ReadKind::GpuCopy);
         // Kept by the batch at record time, as every other recorded target is: the caller keeps
         // the resources only after descriptor and pipeline work that may throw, and a released
         // buffer would go back to the pool (reused or destroyed) under this copy command. The
