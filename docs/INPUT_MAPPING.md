@@ -2,7 +2,7 @@
 
 AnyPS5 uses its built-in keyboard and mouse bindings when no configuration file is present. To change selected bindings, create `anyps5-input.ini` in the game's working directory. Set `ANYPS5_INPUT_CONFIG` to use a file at another path.
 
-Each non-empty line has the form `Action = Type:Value`. Action names are case-insensitive. A `#` or `;` starts a comment. The first line for an action replaces its built-in bindings; later lines for the same action add alternate inputs. Actions omitted from the file keep their built-in bindings.
+Each non-empty line has the form `Action = Type:Value`. Action names are case-insensitive. A `#` or `;` starts a comment. The first line for an action replaces its built-in bindings; later lines for the same action add alternate inputs. Duplicate entries for the same action are ignored. Actions omitted from the file keep their built-in bindings. UTF-8 files with or without a byte-order mark are supported.
 
 Supported input sources are:
 
@@ -12,10 +12,11 @@ Supported input sources are:
 
 Supported actions are `Cross`, `Circle`, `Triangle`, `Square`, `L1`, `R1`, `L2`, `R2`, `L3`, `R3`, `Options`, `Up`, `Right`, `Down`, `Left`, `LeftStickLeft`, `LeftStickRight`, `LeftStickUp`, `LeftStickDown`, `RightStickLeft`, `RightStickRight`, `RightStickUp`, `RightStickDown`, `TouchLeft`, `TouchRight`, `ToggleMouse`, and `ToggleFullscreen`.
 
-For example, this changes Cross to F, adds IJKL alternatives for the left stick, uses the mouse buttons for Square and R2, and keeps all other built-in bindings:
+For example, this changes Cross to F or Space, moves the left stick to IJKL, uses the mouse buttons for Square and R2, and keeps all other built-in bindings:
 
 ```ini
 Cross = KEY:F
+Cross = KEY:Space
 LeftStickLeft = KEY:J
 LeftStickRight = KEY:L
 LeftStickUp = KEY:I

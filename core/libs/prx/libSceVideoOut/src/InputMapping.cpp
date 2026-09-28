@@ -143,6 +143,7 @@ std::vector<Pad::InputBinding> Pad::LoadInputMapping() {
     std::size_t lineNumber = 0;
     while (std::getline(file, line)) {
         ++lineNumber;
+        if (lineNumber == 1 && line.starts_with("\xEF\xBB\xBF")) line.erase(0, 3);
         const auto comment = line.find_first_of("#;");
         const std::string_view content = trim(std::string_view(line).substr(0, comment));
         if (content.empty()) continue;
@@ -161,7 +162,12 @@ std::vector<Pad::InputBinding> Pad::LoadInputMapping() {
             if (overriddenActions.insert(normalizedAction).second) {
                 std::erase_if(bindings, [action](const InputBinding& existing) { return matchesAction(existing, *action); });
             }
-            bindings.push_back(binding);
+            const bool duplicate = std::any_of(bindings.begin(), bindings.end(), [&binding](const InputBinding& existing) {
+                return existing.key == binding.key && existing.mouseButton == binding.mouseButton &&
+                    existing.control == binding.control && existing.button == binding.button &&
+                    existing.wheelDirection == binding.wheelDirection;
+            });
+            if (!duplicate) bindings.push_back(binding);
         } catch (const std::runtime_error& error) {
             invalidLine(path, lineNumber, error.what());
         }
