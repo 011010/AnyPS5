@@ -9,6 +9,7 @@
 #include "SDL.h"
 #include "SDL_vulkan.h"
 #include "prx/libSceVideoOut/include/PadInput.hpp"
+#include "prx/libSceVideoOut/include/MouseInput.hpp"
 #include "prx/libScePad/include/PadState.hpp"
 #include "prx/libkernel/Equeue/Equeue.hpp"
 #include "prx/libkernel/Time/include/Time.hpp"
@@ -465,6 +466,7 @@ void VideoOutDriver::presentLoop(std::stop_token token) {
     std::shared_ptr<FlipRequest> current;
     try {
         PadInput padInput;
+        MouseInput mouseInput;
         while (!token.stop_requested()) {
             {
                 std::unique_lock lock(flipQueue->mutex);
@@ -480,6 +482,7 @@ void VideoOutDriver::presentLoop(std::stop_token token) {
             while (SDL_PollEvent(&event)) {
                 require(event.type != SDL_QUIT, "window was closed");
                 padInput.HandleEvent(event, window);
+                if (window.Handle() != nullptr) mouseInput.HandleEvent(event, SDL_GetWindowID(window.Handle()));
             }
             padInput.Update();
             if (current) {
