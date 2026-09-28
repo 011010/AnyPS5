@@ -1,6 +1,6 @@
 # Keyboard and mouse mapping
 
-AnyPS5 uses its built-in keyboard and mouse bindings when no configuration file is present. To change selected bindings, create `anyps5-input.ini` in the game's working directory. Set `ANYPS5_INPUT_CONFIG` to use a file at another path.
+AnyPS5 uses its built-in keyboard and mouse bindings when no configuration file is present. To change selected bindings, create `anyps5-input.ini` beside the generated game executable. Set `ANYPS5_INPUT_CONFIG` to use a file at another path.
 
 Each non-empty line has the form `Action = Type:Value`. Action names are case-insensitive. A `#` or `;` starts a comment. The first line for an action replaces its built-in bindings; later lines for the same action add alternate inputs. Duplicate entries for the same action are ignored. Actions omitted from the file keep their built-in bindings. UTF-8 files with or without a byte-order mark are supported.
 
