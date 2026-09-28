@@ -15,6 +15,7 @@
 #include <system_error>
 
 #ifndef _WIN32
+#include <csetjmp>
 #include <pthread.h>
 #endif
 
@@ -43,6 +44,11 @@ static thread_local PthreadPrivate* currentThread = nullptr;
 static thread_local bool threadFinishing = false;
 #ifndef _WIN32
 static thread_local std::unique_ptr<PthreadPrivate> adoptedThread;
+// pthread_exit force-unwinds through guest frames, whose personality resolves to
+// libc.prx's __gxx_personality_v0; that routine cannot read libgcc's unwind context
+// and aborts. scePthreadExit instead jumps back to the thread start routine, which,
+// like _endthreadex on Windows, skips the guest frames without unwinding them.
+static thread_local std::jmp_buf* threadExitJump = nullptr;
 #endif
 
 void ThreadLifecycle::SetThreadDtors(thread_dtors_func_t callback) {
@@ -238,7 +244,12 @@ int APS5_VABI scePthreadCreate(Pthread* thread, const PthreadAttr* attr, Pthread
                 ReleaseThread(self);
             }
         } guard{self};
-        RunThread(std::move(args));
+        std::jmp_buf exitJump;
+        if (setjmp(exitJump) == 0) {
+            threadExitJump = &exitJump;
+            RunThread(std::move(args));
+        }
+        threadExitJump = nullptr;
     });
     try {
         if (detached) p->_thr.detach();
@@ -297,6 +308,8 @@ void APS5_VABI scePthreadExit(void* retval) {
     ReleaseThread(self);
     _endthreadex(0);
 #else
+    if (threadExitJump)
+        std::longjmp(*threadExitJump, 1);
     pthread_exit(retval);
 #endif
     throw std::runtime_error("Native thread exit returned");
