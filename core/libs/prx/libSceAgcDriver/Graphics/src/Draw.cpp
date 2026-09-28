@@ -1005,7 +1005,7 @@ bool CaptureInputsEnabled() {
     return enabled;
 }
 
-void captureInputs(const Context& context, Recorder& recorder, VkCommandBuffer commands, const ShaderResources& resources, std::uint64_t target) {
+void captureInputs(const Context& context, Recorder& recorder, VkCommandBuffer commands, const ShaderResources& resources, const std::shared_ptr<ShaderResources::DrawBindings>& bindings, std::uint64_t target) {
     struct Sample {
         std::uint64_t address;
         std::size_t offset;
@@ -1018,22 +1018,33 @@ void captureInputs(const Context& context, Recorder& recorder, VkCommandBuffer c
     const auto batch = static_cast<unsigned long long>(recorder.Submissions() + 1);
     std::vector<Sample> samples;
     std::size_t total = 0;
+    const auto addSample = [&](std::uint64_t address, std::size_t bytes, VkBuffer source, VkDeviceSize offset, const std::byte* expected) {
+        if (bytes == 0 || bytes > 512) return;
+        Require(offset % 4 == 0 && bytes % 4 == 0, "capture input is not aligned for a Vulkan buffer copy");
+        Require(total + bytes <= 65536, "capture inputs exceed 64 KiB per draw");
+        Sample sample{address, total, std::vector<std::byte>(bytes), source, offset};
+        std::memcpy(sample.expected.data(), expected, bytes);
+        total += bytes;
+        samples.push_back(std::move(sample));
+    };
+    if (bindings != nullptr) {
+        for (const auto& snapshot : bindings->snapshots) {
+            const auto bytes = snapshot.buffer->Bytes();
+            addSample(snapshot.address, bytes.size(), snapshot.buffer->Handle(), 0, bytes.data());
+        }
+    }
     for (const auto& [begin, end] : resources.InPlaceReads()) {
         Require(end >= begin, "invalid capture input range");
         const auto bytes = static_cast<std::size_t>(end - begin);
         if (bytes == 0 || bytes > 512) continue;
+        if (bindings != nullptr && std::any_of(bindings->snapshots.begin(), bindings->snapshots.end(), [&](const auto& snapshot) { return snapshot.address < end && begin < snapshot.address + snapshot.buffer->Bytes().size(); })) continue;
         if (resources.WritesOverlap(begin, bytes) || recorder.PendingWriteOverlaps(begin, bytes)) {
             CaptureTrace::Log("input-skip draw=%llu batch=%llu address=%llx bytes=%zu reason=gpu-writer", draw, batch, static_cast<unsigned long long>(begin), bytes);
             continue;
         }
         const auto* imported = HostImportFor(context, begin, bytes);
         Require(imported != nullptr, "capture input has no host import");
-        Require(begin % 4 == 0 && bytes % 4 == 0, "capture input is not aligned for a Vulkan buffer copy");
-        Require(total + bytes <= 65536, "capture inputs exceed 64 KiB per draw");
-        Sample sample{begin, total, std::vector<std::byte>(bytes), imported->buffer, begin - imported->base};
-        std::memcpy(sample.expected.data(), reinterpret_cast<const void*>(begin), bytes);
-        total += bytes;
-        samples.push_back(std::move(sample));
+        addSample(begin, bytes, imported->buffer, begin - imported->base, reinterpret_cast<const std::byte*>(begin));
     }
     CaptureTrace::Log("input-capture draw=%llu batch=%llu target=%llx ranges=%zu bytes=%zu", draw, batch, static_cast<unsigned long long>(target), samples.size(), total);
     if (samples.empty()) return;
@@ -1097,12 +1108,13 @@ void recordDraw(const Context& context, const State& state, const Pm4::DrawParam
     if (recorder->HasQueuedKeyStores() && (resources.HoldsLease() || recorder->AnyQueuedKeyStore(touches))) recorder->FlushKeyStores();
     // A queued label store over such memory likewise (Recorder::RecordStore).
     if (recorder->HasQueuedStores() && (resources.HoldsLease() || recorder->AnyQueuedStore(touches))) recorder->FlushStores();
+    const auto drawBindings = resources.PrepareDrawBindings(*recorder);
     const bool capture = CaptureInputsEnabled();
     const bool continued = !capture && !readsTarget && !gpuIndirect && recorder->ContinuesRenderPass(passKey);
     outcome.passContinued = continued;
     outcome.passBegun = !continued;
     const auto commands = continued ? recorder->CommandsInRenderPass() : recorder->Commands();
-    if (capture) captureInputs(context, *recorder, commands, resources, record.targets.empty() || record.targets.front() == nullptr ? 0 : record.targets.front()->Descriptor().baseAddress);
+    if (capture) captureInputs(context, *recorder, commands, resources, drawBindings, record.targets.empty() || record.targets.front() == nullptr ? 0 : record.targets.front()->Descriptor().baseAddress);
     // The draw's [gputime] class range: from its first barrier to the pass's trailing barrier (a
     // continued draw lies inside its pass's range).
     const auto drawTiming = !continued ? recorder->BeginGpuTiming(CommandClass::Draw) : Recorder::NoTiming;
@@ -1134,7 +1146,12 @@ void recordDraw(const Context& context, const State& state, const Pm4::DrawParam
         record.pipeline->Begin(commands, *record.framebuffer, state.renderExtent, state.viewport, state.scissor);
     }
     APS5_LOG_CHARS_OUT_DEBUG("Pipeline Begin OK");
-    resources.Bind(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, record.pipeline->Layout());
+    if (drawBindings != nullptr) {
+        const auto set = drawBindings->allocation.set;
+        context.Resolved(&DeviceFunctions::cmdBindDescriptorSets, "vkCmdBindDescriptorSets")(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, record.pipeline->Layout(), 0, 1, &set, 0, nullptr);
+    } else {
+        resources.Bind(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, record.pipeline->Layout());
+    }
     APS5_LOG_CHARS_OUT_DEBUG("Resources bound");
     if (record.pushBytes != nullptr) record.pipeline->PushConstants(commands, record.pushStages, *record.pushBytes);
     else record.pipeline->PushConstants(commands, shaders);
