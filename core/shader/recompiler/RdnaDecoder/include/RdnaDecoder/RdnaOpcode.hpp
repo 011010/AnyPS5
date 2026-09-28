@@ -118,6 +118,8 @@ enum class RdnaOpcode : std::uint16_t {
     SAbsI32,
     SAbsdiffI32,
     SBrevB32,
+    SSextI32I8,
+    SSextI32I16,
     SBcnt1I32B32,
     SBcnt1I32B64,
     SFf1I32B32,

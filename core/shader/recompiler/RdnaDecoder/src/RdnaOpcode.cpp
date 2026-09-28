@@ -40,6 +40,8 @@ bool IsScalarAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::SAbsI32:
         case RdnaOpcode::SAbsdiffI32:
         case RdnaOpcode::SBrevB32:
+        case RdnaOpcode::SSextI32I8:
+        case RdnaOpcode::SSextI32I16:
         case RdnaOpcode::SBcnt1I32B32:
         case RdnaOpcode::SBcnt1I32B64:
         case RdnaOpcode::SFf1I32B32:
