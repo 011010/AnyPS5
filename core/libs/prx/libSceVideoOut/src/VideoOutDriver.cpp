@@ -463,8 +463,8 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
 
 void VideoOutDriver::presentLoop(std::stop_token token) {
     std::shared_ptr<FlipRequest> current;
-    PadInput padInput;
     try {
+        PadInput padInput;
         while (!token.stop_requested()) {
             {
                 std::unique_lock lock(flipQueue->mutex);

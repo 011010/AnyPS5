@@ -10,6 +10,9 @@
 #include "prx/libScePad/include/PadState.hpp"
 #include "prx/libScePad/include/PadInputTypes.hpp"
 
+PadInput::PadInput()
+    : bindings(Pad::LoadInputMapping()), pressed(bindings.size()), wheelReleaseTimes(bindings.size()) {}
+
 void PadInput::setMouseMode(bool enabled) {
     if (SDL_SetRelativeMouseMode(enabled ? SDL_TRUE : SDL_FALSE) != 0) throw std::runtime_error(std::string("Pad: relative mouse mode failed: ") + SDL_GetError());
     int deltaX = 0;
@@ -22,8 +25,8 @@ void PadInput::setMouseMode(bool enabled) {
 
 void PadInput::HandleEvent(const SDL_Event& event, DisplayWindow& window) {
     if (event.type == SDL_WINDOWEVENT && (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST || event.window.event == SDL_WINDOWEVENT_CLOSE)) {
-        pressed.fill(false);
-        wheelReleaseTimes.fill({});
+        std::fill(pressed.begin(), pressed.end(), false);
+        std::fill(wheelReleaseTimes.begin(), wheelReleaseTimes.end(), std::chrono::steady_clock::time_point{});
         if (mouseEnabled) setMouseMode(false);
         publish();
         return;
@@ -37,8 +40,8 @@ void PadInput::HandleEvent(const SDL_Event& event, DisplayWindow& window) {
         if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) direction = -direction;
         if (direction == 0) return;
         const auto releaseTime = std::chrono::steady_clock::now() + std::chrono::milliseconds(Pad::WheelPressDurationMs);
-        for (std::size_t index = 0; index < Pad::InputMapping.size(); ++index) {
-            const auto& binding = Pad::InputMapping[index];
+        for (std::size_t index = 0; index < bindings.size(); ++index) {
+            const auto& binding = bindings[index];
             if (binding.wheelDirection == 0) continue;
             pressed[index] = binding.wheelDirection == direction;
             wheelReleaseTimes[index] = pressed[index] ? releaseTime : std::chrono::steady_clock::time_point{};
@@ -52,11 +55,11 @@ void PadInput::HandleEvent(const SDL_Event& event, DisplayWindow& window) {
     if (ignoreInput) return;
     if (keyboard && event.key.repeat != 0) return;
     const bool down = event.type == SDL_KEYDOWN || event.type == SDL_MOUSEBUTTONDOWN;
-    for (std::size_t index = 0; index < Pad::InputMapping.size(); ++index) {
-        const auto& binding = Pad::InputMapping[index];
-        const bool keyMatches = binding.key != SDL_SCANCODE_UNKNOWN && binding.key == event.key.keysym.scancode;
-        const bool mouseMatches = binding.mouseButton != Pad::MouseButton::None && binding.mouseButton == static_cast<Pad::MouseButton>(event.button.button);
-        const bool matches = keyboard ? keyMatches : mouseMatches;
+    for (std::size_t index = 0; index < bindings.size(); ++index) {
+        const auto& binding = bindings[index];
+        const bool matches = keyboard
+            ? binding.key != SDL_SCANCODE_UNKNOWN && binding.key == event.key.keysym.scancode
+            : binding.mouseButton != Pad::MouseButton::None && binding.mouseButton == static_cast<Pad::MouseButton>(event.button.button);
 
         if (!matches) continue;
         if (binding.control == Pad::InputControl::ToggleFullscreen) {
@@ -71,8 +74,8 @@ void PadInput::HandleEvent(const SDL_Event& event, DisplayWindow& window) {
 void PadInput::Update() {
     const auto now = std::chrono::steady_clock::now();
     bool released = false;
-    for (std::size_t index = 0; index < Pad::InputMapping.size(); ++index) {
-        if (Pad::InputMapping[index].wheelDirection == 0 || !pressed[index] || now < wheelReleaseTimes[index]) continue;
+    for (std::size_t index = 0; index < bindings.size(); ++index) {
+        if (bindings[index].wheelDirection == 0 || !pressed[index] || now < wheelReleaseTimes[index]) continue;
         pressed[index] = false;
         wheelReleaseTimes[index] = {};
         released = true;
@@ -80,8 +83,8 @@ void PadInput::Update() {
     if (released) publish();
     if (!mouseEnabled) return;
     if (SDL_GetKeyboardFocus() == nullptr) {
-        pressed.fill(false);
-        wheelReleaseTimes.fill({});
+        std::fill(pressed.begin(), pressed.end(), false);
+        std::fill(wheelReleaseTimes.begin(), wheelReleaseTimes.end(), std::chrono::steady_clock::time_point{});
         setMouseMode(false);
         publish();
         return;
@@ -105,9 +108,9 @@ void PadInput::publish() {
     PadInputState state;
     std::array<bool, 4> negative{};
     std::array<bool, 4> positive{};
-    for (std::size_t index = 0; index < Pad::InputMapping.size(); ++index) {
+    for (std::size_t index = 0; index < bindings.size(); ++index) {
         if (!pressed[index]) continue;
-        const auto& binding = Pad::InputMapping[index];
+        const auto& binding = bindings[index];
         switch (binding.control) {
             case Pad::InputControl::Button: state.buttons |= static_cast<std::uint32_t>(binding.button); break;
             case Pad::InputControl::LeftStickLeft: negative[0] = true; break;
