@@ -651,7 +651,11 @@ public:
                 std::lock_guard lock(GuestMemory::GpuMutex());
                 timing.Mark("gpu_mutex_wait");
                 if (device == nullptr || device->Window() == nullptr) {
-                    if (device) device->PrepareForReplacement();
+                    if (device) {
+                        device->PrepareForReplacement();
+                        static std::vector<std::shared_ptr<VulkanDevice>> replacedDevices;
+                        replacedDevices.push_back(device);
+                    }
                     device = std::make_shared<VulkanDevice>(&window);
                 }
                 require(device->Window() == window.context, "presentation window does not match device surface");
