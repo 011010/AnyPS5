@@ -30,7 +30,6 @@ Throughout the project, every function at every stage either **does exactly what
 
 ### Functional
 
-- There's no way to specify keyboard and mouse input mapping when using a gamepad. The [default mapping](../core/libs/prx/libScePad/include/InputMapping.hpp) is always used.
 - [Shader recompilation](../core/shader/recompiler/Recompiler.cpp) currently occurs right before it was transferred to Vulkan with caching, but should be moved to the [relinker](../core/relinker/main.cpp) stage. For this purpose, [shader/recompiler](../core/shader/recompiler) was written completely independently from [libs/prx](../core/libs/prx).
 - The executable file that [relinker](../core/relinker/elfpatcher/src/windows/WindowsPeWriter.cpp) generates opens the console when launched, which is inconvenient for playability.
 - [Relinker](../core/relinker/elfpatcher/src) doesn't add an icon to the generated executable. This should be done without adding dependencies (only standard).
