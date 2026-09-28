@@ -4111,6 +4111,16 @@ private:
         };
         auto drawParameters = Pm4::ResolveDraw(packet, queue);
         if (!drawParameters.indirect && !drawParameters.indexed && (drawParameters.indexCount == 0 || drawParameters.instanceCount == 0)) return DrawVerdict::Nothing;
+        if (const auto pass = Graphics::DecodeColorMetadataPass(queue)) {
+            require(!drawParameters.indirect, "indirect CB metadata passes are unsupported");
+            GuestMemory::TagGpuLockSite(GuestMemory::GpuLockSite::Draw);
+            std::lock_guard gpuLock(GuestMemory::GpuMutex());
+            if (device == nullptr) device = std::make_shared<VulkanDevice>();
+            const std::shared_ptr<VulkanDevice> localDevice = device;
+            recordLabelsForPacket(localDevice.get(), submission.queue);
+            localDevice->ColorMetadataPass(*pass);
+            return DrawVerdict::Drawn;
+        }
         static const bool traceIndirect = std::getenv("APS5_TRACE_INDIRECT_DRAWS") != nullptr;
         if (traceIndirect && drawParameters.indirect) std::fprintf(stderr, "[draw] indirect packet %s args 0x%llx count %u reached\n", Pm4::Name(packet[0]).c_str(), static_cast<unsigned long long>(drawParameters.indirect->arguments), drawParameters.indirect->count);
         {

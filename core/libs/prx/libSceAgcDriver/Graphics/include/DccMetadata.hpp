@@ -24,6 +24,7 @@ const char* DccKeysName(DccKeys keys);
 // The keys covering a surface of `surfaceBytes`, when they all agree.
 DccKeys ReadDccKeys(std::uint64_t metaAddress, std::uint64_t surfaceBytes);
 bool IsDccClear(DccKeys keys);
+DccKeys CurrentDccKeys(std::uint64_t metaAddress, std::uint64_t surfaceBytes);
 // Stores "uncompressed" keys over the surface's metadata on the CPU (a guest memory write: it waits
 // for recorded GPU work that writes the keys first).
 void MarkDccUncompressed(std::uint64_t metaAddress, std::uint64_t surfaceBytes);
