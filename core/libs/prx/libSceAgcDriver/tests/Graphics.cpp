@@ -126,6 +126,15 @@ void stateTests() {
     queue.context[0x200] = 2;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "depth");
     queue = makeState();
+    queue.context[0x200] = 0x007007b4;
+    queue.context[0x1b3] = 2;
+    queue.context[0x1b4] = 2;
+    (void)AgcDriver::Graphics::DecodeState(queue);
+    Require(AgcDriver::Graphics::DrawRejection(queue, false).empty(), "a depth write without the depth test was rejected");
+    queue = makeState();
+    queue.context[0x200] = 0x007007b6;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "depth");
+    queue = makeState();
     queue.context[0x10f] = 0x7fc00000;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "non-finite");
     // The register facade: every register the decoders read is in DrawKeyRegisters (a wrong hit of
