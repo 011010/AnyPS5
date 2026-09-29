@@ -1,50 +1,82 @@
-cmake_minimum_required(VERSION 3.20)
-project(Relinker CXX)
+add_library(libSceAgc SHARED EXCLUDE_FROM_ALL
+        ${CMAKE_CURRENT_SOURCE_DIR}/Unimplemented.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Acb/src/Control.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Acb/src/Dispatch.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Acb/src/Memory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Acb/src/Sync.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Cb/src/Branch.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Cb/src/Dispatch.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Cb/src/Registers.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Cb/src/Sync.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Command/src/Memory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Command/src/Control.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Command/src/Draw.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Command/src/RegisterDefaults.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Command/src/Packet.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbDraw/src/DrawIndexed.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbDraw/src/DrawNonIndexed.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbDraw/src/IndexBuffer.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbDraw/src/Instancing.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbDraw/src/Stats.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbFlow/src/Control.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbFlow/src/Dispatch.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbFlow/src/Memory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbFlow/src/Sync.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbState/src/ContextState.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbState/src/Display.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbState/src/Init.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbState/src/Marker.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbState/src/Predication.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbState/src/Registers.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/DcbState/src/Workload.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Misc/src/PacketInfo.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Misc/src/RegisterDefaults.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Misc/src/ShaderFusion.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Misc/src/Suspend.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Patch/src/CondExec.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Patch/src/Dma.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Patch/src/IndirectRegisters.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Patch/src/Jump.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Patch/src/Nop.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Patch/src/QueueEndOfPipeAction.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Patch/src/Rewind.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Patch/src/WaitRegMem.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Patch/src/Branch.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Predication/src/Predication.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Shader/src/CreateShader.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Shader/src/InterpolantMapping.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Shader/src/LinkShaders.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Shader/src/PrimState.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Shader/src/ShaderUtils.cpp
+)
 
-option(BUILD_TESTING "Build and register relinker tests" OFF)
+target_include_directories(libSceAgc PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(libSceAgc PRIVATE libSceAgcDriver libc)
+
+option(APS5_AGC_CREATE_LOG "Logging sceAgcCreateShader Ok status" ON)
+
+target_compile_definitions(libSceAgc PRIVATE
+        APS5_AGC_CREATE_LOG=$<BOOL:${APS5_AGC_CREATE_LOG}>
+)
+
+foreach(runtimeLinkFlag IN ITEMS -static-libgcc -static-libstdc++ -static)
+    string(REPLACE "${runtimeLinkFlag}" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+endforeach()
+
+add_executable(agc_command_tests EXCLUDE_FROM_ALL tests/Commands.cpp)
+target_include_directories(agc_command_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_command_tests PRIVATE libSceAgc libc)
+configure_windows_unwind(agc_command_tests)
+configure_windows_unwind(libSceAgc)
+
+add_executable(agc_register_command_tests EXCLUDE_FROM_ALL
+        tests/RegisterCommands.cpp
+        Command/src/Packet.cpp
+        DcbState/src/Registers.cpp
+        Patch/src/IndirectRegisters.cpp
+)
+target_include_directories(agc_register_command_tests PRIVATE ${LIBS_INCLUDE_DIR})
+configure_windows_unwind(agc_register_command_tests)
 if(BUILD_TESTING)
-    enable_testing()
+    add_test(NAME agc_register_command_tests COMMAND agc_register_command_tests)
 endif()
-
-option(ANYPS5_ENABLE_SPIRV_TOOLS "Enable SPIRV-Tools validation and optimization" OFF)
-option(APS5_ENABLE_TIMING_LOG "Enable frame timing logging" OFF)
-add_compile_definitions(APS5_ENABLE_TIMING_LOG=$<BOOL:${APS5_ENABLE_TIMING_LOG}>)
-
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static -static-libgcc -static-libstdc++")
-
-set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-set(SDL_STATIC ON CACHE BOOL "" FORCE)
-set(SDL_TEST OFF CACHE BOOL "" FORCE)
-set(SDL_VIDEO ON CACHE BOOL "" FORCE)
-set(SDL_RENDER OFF CACHE BOOL "" FORCE)
-set(SDL_X11 ON CACHE BOOL "" FORCE)
-set(SDL_WAYLAND OFF CACHE BOOL "" FORCE)
-set(SDL_OPENGL OFF CACHE BOOL "" FORCE)
-set(SDL_OPENGLES OFF CACHE BOOL "" FORCE)
-set(SDL_VULKAN ON CACHE BOOL "" FORCE)
-set(SDL_JOYSTICK ON CACHE BOOL "" FORCE)
-set(SDL_HAPTIC OFF CACHE BOOL "" FORCE)
-set(SDL_HIDAPI OFF CACHE BOOL "" FORCE)
-set(SDL_SENSOR OFF CACHE BOOL "" FORCE)
-set(SDL_STATIC_PIC ON CACHE BOOL "" FORCE)
-set(ANYPS5_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
-set(CMAKE_EXE_LINKER_FLAGS "")
-add_subdirectory(3rdparty/SDL2)
-set(CMAKE_EXE_LINKER_FLAGS "${ANYPS5_EXE_LINKER_FLAGS}")
-
-set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
-set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
-set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
-set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
-set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
-set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
-add_subdirectory(3rdparty/freetype EXCLUDE_FROM_ALL)
-set_target_properties(freetype PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
-add_subdirectory(core/shader/recompiler)
-add_subdirectory(core/Decoder/Jpeg)
-add_subdirectory(core/libs)
-add_subdirectory(core/relinker)
