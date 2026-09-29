@@ -70,10 +70,11 @@ static void CheckDirectMemoryFollowsPhysicalPages() {
     Require(sceKernelMapDirectMemory(&first, page * 2, 3, 0, phys, 0) == 0);
     static_cast<unsigned char*>(first)[0] = 11;
     static_cast<unsigned char*>(first)[page + 5] = 22;
-    bool aliased = false;
     void* alias = nullptr;
-    try { sceKernelMapDirectMemory(&alias, page, 3, 0, phys + page, 0); } catch (const std::exception&) { aliased = true; }
-    Require(aliased);
+    Require(sceKernelMapDirectMemory(&alias, page, 3, 0, phys + page, 0) == 0);
+    Require(alias != first && static_cast<unsigned char*>(alias)[5] == 22);
+    Require(sceKernelMunmap(alias, page) == 0);
+    static_cast<unsigned char*>(first)[page + 5] = 22;
     Require(sceKernelMunmap(first, page * 2) == 0);
     void* filler = nullptr;
     Require(sceKernelMapFlexibleMemory(&filler, page * 2, 3, 0) == 0);
