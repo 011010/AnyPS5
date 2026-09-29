@@ -244,7 +244,8 @@ void DefineInputs(SpirvEmitterState& state) {
             } else if (flat) {
                 state.module.AddAnnotation(spv::OpDecorate, input.variableId, spv::DecorationFlat);
             }
-            if (state.program.Resources().stage == IrShaderStage::Pixel && PixelInfo(state).psNoPerspective && !flat && !input.perVertex) {
+            const auto& metadata = state.program.Metadata();
+            if (state.program.Resources().stage == IrShaderStage::Pixel && !flat && !input.perVertex && PixelInfo(state).InputIsLinear(input.location, metadata.pixelLinearInputs, metadata.pixelPerspectiveInputs)) {
                 state.module.AddAnnotation(spv::OpDecorate, input.variableId, spv::DecorationNoPerspective);
             }
             state.module.AddAnnotation(spv::OpDecorate, input.variableId, spv::DecorationLocation, PixelParameterLocation(state, input.location));
