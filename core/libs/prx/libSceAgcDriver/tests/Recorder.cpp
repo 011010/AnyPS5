@@ -1721,6 +1721,36 @@ void minLodTests(const Device& device, Recorder& recorder) {
     expectRed(sample(0x100, 0.0f, 1), unorm(1), "minimum LOD clamp: MIN_LOD at the view's base level reads its base level");
 }
 
+void firstLayerViewTests(const Device& device, Recorder& recorder) {
+    const auto& context = device.GetContext();
+    TextureDetiler detiler(context);
+    auto withDetiler = context;
+    withDetiler.detiler = &detiler;
+    GuestTextureResource resource{};
+    resource.width = 64;
+    resource.height = 4;
+    resource.depthOrLastArray = 2;
+    resource.baseArray = 1;
+    resource.mipCount = 1;
+    resource.tileMode = TextureTileMode::kLinear;
+    resource.dimension = TextureDimension::k2DArray;
+    resource.format = 56;
+    resource.dstSelX = 4;
+    resource.dstSelY = 5;
+    resource.dstSelZ = 6;
+    resource.dstSelW = 7;
+    const auto geometry = DescribeSurface(resource);
+    std::vector<std::uint8_t> memory(static_cast<std::size_t>(geometry.guestBytes) + 256);
+    auto* surface = reinterpret_cast<std::uint8_t*>((reinterpret_cast<std::uintptr_t>(memory.data()) + 255) & ~std::uintptr_t{255});
+    for (std::uint32_t layer = 0; layer < 3; ++layer) std::memset(surface + geometry.GuestLayerOffset(layer), 0x20 * (layer + 1), static_cast<std::size_t>(geometry.layerBytes));
+    resource.baseAddress = reinterpret_cast<std::uint64_t>(surface);
+    auto image = std::make_shared<StorageTexture>(withDetiler, detiler, resource, 0);
+    recorder.Keep(image);
+    SampleProgram program(context, recorder);
+    expectRed(program.Red(image->FirstLayerView(0), VK_IMAGE_LAYOUT_GENERAL, 0.0f), 0x40 / 255.0f, "a first-layer view does not read the BASE_ARRAY layer");
+    Require(image->FirstLayerView(0) == image->FirstLayerView(0), "first-layer views are not reused");
+}
+
 int main() {
     try {
         Device device;
@@ -1748,6 +1778,7 @@ int main() {
         dataWordPositionsTests();
         dataRefreshTests(device, recorder);
         minLodTests(device, recorder);
+        firstLayerViewTests(device, recorder);
         std::cout << "Recorder read tracking and label tests passed\n";
         return 0;
     } catch (const std::exception& error) {
