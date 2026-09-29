@@ -5,7 +5,6 @@
 #include "prx/libkernel/DirectMemory/DirectMemory.hpp"
 
 extern "C" {
-// DynamicLoader.cpp: host-module loader shared with dlopen/dlsym.
 void* APS5_VABI dlopen_nid_postfix(const char* path, int flags);
 void* APS5_VABI dlsym_nid_postfix(void* handle, const char* name);
 int APS5_VABI dlclose_nid_postfix(void* handle);
@@ -13,11 +12,10 @@ int APS5_VABI dlclose_nid_postfix(void* handle);
 
 extern "C" {
 
-// Module handles are the loader's dlopen handles, so only host-loadable modules resolve here.
 int APS5_VABI sceKernelDlsym(KernelModule handle, const char* symbol, void** addr) {
  if (!symbol || !addr) return SCE_KERNEL_ERROR_EFAULT;
  void* found = dlsym_nid_postfix(reinterpret_cast<void*>(static_cast<intptr_t>(handle)), symbol);
- if (!found) return static_cast<int>(0x80020003);  // ESRCH: symbol not found
+ if (!found) return static_cast<int>(0x80020003);
  *addr = found;
  return 0;
 }
@@ -45,8 +43,8 @@ KernelModule APS5_VABI sceKernelLoadStartModule(const char* module_file_name, si
  (void)opt;
  if (res) *res = 0;
  if (!module_file_name) return static_cast<KernelModule>(SCE_KERNEL_ERROR_EFAULT);
- void* handle = dlopen_nid_postfix(module_file_name, 2);  // RTLD_NOW
- if (!handle) return static_cast<KernelModule>(0x80020002);  // ENOENT
+ void* handle = dlopen_nid_postfix(module_file_name, 2);
+ if (!handle) return static_cast<KernelModule>(0x80020002);
  return static_cast<KernelModule>(reinterpret_cast<intptr_t>(handle));
 }
 
