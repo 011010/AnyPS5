@@ -515,7 +515,8 @@ std::set<std::uint32_t> ValidateShaders(std::span<const CompiledShader> shaders,
     const auto attachments = std::max<std::size_t>(state.colors.size(), 1u);
     std::set<std::uint32_t> locations;
     for (const auto& [location, signature] : previous.outputs) {
-        Require(location < attachments && signature == "vertex:f32x4", "fragment shader must export float4 colors at locations below the attachment count");
+        if (location >= attachments) continue;
+        Require(signature == "vertex:f32x4", "fragment shader must export float4 colors to its attachments");
         locations.insert(location);
     }
     return locations;
