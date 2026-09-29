@@ -591,8 +591,8 @@ struct Ngs2WaveformFormat {
 };
 
 struct Ngs2WaveformBlock {
-    std::uint32_t data_offset;
-    std::uint32_t data_size;
+    std::uint64_t data_offset;
+    std::uint64_t data_size;
     std::uint32_t num_repeats;
     std::uint32_t num_skip_samples;
     std::uint32_t num_samples;
