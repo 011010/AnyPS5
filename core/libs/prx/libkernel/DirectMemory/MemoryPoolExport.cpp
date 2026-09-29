@@ -45,10 +45,10 @@ int PoolDecommit(void* addr, uint64_t len) {
     return ret;
 }
 
-template <typename Fn>
-int Guarded(Fn fn) {
+template <typename TFunction>
+int Guarded(TFunction function) {
     try {
-        return fn();
+        return function();
     } catch (const std::exception&) {
         return SCE_KERNEL_ERROR_EINVAL;
     }

@@ -71,7 +71,7 @@ std::string ToUtf8(const std::u16string& text) {
     return out;
 }
 
-template<class T> void AppendNumber(std::u16string& out, const std::string& spec, T value) {
+template<class TValue> void AppendNumber(std::u16string& out, const std::string& spec, TValue value) {
     const int size = std::snprintf(nullptr, 0, spec.c_str(), value);
     if (size < 0) throw std::runtime_error("Formatting conversion failed");
     std::string text(static_cast<std::size_t>(size) + 1, '\0');
@@ -216,4 +216,4 @@ int APS5_VABI wprintf_nid_postfix(const char16_t* format, ...) {
     return result;
 }
 
-}  // extern "C"
+}

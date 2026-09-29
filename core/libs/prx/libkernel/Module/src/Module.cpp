@@ -3,6 +3,7 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libkernel/DirectMemory/DirectMemory.hpp"
+#include "prx/libkernel/KernelErrors.hpp"
 
 extern "C" {
 void* APS5_VABI dlopen_nid_postfix(const char* path, int flags);
@@ -10,12 +11,16 @@ void* APS5_VABI dlsym_nid_postfix(void* handle, const char* name);
 int APS5_VABI dlclose_nid_postfix(void* handle);
 }
 
+namespace {
+constexpr int kRtldNow = 2;
+}
+
 extern "C" {
 
 int APS5_VABI sceKernelDlsym(KernelModule handle, const char* symbol, void** addr) {
  if (!symbol || !addr) return SCE_KERNEL_ERROR_EFAULT;
  void* found = dlsym_nid_postfix(reinterpret_cast<void*>(static_cast<intptr_t>(handle)), symbol);
- if (!found) return static_cast<int>(0x80020003);
+ if (!found) return SCE_KERNEL_ERROR_ESRCH;
  *addr = found;
  return 0;
 }
@@ -43,8 +48,8 @@ KernelModule APS5_VABI sceKernelLoadStartModule(const char* module_file_name, si
  (void)opt;
  if (res) *res = 0;
  if (!module_file_name) return static_cast<KernelModule>(SCE_KERNEL_ERROR_EFAULT);
- void* handle = dlopen_nid_postfix(module_file_name, 2);
- if (!handle) return static_cast<KernelModule>(0x80020002);
+ void* handle = dlopen_nid_postfix(module_file_name, kRtldNow);
+ if (!handle) return static_cast<KernelModule>(SCE_KERNEL_ERROR_ENOENT);
  return static_cast<KernelModule>(reinterpret_cast<intptr_t>(handle));
 }
 
@@ -54,7 +59,7 @@ int APS5_VABI sceKernelStopUnloadModule(KernelModule handle, size_t args, const 
  (void)flags;
  (void)opt;
  if (res) *res = 0;
- return dlclose_nid_postfix(reinterpret_cast<void*>(static_cast<intptr_t>(handle))) == 0 ? 0 : static_cast<int>(0x80020003);
+ return dlclose_nid_postfix(reinterpret_cast<void*>(static_cast<intptr_t>(handle))) == 0 ? 0 : SCE_KERNEL_ERROR_ESRCH;
 }
 
 }
