@@ -666,6 +666,18 @@ void expectSingleFailure(const ShaderRecompiler::DescriptorBinding& binding, std
     expectResourceFailure(vertex, fragment, reason);
 }
 
+// A binding the resources accept (building them throws nothing), leaving no Vulkan object behind.
+void expectSingleAccepted(const ShaderRecompiler::DescriptorBinding& binding, std::string_view what) {
+    ShaderRecompiler::RecompileResult vertex;
+    ShaderRecompiler::RecompileResult fragment;
+    vertex.bindings.push_back(binding);
+    mock = MockVulkan{};
+    const auto context = mockContext();
+    const auto color = AgcDriver::Graphics::DecodeState(makeState()).color;
+    { AgcDriver::Graphics::ShaderResources resources(context, vertex, fragment, color, 0, 0); }
+    Require(mock.live == 0, std::string(what) + " leaked Vulkan objects");
+}
+
 void pushConstantTests() {
     ShaderRecompiler::RecompileResult vertex;
     ShaderRecompiler::RecompileResult fragment;
@@ -790,9 +802,11 @@ void resourceTests() {
         mutate(binding);
         return binding;
     };
-    expectSingleFailure(changed([](auto& binding) { binding.role = Role::GuestImages; binding.kind = Kind::SampledImage; }), "sampled and storage image resources are not implemented");
-    expectSingleFailure(changed([](auto& binding) { binding.role = Role::GuestImages; binding.kind = Kind::StorageImage; }), "sampled and storage image resources are not implemented");
-    expectSingleFailure(changed([](auto& binding) { binding.role = Role::GuestSamplers; binding.kind = Kind::Sampler; }), "sampled and storage image resources are not implemented");
+    // Image and sampler bindings are implemented: a buffer's four-DWORD V# is no T#, and the mock
+    // context has no sampler slots, so a sampler binding exceeds its per-stage limit.
+    expectSingleFailure(changed([](auto& binding) { binding.role = Role::GuestImages; binding.kind = Kind::SampledImage; }), "guest texture descriptor must contain 8 dwords");
+    expectSingleFailure(changed([](auto& binding) { binding.role = Role::GuestImages; binding.kind = Kind::StorageImage; }), "guest storage image descriptors must contain 8 dwords");
+    expectSingleFailure(changed([](auto& binding) { binding.role = Role::GuestSamplers; binding.kind = Kind::Sampler; }), "shader sampler descriptors exceed per-stage limits");
     expectSingleFailure(changed([](auto& binding) { binding.role = Role::Gds; binding.guestDescriptor.clear(); }), "unsupported descriptor role Gds");
     expectSingleFailure(changed([](auto& binding) { binding.role = Role::BdaPagetable; binding.guestDescriptor.clear(); }), "BDA table and fault descriptors");
     expectSingleFailure(changed([](auto& binding) { binding.role = Role::FaultBuffer; binding.guestDescriptor.clear(); }), "BDA table and fault descriptors");
@@ -811,9 +825,11 @@ void resourceTests() {
     expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[3] |= 0x40000000u; }), "unsupported type");
     expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[1] |= 0x3fffu << 16u; binding.guestDescriptor[2] = 0xffffffffu; }), "descriptor range limit");
     expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[2] = 8192; }), "descriptor range limit");
-    expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor = vsharp(reinterpret_cast<const void*>(0x1000), 8); }), "not readable");
+    // A V# left pointing at unmapped memory binds its committed pages only (none here); the rest reads
+    // as zeros (GuestBufferMemory::addDescriptorRegion), so it is not rejected.
+    expectSingleAccepted(changed([](auto& binding) { binding.guestDescriptor = vsharp(reinterpret_cast<const void*>(0x1000), 8); }), "an unmapped V#");
     expectSingleFailure(changed([&](auto& binding) { binding.guestDescriptor = vsharp(reinterpret_cast<const void*>(state.color.address), 64); }), "aliases the render target");
-    expectSingleFailure(changed([](auto& binding) { binding.count = 3; binding.guestDescriptor = join(join(vsharp(guestFirst.data(), 16), vsharp(guestSecond.data(), 32)), vsharp(reinterpret_cast<const void*>(0x1000), 8)); }), "not readable");
+    expectSingleAccepted(changed([](auto& binding) { binding.count = 3; binding.guestDescriptor = join(join(vsharp(guestFirst.data(), 16), vsharp(guestSecond.data(), 32)), vsharp(reinterpret_cast<const void*>(0x1000), 8)); }), "an unmapped V# element");
     expectSingleFailure(changed([&](auto& binding) { binding.count = 2; binding.guestDescriptor = join(vsharp(guestFirst.data(), 16), vsharp(reinterpret_cast<const void*>(state.color.address), 64)); }), "aliases the render target");
     expectSingleFailure(changed([](auto& binding) { binding.count = 17; binding.guestDescriptor.assign(68, 0); }), "per-stage limits");
     {
@@ -1035,7 +1051,10 @@ void rectListTests() {
     expectFailure([&] { static_cast<void>(BuildRectListShaders(vertex, fragment, target)); }, "per-vertex interpolation");
     fragment.fragmentParameters[0].perVertex = false;
     vertex.parameterExports.clear();
-    expectFailure([&] { static_cast<void>(BuildRectListShaders(vertex, fragment, target)); }, "no vertex export");
+    // A fragment input the vertex shader does not export is built as a missing parameter (see
+    // RectListShaders.cpp), not rejected.
+    auto unexported = BuildRectListShaders(vertex, fragment, target);
+    Require(!unexported.control.spirv.empty() && !unexported.evaluation.spirv.empty(), "rect-list shaders with an unexported parameter are empty");
     fragment.fragmentParameters.clear();
     target.tessellation->maxPatchSize = 3;
     expectFailure([&] { static_cast<void>(BuildRectListShaders(vertex, fragment, target)); }, "device limits");
@@ -1215,6 +1234,9 @@ void validationTests() {
 }
 
 int main() {
+    // The guest allocation tests expect mutations of leased ranges to be refused; they need not wait
+    // the default minute for each refusal. Set before the registry first reads it.
+    _putenv_s("APS5_PIN_WAIT_MS", "200");
     try {
         {
             const AgcDriver::Graphics::Context context{};

@@ -2,6 +2,8 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
+#include <string>
 #include <thread>
 #include <limits>
 #include <iterator>
@@ -34,6 +36,16 @@ Registry& registry() {
 std::atomic<std::uint64_t> generation{1};
 std::atomic<void (*)(std::uintptr_t, std::size_t)> invalidator{nullptr};
 std::atomic<bool (*)()> pinWaiter{nullptr};
+
+// How long a mutation of a leased range waits for the lease before it is refused:
+// APS5_PIN_WAIT_MS, 60 s by default (tests that expect the refusal set it short).
+std::chrono::milliseconds pinWait() {
+    static const std::chrono::milliseconds value{[] {
+        const char* text = std::getenv("APS5_PIN_WAIT_MS");
+        return text != nullptr ? std::strtoull(text, nullptr, 10) : 60000ull;
+    }()};
+    return value;
+}
 
 void require(bool condition, const char* reason) {
     if (!condition) throw std::runtime_error(reason);
@@ -202,7 +214,7 @@ void GuestAllocationsRequireUnpinned_nid_postfix(void* mutation, const void* poi
     // driver thread inside a long Vulkan call (importing host memory takes a lease for its whole
     // length), so every wait is bounded by the deadline only.
     auto* state = static_cast<MutationState*>(mutation);
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    const auto deadline = std::chrono::steady_clock::now() + pinWait();
     int syncedRounds = 0;
     for (;;) {
         bool pinned = false;
@@ -217,7 +229,7 @@ void GuestAllocationsRequireUnpinned_nid_postfix(void* mutation, const void* poi
             }
         }
         if (!pinned) return;
-        if (std::chrono::steady_clock::now() >= deadline) PinnedFailure(address, bytes, "waited 60 s for the lease");
+        if (std::chrono::steady_clock::now() >= deadline) PinnedFailure(address, bytes, ("waited " + std::to_string(pinWait().count()) + " ms for the lease (APS5_PIN_WAIT_MS)").c_str());
         const auto waiter = pinWaiter.load(std::memory_order_acquire);
         bool progressed = false;
         if (waiter != nullptr && state != nullptr && state->lock.owns_lock()) {
