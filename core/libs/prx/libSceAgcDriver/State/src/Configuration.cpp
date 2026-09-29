@@ -8,8 +8,6 @@
 
 extern "C" {
 
-// Tessellation runs as Vulkan tessellation stages, which keep hull-shader outputs and tessellation
-// factors on the host GPU: the off-chip hull memory and the tessellation-factor ring are never read.
 int APS5_VABI sceAgcDriverSetHsOffchipParam(uint64_t value0, uint64_t value1, uint64_t value2) {
  (void)value0;
  (void)value1;

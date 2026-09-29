@@ -85,8 +85,6 @@ public:
         if (queue->stopping || cfg->shutdownToken.stop_requested()) throw ProcessShutdown{};
         std::lock_guard lock(cfg->mutex);
         checkConfig(*cfg);
-        // The limit was waited for by WaitForFlipRoom before the driver took its lock; concurrent
-        // submitters may overshoot it by their own flips.
         if (info.index >= 0) {
             request->buffer = cfg->buffers[info.index];
             require(request->buffer.Occupied(), "flip buffer is not registered");
@@ -507,7 +505,6 @@ void VideoOutDriver::presentLoop(std::stop_token token) {
             }
             if (current) {
                 current.reset();
-                // processFlip released the flip's reservation: a submitter may be waiting for room.
                 flipQueue->changed.notify_all();
             }
         }

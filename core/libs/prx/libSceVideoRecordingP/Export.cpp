@@ -10,8 +10,6 @@
 #include <vector>
 
 namespace {
-// Recording metadata the title sets for the system recorder (titles, permission levels, guard
-// areas); kept as given. Nothing records, so recording itself is not implemented.
 std::mutex g_infoMutex;
 std::map<int32_t, std::vector<unsigned char>> g_info;
 }

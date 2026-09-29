@@ -17,11 +17,11 @@ std::uint32_t* APS5_VABI sceAgcCbSetShRegisterRangeDirect(CommandBuffer* buf, st
 }
 
 uint32_t APS5_VABI sceAgcCbSetShRegisterRangeDirectGetSize(uint32_t num_values) {
-    return (num_values + 2u) * 4u; // header + offset + values
+    return (num_values + 2u) * 4u;
 }
 
 std::uint32_t APS5_VABI sceAgcCbSetUcRegisterRangeDirectGetSize(std::uint32_t numValues) {
-    return (numValues + 2u) * 4u; // header + offset + values
+    return (numValues + 2u) * 4u;
 }
 
 std::uint32_t* APS5_VABI sceAgcCbSetShRegistersDirect(CommandBuffer* buf, const volatile ShaderRegister* regs, std::uint32_t numRegs) {

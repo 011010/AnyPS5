@@ -7,7 +7,6 @@
 #include <string>
 
 namespace {
-// Deletes exported content; the lifecycle is honest, deletion is not implemented.
 std::atomic<bool> g_initialized{false};
 }
 

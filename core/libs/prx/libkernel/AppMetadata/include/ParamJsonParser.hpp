@@ -8,7 +8,6 @@
 struct ParsedParamJson {
     std::string title;
     std::string titleId;
-    // The download data quota in MiB; 0 when the title declares none.
     std::uint64_t downloadDataSizeMiB = 0;
 };
 

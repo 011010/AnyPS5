@@ -10,7 +10,6 @@
 
 namespace {
 
-// Layout of the params titles pass to sceAudioOut2SpeakerArrayCreate.
 struct GuestVbapParams {
     const AudioOut2Position* positions;
     std::uint32_t numSpeakers;
@@ -24,7 +23,6 @@ constexpr std::uint32_t MaxSpeakers = 32;
 constexpr std::uint32_t AmbisonicsChannelFlag = 0x40;
 constexpr std::uint32_t MaxAmbisonicsOrder = 5;
 
-// Lives in the memory the title allocates from sceAudioOut2GetSpeakerArrayMemorySize; the handle points at it.
 struct SpeakerArray {
     std::uint32_t magic;
     std::uint32_t numSpeakers;
@@ -38,7 +36,6 @@ SpeakerArray& Array(AudioOut2SpeakerArrayHandle handle) {
     return *array;
 }
 
-// Real SN3D spherical harmonic for ACN index `acn` (no Condon-Shortley phase), frame x front, y left, z up.
 float Sn3d(std::uint32_t acn, const AudioOut2Position& direction) {
     const int n = static_cast<int>(std::sqrt(static_cast<double>(acn)));
     const int m = static_cast<int>(acn) - n * n - n;
@@ -87,12 +84,9 @@ int APS5_VABI sceAudioOut2SpeakerArrayDestroy(AudioOut2SpeakerArrayHandle handle
     return 0;
 }
 
-// Basic sampling decoder: speaker gain = sum over channels of Y(speaker) / numSpeakers, so a stereo pair decodes
-// first order as two cardioids. Orders the layout cannot resolve (2D rule: 2N+1 speakers) get zero.
 int APS5_VABI sceAudioOut2GetSpeakerArrayAmbisonicsCoefficients(AudioOut2SpeakerArrayHandle handle, uint32_t ambisonics_channel, float* coefficients, uint32_t num_coefficients) {
     const auto& array = Array(handle);
     if (coefficients == nullptr || num_coefficients != array.numSpeakers) APS5_INVALID_ARG_EX;
-    // ponytail: only the 0x40-flagged encoding seen so far (assumed ACN/SN3D); other encodings throw until seen.
     const std::uint32_t acn = ambisonics_channel & ~AmbisonicsChannelFlag;
     if ((ambisonics_channel & AmbisonicsChannelFlag) == 0 || acn >= (MaxAmbisonicsOrder + 1) * (MaxAmbisonicsOrder + 1)) {
         throw std::invalid_argument("unsupported ambisonics channel " + std::to_string(ambisonics_channel));

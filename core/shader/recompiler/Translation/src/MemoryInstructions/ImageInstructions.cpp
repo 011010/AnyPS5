@@ -41,9 +41,6 @@ MemoryInfo imageMemoryInfoFromInstruction(const RdnaInstruction& inst) {
 }
 
 bool TranslationContext::imageBvhIntersectRay(const RdnaInstruction& inst) {
-    // The node test only: the guest shader owns the traversal and its stack. The T# is read at run
-    // time and the node through the BDA page table, so the access is address-based (kind Global);
-    // imageSampleFlags carries A16 (the direction and inverse direction as halves).
     if (inst.dataDwordCount != 4u || inst.imageD16) {
         throw std::runtime_error("image_bvh_intersect_ray returns four dwords");
     }

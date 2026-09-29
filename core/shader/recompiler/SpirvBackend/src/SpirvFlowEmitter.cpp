@@ -637,9 +637,6 @@ void EmitControlFlow(SpirvValueEmitContext& context, StructuredFunctionState& fu
         if (info == nullptr) {
             context.Fail("structured control flow block has no terminator metadata");
         }
-        // A continue construct must reach its back edge (the back-edge block post-dominates the
-        // continue target), so a BDA fault in the continue target's instructions does not stop the
-        // invocation; the fault is recorded all the same.
         const bool stops = state.bdaStopsInvocations;
         state.bdaStopsInvocations = stops && !IsContinueTarget(program, info->id);
         EmitStructuredBlock(context, functionState, block);

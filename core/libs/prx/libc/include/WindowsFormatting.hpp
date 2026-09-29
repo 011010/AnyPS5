@@ -202,7 +202,6 @@ inline int FormatWindows(char* buffer, size_t size, const char* format, const vo
             AppendUtf8(utf8, static_cast<char16_t>(args.Next<unsigned int>()));
             output.Value(spec + 's', utf8.c_str());
         } else if (conversion == 's' && (length.empty() || length == "h")) {
-            // FreeBSD's printf, the console's, prints a null string as "(null)".
             const char* value = args.Next<const char*>();
             if (!value) value = "(null)";
             output.Value(spec + 's', value);

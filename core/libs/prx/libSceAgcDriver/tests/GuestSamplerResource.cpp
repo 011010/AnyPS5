@@ -24,7 +24,6 @@ struct Fields {
     std::uint32_t filterMode = 0;
     bool disableDegamma = false;
     std::uint32_t minLodRaw = 0;
-    // MAX_LOD is 12 bits of unsigned 4.8 fixed point: 0xc00 is LOD 12.
     std::uint32_t maxLodRaw = 0xc00;
     std::uint32_t perfMip = 0;
     std::uint32_t perfZ = 0;

@@ -16,8 +16,6 @@ void EmitBdaOverflowCheck(SpirvEmitterState& state, std::uint32_t address, std::
     StopBdaInvocationIf(state, overflow);
 }
 
-// The memory operands of a BDA load or store: Volatile for a coherent access (MemoryInfo::coherent),
-// which must see what other workgroups store while the dispatch runs.
 std::uint32_t BdaAccessMask(const SpirvEmitterState& state, const IrValue& inst) {
     const auto index = inst.Flags<MemoryFlags>().index;
     const auto& memory = state.program.Resources().memoryInfo;
@@ -148,7 +146,6 @@ void EmitBdaWrite(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint32_t
     const auto unaligned = Binary(state, spv::OpINotEqual, TypeBool(state), Binary(state, spv::OpBitwiseAnd, TypeScalarU64(state), address, BdaConstant(state, 3u)), BdaConstant(state, 0u));
     EmitIfCondition(state, unaligned, [&] { RecordBdaFault(state, address, ConstantU32(state, 4u), instruction, BdaAbi::FaultReason::Unaligned); });
     EmitIfCondition(state, Unary(state, spv::OpLogicalNot, TypeBool(state), unaligned), [&] {
-        // A failed lookup (unmapped, or a range without Write) has recorded its fault.
         const auto physical = state.module.AllocateId();
         state.module.AddFunction(spv::OpFunctionCall, TypeScalarU64(state), physical, state.bdaWritePointerFunction, address, ConstantU32(state, 4u), instruction);
         EmitIfCondition(state, Binary(state, spv::OpINotEqual, TypeBool(state), physical, BdaConstant(state, 0u)), [&] {

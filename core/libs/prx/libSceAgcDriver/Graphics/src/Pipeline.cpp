@@ -105,7 +105,6 @@ Pipeline::Pipeline(const Context& context, const State& state, const VertexInput
         subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         subpass.colorAttachmentCount = static_cast<std::uint32_t>(references.size());
         subpass.pColorAttachments = references.empty() ? nullptr : references.data();
-        // The depth surface stays in the general layout (DepthSurface.hpp).
         const VkAttachmentReference depthReference{static_cast<std::uint32_t>(colors.size()), VK_IMAGE_LAYOUT_GENERAL};
         if (state.depth) {
             VkAttachmentDescription depth{};

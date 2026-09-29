@@ -148,7 +148,6 @@ struct ShaderVertexInputInfo {
 
 struct ShaderComputeInputInfo: ShaderWorkgroupInputInfo {
     bool groupId[3] = {false, false, false};
-    // ShaderComputeStageInfo::PartialGroups: threads past the dispatch size start inactive.
     bool partialGroups = false;
     int threadIdsNum = 0;
     int workgroupRegister = 0;

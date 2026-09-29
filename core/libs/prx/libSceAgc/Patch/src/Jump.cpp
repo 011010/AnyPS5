@@ -9,7 +9,6 @@
 
 namespace {
 
-// INDIRECT_BUFFER as sceAgcDcbJump writes it: [1..2] target, [3] size in 19:0, chain in 20, cache policy in 29:28.
 void PatchJump(std::uint32_t* cmd, const volatile std::uint32_t* target, std::uint32_t sizeInDwords, const char* function) {
     Agc::Command::ValidatePacket(cmd, 0x3fu, 4, function);
     const auto address = reinterpret_cast<std::uintptr_t>(target);
@@ -29,7 +28,6 @@ int APS5_VABI sceAgcJumpPatchSetTarget(uint32_t* cmd, const volatile uint32_t* t
     return 0;
 }
 
-// Named after Kyty's reading: a jump patch that also sets the cache policy.
 APS5_EXPORT("Ikfdt-rIqCE", sceAgcUnknown_Ikfdt_MrIqCE);
 int APS5_VABI sceAgcUnknown_Ikfdt_MrIqCE(uint32_t* cmd, uint64_t cache_policy, const volatile uint32_t* target, uint32_t size_in_dwords) {
     Agc::Command::CheckBits(cache_policy, 3u, __func__);

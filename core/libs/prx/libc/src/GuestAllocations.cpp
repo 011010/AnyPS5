@@ -37,8 +37,6 @@ std::atomic<std::uint64_t> generation{1};
 std::atomic<void (*)(std::uintptr_t, std::size_t)> invalidator{nullptr};
 std::atomic<bool (*)()> pinWaiter{nullptr};
 
-// How long a mutation of a leased range waits for the lease before it is refused:
-// APS5_PIN_WAIT_MS, 60 s by default (tests that expect the refusal set it short).
 std::chrono::milliseconds pinWait() {
     static const std::chrono::milliseconds value{[] {
         const char* text = std::getenv("APS5_PIN_WAIT_MS");
@@ -210,9 +208,6 @@ void GuestAllocationsRequireUnpinned_nid_postfix(void* mutation, const void* poi
     // this registry, so waiting with the lock held would deadlock them. The scan restarts after the
     // lock is retaken, since another mutation may have run meanwhile. Without a waiter the lease is
     // dropped by another thread (a synchronous draw or dispatch), so yielding suffices. A waiter
-    // round that finished nothing (the holder is not recorded GPU work) yields: the holder may be a
-    // driver thread inside a long Vulkan call (importing host memory takes a lease for its whole
-    // length), so every wait is bounded by the deadline only.
     auto* state = static_cast<MutationState*>(mutation);
     const auto deadline = std::chrono::steady_clock::now() + pinWait();
     int syncedRounds = 0;

@@ -1,5 +1,3 @@
-// A selection in a loop with an arm that continues and another target it shares with an enclosing
-// selection: its merge is where the other arm goes, so splitting the shared merge terminates.
 #include "ControlFlow/Structurizer.hpp"
 #include <cstdio>
 #include <exception>
@@ -9,8 +7,6 @@
 using namespace ShaderRecompiler;
 
 int main() {
-    // 0 -> 1 (loop header) -> 2; 2: 5 | 3; 3: 5 | 4; 4 -> 7 (continue); 5: 6 (exit) | 7; 6 returns;
-    // 7 -> 1. Around the back edge every path from 4 passes 5, so 5 post-dominates both selections.
     const std::vector<std::vector<std::uint32_t>> successors{{1}, {2}, {5, 3}, {5, 4}, {7}, {6, 7}, {}, {1}};
     ControlFlowGraph graph;
     graph.entryBlock = 0;

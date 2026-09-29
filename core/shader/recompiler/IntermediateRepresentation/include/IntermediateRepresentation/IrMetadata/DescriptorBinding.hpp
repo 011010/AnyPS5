@@ -49,8 +49,6 @@ struct IrBindingLayout {
     std::uint32_t pushDataStartDword = PushData::NoStart;
     std::uint32_t memoryOffsetDword = 0;
     std::uint32_t memoryOffsetCount = 0;
-    // Three dwords after the memory offsets hold the partial-group dispatch size (ShaderInfo::
-    // dispatchThreadLimit).
     bool dispatchThreadLimit = false;
     std::vector<std::uint32_t> userDataRegisters;
     std::vector<IrDescriptorBinding> descriptors;

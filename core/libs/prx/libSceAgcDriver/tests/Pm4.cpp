@@ -343,8 +343,6 @@ void testMemorySynchronization() {
 }
 
 void testWriteChangedKeepsUntouchedBytes() {
-    // Write-back stores only the bytes the GPU changed: its other bytes are the snapshot, and the
-    // CPU may have written them since.
     alignas(256) static std::uint8_t guest[256];
     std::memset(guest, 0, sizeof(guest));
     std::vector<std::byte> original(sizeof(guest)), current(sizeof(guest));

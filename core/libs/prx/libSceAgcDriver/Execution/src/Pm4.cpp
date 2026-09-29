@@ -313,7 +313,6 @@ void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue) {
                     require(eventIndex == 0 || eventIndex == 7, "invalid cache-flush event index");
                     break;
                 case 0x39:
-                    // PIXEL_PIPE_STAT_DUMP: the occlusion counters (see Driver::dumpSampleCounters).
                     graphics();
                     size(4);
                     require(eventIndex == 1, "invalid occlusion counter dump event index");
@@ -354,7 +353,6 @@ void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue) {
             break;
         }
         case 0x59:
-            // REWIND: bit 31 is the valid flag the CPU sets; the driver waits for it (see Driver).
             size(2);
             require((packet[1] & 0x7fffffffu) == 0, "unsupported REWIND payload bits");
             break;

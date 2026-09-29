@@ -52,8 +52,6 @@ public:
             viewInfo.format = target.format;
             viewInfo.subresourceRange = {aspects, 0, 1, 0, 1};
             Check(context.Function<PFN_vkCreateImageView>("vkCreateImageView")(context.device, &viewInfo, nullptr, &view), "vkCreateImageView depth");
-            // Cleared in the general layout it keeps from then on, recorded ahead of the draw (a draw's
-            // pass begins behind a barrier from every earlier transfer write).
             auto* recorder = Recorder::Active();
             std::unique_ptr<CommandBatch> batch;
             if (recorder == nullptr) batch = std::make_unique<CommandBatch>(context);
@@ -82,7 +80,6 @@ public:
     DepthSurface(const DepthSurface&) = delete;
     DepthSurface& operator=(const DepthSurface&) = delete;
 
-    // The texture sampling the plane at the descriptor's base address, one per descriptor.
     std::shared_ptr<Texture> Sampled(std::span<const std::uint32_t> words, const GuestTextureResource& resource, VkComponentMapping components) {
         std::array<std::uint32_t, 12> key{};
         std::copy_n(words.begin(), std::min<std::size_t>(words.size(), 8), key.begin());
@@ -95,8 +92,6 @@ public:
         const bool d16 = target.format == VK_FORMAT_D16_UNORM || target.format == VK_FORMAT_D16_UNORM_S8_UINT;
         const auto expected = stencil ? VK_FORMAT_R8_UINT : d16 ? VK_FORMAT_R16_UNORM : VK_FORMAT_R32_SFLOAT;
         const auto format = ResolveTextureFormat(resource.format);
-        // A 32-bit integer read of a D32 plane takes the float view: the shader keeps the bits
-        // (ShaderRecompiler::IsDepthBitsTexture).
         const bool depthBits = !stencil && !d16 && words.size() >= 4 && ShaderRecompiler::IsDepthBitsTexture(words[1], words[3]);
         if ((format != expected && !depthBits) || resource.dimension != TextureDimension::k2D || resource.width != target.extent.width || resource.height != target.extent.height || resource.baseLevel != 0 || resource.lastLevel != 0 || resource.baseArray != 0) {
             char text[448];
@@ -139,7 +134,6 @@ std::mutex& surfacesMutex() {
     return mutex;
 }
 
-// Never destroyed with the statics: the images belong to a device that may be gone by then.
 std::vector<std::unique_ptr<DepthSurface>>& surfaces() {
     static auto* list = new std::vector<std::unique_ptr<DepthSurface>>();
     return *list;
@@ -164,7 +158,6 @@ void ClearDepthSurfaces(VkDevice device) {
 std::shared_ptr<Texture> DepthSurfaceTexture(const Context& context, std::span<const std::uint32_t> words, const GuestTextureResource& resource, VkComponentMapping components) {
     std::lock_guard lock(surfacesMutex());
     const auto& list = surfaces();
-    // The newest surface made at the address.
     const auto found = std::find_if(list.rbegin(), list.rend(), [&](const auto& surface) {
         return surface->context.device == context.device && (surface->target.address == resource.baseAddress || (surface->target.stencilAddress != 0 && surface->target.stencilAddress == resource.baseAddress));
     });

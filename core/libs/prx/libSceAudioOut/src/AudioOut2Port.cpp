@@ -22,9 +22,6 @@ static constexpr std::uint64_t ATTRIBUTE_TRACE_EVERY = 2000;
 static constexpr std::uint32_t ATTRIBUTE_DATA = 0;
 static constexpr std::uint32_t ATTRIBUTE_VOLUME = 1;
 
-// data_format bits 8..11 carry the channel count, bits 0..6 the sample type (0 float, 1 16-bit
-// integer) and bit 7 the standard 8-channel order, as Kyty decodes it: the titles open 0x100 (mono
-// object ports), 0x200 (stereo), 0x880 (7.1 bed) and 0x201 (a Bink movie's sound).
 static constexpr std::uint32_t FORMAT_CHANNELS_SHIFT = 8;
 static constexpr std::uint32_t FORMAT_CHANNELS_MASK = 0xFu;
 static constexpr std::uint32_t FORMAT_TYPE_MASK = 0x7Fu;

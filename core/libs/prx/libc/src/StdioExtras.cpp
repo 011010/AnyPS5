@@ -51,7 +51,6 @@ int APS5_VABI sprintf_s_nid_postfix(char* buffer, size_t size, const char* forma
     std::abort();
 }
 
-// Dinkumware lconv as the title's libc lays it out: monetary strings, CHAR_MAX monetary flags, then numeric and message strings.
 struct GuestLconv {
     const char* monetary[7];
     char monetaryFlags[14];

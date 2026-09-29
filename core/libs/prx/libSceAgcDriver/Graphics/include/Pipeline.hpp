@@ -40,18 +40,12 @@ public:
     Pipeline(const Pipeline&) = delete;
     Pipeline& operator=(const Pipeline&) = delete;
     VkPipelineLayout Layout() const;
-    // The framebuffer of these attachment views: the color views, then the depth surface's when the
-    // pipeline has one. A resident target's view (`owners[i]` set) is stable while its
-    // StorageTexture lives, and a depth surface's while its device does, so framebuffers made of
-    // resident views are kept in the pipeline and reused when every owner is still the same
-    // object; any other set is built per call.
     std::shared_ptr<Framebuffer> AcquireFramebuffer(std::span<const VkImageView> targets, std::span<const std::shared_ptr<StorageTexture>> owners, VkExtent2D extent);
     // Begins the render pass on the framebuffer, binds the pipeline and sets viewport and scissor.
     void Begin(VkCommandBuffer commands, const Framebuffer& framebuffer, VkExtent2D extent, const VkViewport& viewport, const VkRect2D& scissor) const;
     // The same inside a render pass another pipeline of the same attachments began (compatible by
     // construction: the attachment formats alone decide).
     void Continue(VkCommandBuffer commands, const VkViewport& viewport, const VkRect2D& scissor) const;
-    // An assembled block (AssemblePushConstants, then ShaderResources::PatchPushConstants).
     void PushConstants(VkCommandBuffer commands, VkShaderStageFlags stages, std::span<const std::byte, PipelinePushConstantBytes> bytes) const;
     // Forgets the Vulkan objects without destroying them: for entries of a device that is already gone.
     void Abandon() noexcept;

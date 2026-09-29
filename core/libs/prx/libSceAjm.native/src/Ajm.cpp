@@ -97,7 +97,6 @@ struct Instance {
     std::uint64_t totalDecodedSamples = 0;
     SidebandGaplessDecode gapless{};
     bool flagsReported = false;
-    // MP3: the FFmpeg decoder (it keeps the bit reservoir between frames) and the last frame's shape.
     AVCodecContext* mp3 = nullptr;
     std::uint32_t mp3Channels = 0;
     std::uint32_t mp3SampleRate = 0;
@@ -246,7 +245,6 @@ std::vector<std::uint8_t> JoinInputs(const JobHeader& job, const AjmBuffer* inpu
     return input;
 }
 
-// The job's output buffers, filled in order.
 struct PcmOutputs {
     const AjmBuffer* buffers;
     std::uint32_t count;
@@ -275,12 +273,10 @@ struct PcmOutputs {
     }
 };
 
-// Instance flags bits 7..9 select the PCM encoding: 0 16-bit, 1 32-bit integer, 2 float.
 std::uint32_t PcmEncoding(const Instance& instance) {
     return static_cast<std::uint32_t>((instance.flags >> 7u) & 7u);
 }
 
-// Emits one decoded frame of interleaved PCM after the instance's gapless skip and up to its sample limit.
 void EmitFrame(Instance& instance, PcmOutputs& outputs, const std::uint8_t* pcm, std::size_t samples, std::size_t channels, std::size_t sampleBytes) {
     std::size_t first = 0;
     std::size_t count = samples;
@@ -298,7 +294,6 @@ void EmitFrame(Instance& instance, PcmOutputs& outputs, const std::uint8_t* pcm,
     instance.totalDecodedSamples += count;
 }
 
-// The sidebands a run job asked for, in the SDK's order after its result.
 void WriteRunSideband(const JobHeader& job, const Instance& instance, std::int32_t result, std::size_t consumed, std::size_t produced, std::uint32_t frames, const SidebandFormat& format) {
     auto* sideband = static_cast<std::uint8_t*>(job.sideband);
     std::size_t offset = 0;
@@ -321,8 +316,6 @@ void WriteRunSideband(const JobHeader& job, const Instance& instance, std::int32
     }
 }
 
-// Decodes AT9 frames from the concatenated inputs into the concatenated outputs in the instance's PCM
-// encoding.
 void RunAt9(Instance& instance, const JobHeader& job, const AjmBuffer* inputs, const AjmBuffer* outputs) {
     const auto input = JoinInputs(job, inputs);
     PcmOutputs pcmOutputs(outputs, job.outputCount);
@@ -398,8 +391,6 @@ void RunAt9(Instance& instance, const JobHeader& job, const AjmBuffer* inputs, c
     WriteRunSideband(job, instance, result, consumed, pcmOutputs.produced, frames, SidebandFormat{static_cast<std::uint32_t>(channels), ChannelMask(channels), static_cast<std::uint32_t>(instance.info.samplingRate), encoding, 0, 0});
 }
 
-// An MPEG audio Layer III frame header: the frame's bytes and PCM shape; false when the bytes do not
-// start one (free-format bitrates included).
 struct Mp3Frame {
     std::size_t bytes;
     std::uint32_t channels;
@@ -437,8 +428,6 @@ void OpenMp3(Instance& instance) {
     if (!instance.mp3 || avcodec_open2(instance.mp3, codec, nullptr) < 0) throw std::runtime_error("AJM: cannot open the FFmpeg MP3 decoder");
 }
 
-// Decodes whole MP3 frames from the concatenated inputs. Like AT9 superframes, a frame is decoded only
-// once all its bytes are present: a trailing partial frame stays unconsumed as partial input.
 void RunMp3(Instance& instance, const JobHeader& job, const AjmBuffer* inputs, const AjmBuffer* outputs) {
     const auto input = JoinInputs(job, inputs);
     PcmOutputs pcmOutputs(outputs, job.outputCount);
@@ -467,7 +456,6 @@ void RunMp3(Instance& instance, const JobHeader& job, const AjmBuffer* inputs, c
             if (frames == 0) result |= AJM_RESULT_NOT_ENOUGH_ROOM;
             break;
         }
-        // Not reference counted: the decoder copies the frame into a padded buffer of its own.
         packet->data = const_cast<std::uint8_t*>(input.data() + consumed);
         packet->size = static_cast<int>(frame.bytes);
         if (avcodec_send_packet(instance.mp3, packet.get()) < 0) {
@@ -620,7 +608,6 @@ int APS5_VABI sceAjmInstanceCreate(uint32_t context, uint32_t codec, uint64_t fl
     auto created = std::make_unique<Instance>();
     created->codec = codec;
     created->flags = flags;
-    // MP3 has no codec parameters: the stream's frame headers carry them, so it runs without an initialize job.
     if (codec == CODEC_MP3) {
         OpenMp3(*created);
         created->initialized = true;

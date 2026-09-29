@@ -18,7 +18,6 @@
 
 namespace {
 
-// Guest long is 64-bit; MinGW's is 32-bit, so integer "l" conversions need "ll" on the host.
 std::string HostLength(const std::string& length, char conversion) {
 #ifdef _WIN32
     if (length == "l" && std::strchr("diouxXn", conversion) != nullptr) return "ll";
@@ -28,8 +27,6 @@ std::string HostLength(const std::string& length, char conversion) {
     return length;
 }
 
-// Guest scanf, one directive at a time through the host sscanf, so the guest arguments can come from any
-// va_list flavor. secure adds the _s rules: %s, %c and %[ take a buffer capacity after the pointer.
 template <typename NextPointer, typename NextCapacity>
 int ScanGuest(const char* buffer, const char* format, bool secure, NextPointer nextPointer, NextCapacity nextCapacity) {
     if (buffer == nullptr || format == nullptr) return EOF;

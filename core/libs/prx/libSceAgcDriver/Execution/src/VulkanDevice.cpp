@@ -218,7 +218,6 @@ struct VulkanDevice::State {
     std::map<std::uint64_t, std::shared_ptr<ComputePipelineObjects>> computePipelines;
     std::unique_ptr<Graphics::GpuColorTransfer> colorTransfer;
     std::shared_ptr<Graphics::BufferPool> bufferPool;
-    // Bound for null V#s (Context::emptyBuffer).
     std::unique_ptr<Graphics::Buffer> emptyBuffer;
     std::unique_ptr<Graphics::TextureCache> textureCache;
     std::unique_ptr<Graphics::PipelineCache> pipelineCache;
@@ -493,7 +492,6 @@ struct VulkanDevice::State {
             // Cached graphics pipelines (with their framebuffers, modules, render passes and layouts)
             // belong to this device and must be destroyed while it lives.
             Graphics::ClearCachedPipelines(device);
-            // Their framebuffers were the last users of the depth surfaces' views.
             Graphics::ClearDepthSurfaces(device);
             {
                 std::lock_guard pipelines(computePipelinesMutex);
@@ -780,7 +778,6 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     // PA_CL_CLIP_CNTL near/far clip disable maps to depth clamping.
     enabled.depthClamp = available.depthClamp;
     state->depthClamp = enabled.depthClamp == VK_TRUE;
-    // PIXEL_PIPE_STAT_DUMP reports sample counts (see Recorder::CountSamples).
     enabled.occlusionQueryPrecise = available.occlusionQueryPrecise;
     state->occlusionQueryPrecise = enabled.occlusionQueryPrecise == VK_TRUE;
     // Recompiled storage-image access declares no format (the guest descriptor decides it).
@@ -789,7 +786,6 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     // Gathers with non-constant offsets (ImageGatherExtended).
     enabled.shaderImageGatherExtended = available.shaderImageGatherExtended;
     if (enabled.shaderImageGatherExtended) state->capabilities.push_back(spv::CapabilityImageGatherExtended);
-    // Sampling with an LOD clamp (image_sample_*_cl) as the MinLod image operand.
     enabled.shaderResourceMinLod = available.shaderResourceMinLod;
     if (enabled.shaderResourceMinLod) state->capabilities.push_back(spv::CapabilityMinLod);
     if (enabled.shaderStorageImageWriteWithoutFormat) state->capabilities.push_back(spv::CapabilityStorageImageWriteWithoutFormat);
@@ -1702,8 +1698,6 @@ bool NoResidentPresent() {
 // Debug aid: APS5_DUMP_FRAMES=<n> saves the first n presented display buffers as frame_<index>.bmp,
 // read back by the blit's own submission and written after its fence (RetireSlot), or with
 // APS5_NO_GPU_DUMP=1 decoded from the tiled guest buffer on the CPU, as before.
-// APS5_DUMP_FRAMES_EVERY=<k> dumps every k-th presented frame (up to APS5_DUMP_FRAMES of them)
-// instead of the first ones, to reach screens far into a run.
 struct FrameDumps {
     int limit;
     bool cpu;
@@ -2309,11 +2303,6 @@ bool TraceDispatchIo() {
     return traceIo;
 }
 
-// Debug aid: APS5_WATCH_MEMORY=<hex address>:<hex bytes>[,<hex address>:<hex bytes>...] (with
-// APS5_SYNC_DISPATCH=1) keeps the last 64 contents of the ranges, each with the dispatch that left it,
-// and writes them to watch_<n>_<program>.bin (the ranges back to back, in order) when the loop guard
-// first trips: the dispatch that corrupted a structure a looping shader walks is the one whose
-// snapshot first shows the damage.
 void WatchMemory(std::uint64_t programAddress) {
     struct Range {
         std::uint64_t address = 0;
@@ -2341,8 +2330,6 @@ void WatchMemory(std::uint64_t programAddress) {
     static bool written = false;
     std::lock_guard lock(mutex);
     if (written) return;
-    // The heap base differs between runs above bit 36: the first of those bases each range is
-    // mapped at, once all are.
     static std::vector<std::uint64_t> addresses;
     if (addresses.empty()) {
         std::vector<std::uint64_t> found;

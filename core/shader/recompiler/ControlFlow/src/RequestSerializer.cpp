@@ -670,7 +670,6 @@ std::string RequestSerializer::Serialize(const RecompileRequest& request) const 
         writeGraphicsCompileContext(writer, *request.graphics);
     }
     writer.WriteBool(request.useCache);
-    // Version 3: a compute request's partial-group size.
     if (request.context.compute.has_value()) {
         for (const std::uint32_t value : request.context.compute->partialThreads) {
             writer.WriteU32(value);

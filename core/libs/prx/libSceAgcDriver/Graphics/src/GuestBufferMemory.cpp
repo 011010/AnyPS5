@@ -36,19 +36,11 @@ namespace AgcDriver::Graphics {
 // mprotect, which replaces the registered Range object, and a mirror whose Range is gone is rebuilt.
 // Writable ranges keep a shadow of the guest bytes and copy the 64 KiB blocks that differ on each use.
 // A mirror never holds the Range shared_ptr: a pinned range makes the guest's mprotect spin and fail.
-// Heap mirrors serve the readable registered heap ranges the host imports did not take (past
-// APS5_HOST_IMPORT_MIB, or refused by the driver), which each address-based build copied instead.
-// They keep no shadow: the arena's write tracking says which 64 KiB blocks changed since the mirror
-// took them, and those blocks are read again. A writable one is written back per build from the
-// bytes its written ranges held at upload (takeHeapReferences); stores through the BDA table fault
-// there, as in a copy.
 struct ImageMirror {
     std::uint64_t base = 0;
     std::uint64_t bytes = 0;
     bool writable = false;
     bool heap = false;
-    // Heap mirrors only: per tracker block of the range (block 0 holds `base`), the generation
-    // collected before the block was last read into the buffer.
     std::vector<std::uint64_t> generations;
     std::weak_ptr<const GuestAllocations::Range> range;
     std::shared_ptr<Buffer> buffer;
@@ -316,12 +308,9 @@ struct ImageMirrors {
     VkDevice device = VK_NULL_HANDLE;
     std::map<std::uint64_t, std::shared_ptr<ImageMirror>> entries;
     std::set<std::uint64_t> failed;
-    // Bytes of the heap mirrors in `entries` (against APS5_HEAP_MIRROR_MIB).
     std::uint64_t heapBytes = 0;
     // APS5_PROFILE_DRAW counters, reported every 10 s as [buffers] image mirrors.
     std::uint64_t builds = 0;
-    // Heap mirrors read again because their range changed, and heap ranges left to copies because
-    // the arena does not track their writes.
     std::uint64_t heapRefills = 0;
     std::uint64_t heapUnwatched = 0;
     std::uint64_t subranges = 0;
@@ -377,7 +366,6 @@ bool mirrorsEnabled() {
     return !disabled;
 }
 
-// The heap mirrors' limit: past it the process stops rather than copying gigabytes per dispatch.
 std::uint64_t heapMirrorBudget() {
     static const std::uint64_t bytes = [] {
         const char* value = std::getenv("APS5_HEAP_MIRROR_MIB");
@@ -401,14 +389,10 @@ struct RefreshBlock {
     ImageMirror* mirror;
     std::uint64_t address;
     std::size_t length;
-    // Heap mirrors: the generation the block's copy makes current, stored only once the copy ran,
-    // so a build that throws before its copies leaves the block stale in the tracker's eyes too.
     std::uint64_t generation = 0;
 };
 
 // Compares a block's guest bytes with the mirror's shadow and copies a changed block into the device
-// buffer and the shadow (a heap mirror's block is known to have changed and is copied). Blocks are
-// distinct, so blocks of one refresh can be compared in parallel.
 bool compareBlock(const RefreshBlock& block) {
     const auto offset = static_cast<std::size_t>(block.address - block.mirror->base);
     const auto* guest = reinterpret_cast<const std::byte*>(block.address);
@@ -520,9 +504,6 @@ private:
 // completes first, so its results reach the guest and the shadow before the compare and no batch
 // writes a block being replaced; GPU reads of the mirror by earlier recorded work (an address-based
 // dispatch whose lease is released at completion) see the newer bytes, as they would on hardware.
-// prepareRange does it for [address, address + bytes), prepareRefresh for a writable image mirror and
-// returns whether there is anything to compare. Heap mirrors are prepared a run of adjacent ranges at
-// a time, before their write tracking is asked what changed (refreshHeapMirrors).
 void prepareRange(std::uint64_t address, std::uint64_t bytes) {
     // The compare reads the pages directly; a mirror is only reused while its Range exists, but a
     // lease of a build in flight can keep a replaced Range alive past a protection change.
@@ -574,11 +555,6 @@ void refreshMirror(ImageMirror& mirror, std::uint64_t address, std::uint64_t byt
     compareBlocks(blocks);
 }
 
-// Appends to `blocks` the blocks of one build's heap mirrors that a CPU or driver store changed
-// since the mirrors took them. The mirrors of adjacent ranges are prepared and collected as one run: a
-// collect walks the run's page tables at a fixed cost of microseconds, which paid per mirror (thousands
-// on a story-mode load) was most of an address-based build. The copies follow and store the run's
-// collected generation (see RefreshBlock).
 void refreshHeapMirrors(std::vector<ImageMirror*>& mirrors, std::vector<RefreshBlock>& blocks) {
     constexpr std::uint64_t block = 65536;
     std::sort(mirrors.begin(), mirrors.end(), [](const ImageMirror* left, const ImageMirror* right) { return left->base < right->base; });
@@ -613,9 +589,6 @@ void refreshHeapMirrors(std::vector<ImageMirror*>& mirrors, std::vector<RefreshB
 // The mirror for a leased image range: the existing one, or a new one when none exists or the
 // registered Range object changed (a protection change). Null when the range cannot be mirrored. An
 // existing writable mirror's blocks are appended to `blocks` for the caller's one compare of every
-// mirror of the build (prepareRefresh ran); the caller refreshes an existing heap mirror with the
-// build's others (refreshHeapMirrors); a new mirror is filled here. A heap mirror past APS5_HEAP_MIRROR_MIB, or whose buffer the driver
-// refuses, stops the process.
 std::shared_ptr<ImageMirror> acquireMirror(const Context& context, const std::shared_ptr<const GuestAllocations::Range>& range, std::vector<RefreshBlock>& blocks, bool heap) {
     auto& state = Mirrors();
     std::shared_ptr<ImageMirror> mirror;
@@ -635,10 +608,6 @@ std::shared_ptr<ImageMirror> acquireMirror(const Context& context, const std::sh
         if (!heap && prepareRefresh(*mirror, range->address, range->bytes)) appendBlocks(blocks, *mirror, range->address, range->bytes);
         return mirror;
     }
-    // The registered flags were taken from the pages; an image range that disagrees is copied by this
-    // build. A heap mirror needs readable pages only: a writable range may hold read-only pages (a
-    // direct memory page mapped at several addresses is read-only in every view), whose bytes the GPU
-    // reads like the others and whose write-back storeChanged refuses.
     if (!GuestMemory::Accessible(reinterpret_cast<const void*>(range->address), range->bytes, range->writable && !heap)) return nullptr;
     mirror = std::make_shared<ImageMirror>();
     mirror->base = range->address;
@@ -647,7 +616,6 @@ std::shared_ptr<ImageMirror> acquireMirror(const Context& context, const std::sh
     mirror->heap = heap;
     mirror->range = range;
     if (heap) {
-        // Pending GPU results reach the range before the collect, so the fill below is current.
         prepareRefresh(*mirror, range->address, range->bytes);
         const auto generation = GuestMemory::CollectWrites(range->address, range->bytes);
         constexpr std::uint64_t block = 65536;
@@ -687,9 +655,6 @@ std::shared_ptr<ImageMirror> acquireMirror(const Context& context, const std::sh
     return mirror;
 }
 
-// The image mirror containing [begin, end) whose registered range still exists, or null. A mirror
-// whose Range was replaced is only rebuilt by the next address-based build; until then the range is
-// copied. Heap mirrors are not given out: only an address-based build refreshes them.
 std::shared_ptr<ImageMirror> findMirror(const Context& context, std::uint64_t begin, std::uint64_t end) {
     auto& state = Mirrors();
     std::lock_guard lock(state.mutex);
@@ -1002,7 +967,6 @@ void GuestBufferMemory::AcquireRegistered() {
     // APS5_NO_SORTED_SNAPSHOT_LOOKUP=1: AddSnapshot scans the regions as before instead of searching.
     static const bool sortedLookup = std::getenv("APS5_NO_SORTED_SNAPSHOT_LOOKUP") == nullptr;
     std::vector<RefreshBlock> blocks;
-    // The build's heap mirrors, refreshed together before the blocks are copied.
     std::vector<ImageMirror*> heaps;
     bool mirrored = false;
     auto& spaces = Spaces();
@@ -1060,7 +1024,6 @@ void GuestBufferMemory::AcquireRegistered() {
         // The import lock is taken per range: a mirror's preparation may wait for recorded work, which
         // must not happen under it.
         regions.reserve(lease.size());
-        // The ranges left to copies, with why no import or mirror serves them (the copy limit below).
         std::vector<AddressCopy> copies;
         for (const auto& range : lease) {
             if (!range->readable) continue;
@@ -1081,8 +1044,6 @@ void GuestBufferMemory::AcquireRegistered() {
                 continue;
             }
             if (mirrorsEnabled()) {
-                // Main image and heaps: served by a persistent mirror (see ImageMirror); the writable
-                // image ones are compared with guest memory below, all at once.
                 region.mirror = acquireMirror(context, range, blocks, range->releasable);
                 lap(timing.mirrorsUs, at);
                 if (region.mirror != nullptr) {
@@ -1099,13 +1060,10 @@ void GuestBufferMemory::AcquireRegistered() {
                 committed = 0;
                 for (const auto& [first, last] : copied.backed) committed += last - first;
             }
-            // A heap range with readable pages is mirrored unless the arena does not track its writes.
             const char* reason = !mirrorsEnabled() ? "mirrors disabled by APS5_NO_LEASE_MIRROR" : copied.sparse ? "unreadable pages" : !range->releasable ? "image mirror refused" : "outside the write-watched arena";
             copies.push_back({copied.begin, copied.end, committed, reason});
         }
         regionsSorted = sortedLookup;
-        // The ranges left to copies are copied by every build of this space; past the limit the
-        // process stops rather than copying them per dispatch.
         static const std::uint64_t copyLimit = [] {
             const char* value = std::getenv("APS5_ADDRESS_COPY_MAX_MIB");
             return (value ? std::strtoull(value, nullptr, 10) : 64ull) << 20u;
@@ -1189,7 +1147,6 @@ void GuestBufferMemory::addCopiedRange(const CopiedRange& range) {
     // cannot write them, so that equals a snapshot taken now without the extra copy. Reserved heaps
     // are registered whole while the guest commits pages on demand: committed pages only.
     region.hostBacked = !range.writable;
-    // Readable pages are copied in, a writable range's read-only ones included (see storeChanged).
     auto committed = GuestMemory::DescribeCommitted(range.begin, range.end - range.begin);
     if (!committed.whole) {
         region.sparse = true;
@@ -1269,8 +1226,6 @@ void GuestBufferMemory::addDescriptorRegion(std::uint64_t address, std::size_t b
     auto committed = GuestMemory::DescribeCommitted(address, bytes);
     if (!committed.whole) {
         // A GPU heap bound whole while the guest commits its pages on demand, or a descriptor left
-        // pointing at unmapped memory: only readable pages are copied in and stored back (writable
-        // ones only, see storeChanged). Shaders must not touch the rest, which reads as zeros.
         region.sparse = true;
         region.backed = std::move(committed.ranges);
     }
@@ -2110,7 +2065,6 @@ VkDescriptorBufferInfo GuestBufferMemory::Descriptor(std::uint64_t address, std:
     const auto base = region.direct != nullptr ? region.direct->base : region.mirror != nullptr ? region.mirror->base : region.begin;
     const auto offset = address - base;
     Require(context.limits.minStorageBufferOffsetAlignment != 0, "no storage buffer offset alignment");
-    // At most 255 (the alignment is at most 256); the shader adds it in DWORDs.
     adjustment = static_cast<std::uint32_t>(offset % context.limits.minStorageBufferOffsetAlignment);
     Require(adjustment % 4 == 0, "guest buffer view off the storage buffer offset alignment is not DWORD aligned");
     Require(bytes + adjustment <= context.limits.maxStorageBufferRange, "guest buffer view exceeds descriptor range limit");
@@ -2122,9 +2076,6 @@ ShaderRecompiler::BdaAbi::Range GuestBufferMemory::addressRange(const Region& re
     Require(region.buffer != nullptr || region.direct != nullptr || region.mirror != nullptr, "incomplete guest GPU upload");
     const auto address = region.direct != nullptr ? region.direct->address + (region.begin - region.direct->base) : region.mirror != nullptr ? region.mirror->buffer->DeviceAddress() + (region.begin - region.mirror->base) : region.buffer->DeviceAddress();
     Require(region.end - region.begin <= std::numeric_limits<std::uint64_t>::max() - address, "GPU address range overflow");
-    // Stores through the table (GPU-selected V#s) land in guest memory only where the range is the
-    // allocation itself: a writable one served in place by its import. Mirrors and copies would
-    // drop them, so a store there faults.
     const auto permissions = ShaderRecompiler::BdaAbi::Read | (region.direct != nullptr && region.writable ? ShaderRecompiler::BdaAbi::Write : 0u);
     return {region.begin, region.end, address, permissions, 0};
 }
@@ -2178,10 +2129,6 @@ void GuestBufferMemory::MarkDirectWrites() const {
 
 namespace {
 
-// Stores what the GPU changed in [address, address + current.size()) against `original`. Only the
-// writable pages are stored: a read-only page of a writable range (a direct memory page mapped at
-// several addresses is read-only in every view, aliased writes are not implemented) must come back
-// unchanged, else the write-back fails rather than dropping the GPU's store.
 void storeChanged(std::uint64_t address, std::span<const std::byte> current, std::span<const std::byte> original) {
     const auto writable = GuestMemory::DescribeCommitted(address, current.size(), true);
     if (writable.whole) {
@@ -2206,7 +2153,6 @@ void storeChanged(std::uint64_t address, std::span<const std::byte> current, std
     if (cursor < address + current.size()) unchanged(cursor, address + current.size());
 }
 
-// The written ranges sorted, overlapping ones merged.
 std::vector<std::pair<std::uint64_t, std::uint64_t>> mergeWrites(std::vector<std::pair<std::uint64_t, std::uint64_t>> writes) {
     std::sort(writes.begin(), writes.end());
     std::vector<std::pair<std::uint64_t, std::uint64_t>> merged;
@@ -2257,8 +2203,6 @@ void GuestBufferMemory::WriteBack() {
             const auto length = static_cast<std::size_t>(end - begin);
             const auto current = mirror.buffer->Bytes().subspan(offset, length);
             if (mirror.heap) {
-                // The build's reference instead of a shadow; the stores stamp the blocks, and the
-                // next refresh takes them back from guest memory.
                 const auto reference = std::find_if(heapReferences.begin(), heapReferences.end(), [&](const auto& entry) { return entry.first == begin; });
                 Require(reference != heapReferences.end() && reference->second.size() == length, "heap mirror write-back has no reference");
                 storeChanged(begin, current, reference->second);
@@ -2327,8 +2271,6 @@ std::optional<std::vector<std::pair<std::uint64_t, std::uint64_t>>> GuestBufferM
     }
     for (const auto& region : regions) {
         // A read-only mirror is as fixed as an import: its bytes and VkBuffer never change while its
-        // Range exists (see ImageMirrorSerial). A writable one is refreshed and written back per build,
-        // a heap one refreshed per build.
         // A staged region is keyed by its import like one bound in place: the import is the source
         // of its copy-in and the destination of its copy-back, both recorded per use.
         const bool fixedMirror = region.mirror != nullptr && !region.mirror->writable && !region.mirror->heap;

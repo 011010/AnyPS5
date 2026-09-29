@@ -15,10 +15,6 @@
 namespace GuestArena {
 namespace {
 
-// Mappings without an address go to the system-managed area from 0x2_0000_0000 first, as in Kyty and
-// shadPS4; the application area from 0x10_0000_0000 is left to fixed mappings until that fills (titles
-// map their virtual memory pages at a fixed window from 0x10_0000_0000). The system-reserved range
-// between the two is never handed out.
 constexpr std::uintptr_t PreferredBase = 0x0000000200000000ull;
 constexpr std::uintptr_t SystemReservedStart = 0x00000007FFFFC000ull;
 constexpr std::uintptr_t SystemReservedEnd = 0x0000001000000000ull;

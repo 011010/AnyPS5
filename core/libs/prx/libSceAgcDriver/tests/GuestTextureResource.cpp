@@ -114,8 +114,6 @@ void RunGuestTextureResourceTests() {
     tileModes.tileModeRaw = 0x09;
     Require(DecodeTextureResource(pack(tileModes)).tileMode == TextureTileMode::kStandard64KB, "tile mode 0x09 must decode to standard 64KB");
     tileModes.tileModeRaw = 0x1b;
-    // An XOR swizzle folds a pipe/bank XOR into the low base bits; only 64 KiB aligned bases are
-    // modeled, so the fixture's unaligned base is refused and an aligned one decodes.
     rejectFields(tileModes, "pipe/bank XOR base");
     tileModes.base40 = 0x120000ull;
     Require(DecodeTextureResource(pack(tileModes)).tileMode == TextureTileMode::RenderTarget64KB, "tile mode 0x1b must decode to render target 64KB");
@@ -220,14 +218,11 @@ void RunGuestTextureResourceTests() {
     badMsaa.msaaDepth = true;
     rejectFields(badMsaa, "MSAA");
 
-    // DCC block size overrides only matter to DCC metadata, which is not read; they decode.
     Fields blockSize = base;
     blockSize.maxUncompBlkSize = 1;
     blockSize.maxCompBlkSize = 1;
     Require(DecodeTextureResource(pack(blockSize)).baseAddress == DecodeTextureResource(pack(base)).baseAddress, "DCC block size overrides changed texture storage");
 
-    // DCC metadata decodes: its address only with metadata compression on, and where alpha sits; the
-    // pipe alignment, write compression and color transform flags do not change what a read returns.
     Fields meta = base;
     meta.metaPipeAligned = true;
     meta.writeCompress = true;
@@ -250,7 +245,6 @@ void RunGuestTextureResourceTests() {
     badLevels.maxMip = 1;
     rejectFields(badLevels, "base mip level past its last mip level");
 
-    // A view may stop before the surface's last level: the surface keeps its mip count.
     Fields partialMips = base;
     partialMips.lastLevel = 1;
     partialMips.maxMip = 2;

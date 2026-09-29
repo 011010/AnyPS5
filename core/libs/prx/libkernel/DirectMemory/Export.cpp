@@ -279,7 +279,6 @@ int APS5_VABI sceKernelMtypeprotect(const void* addr, size_t len, int type, int 
  return 0;
 }
 
-// The mapping that contains addr, as sceKernelVirtualQuery reports it without FIND_NEXT.
 int APS5_VABI sceKernelQueryMemoryProtection(void* addr, void** start, void** end, int* prot) {
  VirtualQueryInfo info{};
  const int result = sceKernelVirtualQuery(addr, 0, &info, sizeof(info));

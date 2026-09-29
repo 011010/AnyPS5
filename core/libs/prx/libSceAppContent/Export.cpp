@@ -17,7 +17,6 @@ static constexpr char TEMPORARY_MOUNT_POINT[] = "/temp0";
 static constexpr char DOWNLOAD_MOUNT_POINT[] = "/download0";
 static constexpr uint32_t TEMPORARY_DATA_OPTION_FORMAT = 1;
 
-// Temporary data lives in <root>/temp0 on the host and survives until the title formats it.
 static std::filesystem::path TemporaryDirectory(const AppContentMountPoint* mount_point) {
     if (!mount_point || std::strncmp(mount_point->data, TEMPORARY_MOUNT_POINT, sizeof(mount_point->data)) != 0) APS5_INVALID_ARG_EX;
     return ResolvePath_nid_no_patch(TEMPORARY_MOUNT_POINT);
@@ -62,7 +61,6 @@ int APS5_VABI sceAppContentDownloadDataGetAvailableSpaceKb(const AppContentMount
     if (!mount_point || std::strncmp(mount_point->data, DOWNLOAD_MOUNT_POINT, sizeof(mount_point->data)) != 0) APS5_INVALID_ARG_EX;
     const std::uint64_t quotaKb = GetAppDownloadDataSizeMiB_nid_postfix() * 1024u;
     if (quotaKb == 0) throw std::logic_error(std::string(__func__) + ": the title declares no download data");
-    // The system mounts the title's download data before boot; on the host it is <root>/download0.
     const auto directory = ResolvePath_nid_no_patch(DOWNLOAD_MOUNT_POINT);
     std::filesystem::create_directories(directory);
     std::uint64_t usedKb = 0;

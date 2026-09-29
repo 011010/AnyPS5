@@ -38,8 +38,6 @@ void RunBdaContractTests() {
     auto& block = program.CreateBlock();
     block.AppendInstruction(&program.CreateValue(IrOpcode::Barrier, IrType::Void));
     program.BlockOrder().push_back(&block);
-    // A program with workgroup barriers is accepted: its faulting reads return zero instead of
-    // ending the invocation, so every invocation still reaches the barriers.
     ValidateBdaTarget(program, target);
     AgcDriver::Graphics::Require(!BdaInvocationsMayStop(program), "a BDA program with barriers must keep its invocations running");
     program.Resources().stage = IrShaderStage::TessellationControl;
@@ -57,6 +55,5 @@ void RunBdaContractTests() {
     auto invalid = encoded;
     invalid[0] = invalid[0] == 'A' ? 'B' : 'A';
     reject([&] { static_cast<void>(serializer.Deserialize(invalid)); }, "request signature");
-    // The signature followed by serialization version 99, in base64.
     reject([&] { static_cast<void>(serializer.Deserialize("NVNQQWMAAAA=")); }, "serialization version");
 }

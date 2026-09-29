@@ -79,17 +79,12 @@ bool IgnoreDepthTest() {
     return ignore;
 }
 
-// Whether DB_Z_INFO or DB_STENCIL_INFO names a plane (an absent register names none).
 bool depthSurfaceBound(const Registers& cx) {
     const auto z = find(cx, 0x010);
     const auto stencil = find(cx, 0x011);
     return (z != cx.end() && (z->second & 3u) != 0) || (stencil != cx.end() && (stencil->second & 1u) != 0);
 }
 
-// One face of the stencil state (the compare function, DB_STENCIL_CONTROL's three operations and
-// DB_STENCILREFMASK) as Vulkan's. AMD's compare functions are in Vulkan's order. Vulkan has one
-// reference per face for the test and every replacement, so a replacement by another value
-// (REPLACE_OP writes STENCILOPVAL, ONES 0xff) is taken where the bits it writes are not also compared.
 VkStencilOpState stencilFace(std::uint32_t compare, std::uint32_t ops, std::uint32_t refMask, bool readOnly) {
     VkStencilOpState face{};
     face.compareOp = static_cast<VkCompareOp>(compare);
@@ -98,8 +93,6 @@ VkStencilOpState stencilFace(std::uint32_t compare, std::uint32_t ops, std::uint
     const auto test = refMask & 0xffu;
     const auto opValue = refMask >> 24u;
     auto reference = test;
-    // The reference bits already spoken for: the compared ones (none for NEVER and ALWAYS), then
-    // the replaced ones.
     auto fixed = compare == 0 || compare == 7 ? 0u : face.compareMask;
     const auto convert = [&](std::uint32_t op) {
         if (face.writeMask == 0) return VK_STENCIL_OP_KEEP;
@@ -123,7 +116,6 @@ VkStencilOpState stencilFace(std::uint32_t compare, std::uint32_t ops, std::uint
             case 6:
             case 8:
             case 9:
-                // ADD/SUB add STENCILOPVAL; Vulkan's increments add 1.
                 if (opValue != 1) {
                     std::snprintf(detail, sizeof(detail), "AGC graphics: stencil add/subtract of 0x%02x is unsupported", opValue);
                     throw std::runtime_error(detail);
@@ -142,15 +134,10 @@ VkStencilOpState stencilFace(std::uint32_t compare, std::uint32_t ops, std::uint
     return face;
 }
 
-// The depth/stencil surface and tests of a draw that tests depth or stencil with a plane bound.
 void decodeDepth(const Registers& cx, std::uint32_t depthControl, State& result) {
-    // DEPTH/STENCIL_COMPRESS_DISABLE (bits 5, 6) and the ordering hints from bit 13 on do not change
-    // what is drawn.
     zero(cx, 0x000, 0x00001f9fu, "depth/stencil clear, copy, resummarize or decompress draws (DB_RENDER_CONTROL)");
     const auto view = read(cx, 0x002);
-    // Z_READ_ONLY and STENCIL_READ_ONLY (bits 24, 25) turn the writes off.
     zero(cx, 0x002, ~0x03000000u, "depth array slices or mips (DB_DEPTH_VIEW)");
-    // NUM_SAMPLES, PARTIALLY_RESIDENT, MAXMIP; the rest is tiling and compression the host image has none of.
     zero(cx, 0x010, 0x000f100cu, "multisampled, partially resident or mipmapped depth (DB_Z_INFO)");
     zero(cx, 0x011, 0x00001000u, "partially resident stencil (DB_STENCIL_INFO)");
     const auto zFormat = read(cx, 0x010) & 3u;
@@ -171,7 +158,6 @@ void decodeDepth(const Registers& cx, std::uint32_t depthControl, State& result)
     Require(!stencil || stencilReadOnly || base(0x015, 0x01d) == depth.stencilAddress, "stencil read and written at different addresses is unsupported");
     const auto size = read(cx, 0x007);
     depth.extent = {(size & 0x3fffu) + 1u, ((size >> 16u) & 0x3fffu) + 1u};
-    // A stencil-only surface gets an unused depth plane.
     depth.format = zFormat == 1 ? (stencil ? VK_FORMAT_D16_UNORM_S8_UINT : VK_FORMAT_D16_UNORM) : (stencil ? VK_FORMAT_D32_SFLOAT_S8_UINT : VK_FORMAT_D32_SFLOAT);
     depth.clearDepth = readFloat(cx, 0x00b);
     depth.clearStencil = static_cast<std::uint8_t>(read(cx, 0x00a) & 0xffu);
@@ -183,13 +169,10 @@ void decodeDepth(const Registers& cx, std::uint32_t depthControl, State& result)
     if (result.stencilTest) {
         const auto ops = read(cx, 0x10b);
         result.stencilFront = stencilFace((depthControl >> 8u) & 7u, ops, read(cx, 0x10c), stencilReadOnly);
-        // BACKFACE_ENABLE gives back faces their own function, operations and masks.
         result.stencilBack = (depthControl & 0x80u) != 0 ? stencilFace((depthControl >> 20u) & 7u, ops >> 12u, read(cx, 0x10d), stencilReadOnly) : result.stencilFront;
     }
 }
 
-// DB_DEPTH_CONTROL without a bound surface: depth and stencil tests whose function is ALWAYS and
-// that write no depth cannot change color output, so they are accepted (stencil writes go nowhere).
 bool depthPassThrough(std::uint32_t depthControl) {
     const bool stencil = (depthControl & 1u) != 0;
     const bool depth = (depthControl & 2u) != 0;
@@ -238,7 +221,6 @@ VkBlendOp blendOp(std::uint32_t value) {
 struct DecodedColorFormat {
     VkFormat format;
     std::uint32_t elementBytes;
-    // The exported component each attachment component stores, two bits each (0xe4 is identity).
     std::uint8_t componentMapping = 0xe4u;
 };
 
@@ -251,8 +233,6 @@ DecodedColorFormat DecodeColorFormat(std::uint32_t format, std::uint32_t number,
         throw std::runtime_error("AGC graphics: unsupported color format " + std::to_string(format) + " number type " + std::to_string(number) + " component swap " + std::to_string(swap));
     };
     const bool alternate = swap == 1;
-    // A one-component format stores the exported component COMP_SWAP names: R, G, B or A (an A8
-    // target is COLOR_8 with SWAP_ALT_REV).
     const auto single = [&](VkFormat vkFormat, std::uint32_t bytes) { return DecodedColorFormat{vkFormat, bytes, static_cast<std::uint8_t>((0xe4u & ~3u) | swap)}; };
     if (swap > 1 && format != 1 && format != 2 && format != 4) return fail();
     switch (format) {
@@ -497,8 +477,6 @@ State DecodeState(const QueueState& queue) {
     for (std::uint32_t slot = 0; slot < slotCount; ++slot) {
         // Export formats only matter for the targets the draw writes.
         const auto slotExport = (exportFormat >> (4u * slot)) & 0xfu;
-        // FP16, UNORM16 and SNORM16 exports are unpacked to floats by the shader; 32_R, 32_GR, 32_AR and
-        // 32_ABGR are written as is, the components a format leaves out reading as 0 (alpha 1).
         if (slotExport == 0 || slotExport == 7 || slotExport == 8 || slotExport > 9) throw std::runtime_error("AGC graphics: color export format " + std::to_string(slotExport) + " is unsupported");
         const auto stride = slot * 0xfu;
         ColorTarget color{};
@@ -509,12 +487,8 @@ State DecodeState(const QueueState& queue) {
         const auto format = (info >> 2u) & 0x1fu;
         const auto decoded = DecodeColorFormat(format, number, swap);
         // ROUND_MODE (bit 18) only affects unorm rounding. With DCC_ENABLE (bit 28) the target is written
-        // uncompressed and only its fast-clear keys matter (see DccMetadata.hpp). BLEND_BYPASS (bit 16) is
-        // checked against enabled blending below.
         if ((info & ~(0x00039f7cu | 0x00040000u | 0x10000000u)) != 0) throw std::runtime_error("AGC graphics: color compression, DCC, endian conversion, nonstandard rounding or color optimization is unsupported (CB_COLOR_INFO 0x" + [&] { char text[16]; std::snprintf(text, sizeof(text), "%08x", info); return std::string(text); }() + ")");
         Require((info & 0x8000u) != 0 || number == 7 || number == 4 || number == 5, "unclamped normalized color is unsupported");
-        // CB_COLOR_VIEW (GFX10: SLICE_START 0-12, SLICE_MAX 13-25, MIP_LEVEL 26-29): MIP_LEVEL selects
-        // the rendered mip; array slices are not modeled.
         const auto view = read(cx, 0x31b + stride);
         Require((view & ~0x3c000000u) == 0, "color array views are unsupported");
         const auto viewMip = (view >> 26u) & 0xfu;
@@ -608,8 +582,6 @@ State DecodeState(const QueueState& queue) {
         APS5_LOG_OUT_DEBUG("Blend %u control=0x%x", slot, blend);
         Require((blend & 0x0000e000u) == 0, "reserved blend control bits");
         VkPipelineColorBlendAttachmentState state{};
-        // CB_TARGET_MASK names exported components; attachment component c stores exported component
-        // mapping[c], so its write bit and, when it stores alpha, its blend come from that component.
         const auto mapping = result.colors[slot].componentMapping;
         const auto exportedMask = (targetMask >> (4u * slot)) & 0xfu;
         for (std::uint32_t component = 0; component < 4; ++component) {
@@ -665,7 +637,6 @@ std::string DrawRejection(const QueueState& queue, bool indexed) {
     if (auto reason = indexed ? nonzero(queue.userConfig, 0x24b, ~0u, "primitive restart (GE_MULTI_PRIM_IB_RESET_EN)") : std::string(); !reason.empty()) return reason;
     if (auto reason = nonzero(cx, 0x207, ~LayerExports, "clip distances, layer, viewport or auxiliary vertex exports"); !reason.empty()) return reason;
     if (value(cx, 0x200, word)) {
-        // Tests against a bound surface are decoded (and their limits checked) by DecodeState.
         const bool surface = (word & 3u) != 0 && depthSurfaceBound(cx);
         if (!surface && !depthPassThrough(word) && !IgnoreDepthTest() && (word & DepthControlMask) != 0) return zeroMessage(0x200, word, "depth, stencil or conditional color writes");
         if (auto reason = require((word & 0xc0000008u) == 0, "depth bounds or depth-conditional color writes are unsupported"); !reason.empty()) return reason;

@@ -1365,8 +1365,6 @@ void WriteChanged(std::uint64_t address, std::span<const std::byte> current, std
     std::size_t lastChanged = 0;
     for (std::size_t at = 0; at < size; at += block) {
         if (!differs(at)) continue;
-        // Only the bytes the GPU changed: the rest of the block holds the snapshot, and storing it
-        // would roll back what the CPU wrote there since (a title lost an object's vtable pointer).
         const auto blockEnd = std::min(at + block, size);
         for (std::size_t run = at; run < blockEnd;) {
             if (current[run] == original[run]) { ++run; continue; }

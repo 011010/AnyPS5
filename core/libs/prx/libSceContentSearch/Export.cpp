@@ -7,7 +7,6 @@
 #include <string>
 
 namespace {
-// Searches the system content library; the lifecycle is honest, searches are not implemented.
 std::atomic<bool> g_initialized{false};
 }
 

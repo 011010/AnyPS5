@@ -77,7 +77,6 @@ void TranslationContext::addU32(const RdnaInstruction& inst, bool vector, bool u
         ir.SetScc(carryOut.Value());
         return;
     }
-    // A vector carry-in is the mask the third source names: VCC for VOP2, any SGPR pair for VOP3.
     const IrU1 carryIn = !vector ? IrU1(ir.GetScc()) : inst.sourceCount >= 3u ? readMask(sourceAt(inst, 2u)) : IrU1(ir.GetVcc());
     const IrU32 carryInU32(ir.Select(carryIn.Value(), ir.Constant(1u), ir.Constant(0u)));
     IrValue& secondAdd = ir.Emit(IrOpcode::IAddCarry32, IrType::U32x2, {&sum.Value(), &carryInU32.Value()});

@@ -6,7 +6,6 @@
 #include "prx/libc/include/General.hpp"
 
 namespace {
-// Common dialog status: 0 none, 1 initialized, 2 running, 3 finished. Nothing is ever opened here, so it never runs.
 std::atomic<int> g_status{0};
 }
 

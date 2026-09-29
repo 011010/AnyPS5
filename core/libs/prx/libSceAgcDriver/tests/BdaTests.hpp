@@ -8,7 +8,6 @@
 struct BdaTestAccess {
     std::function<std::span<std::byte>(VkBuffer)> bytes;
     std::function<VkDescriptorBufferInfo(std::uint32_t)> descriptor;
-    // The bytes of the buffer behind a device address, from that address on.
     std::function<std::span<std::byte>(VkDeviceAddress)> addressBytes;
 };
 

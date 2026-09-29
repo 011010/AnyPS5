@@ -124,8 +124,6 @@ struct AddressSpaceStats {
 };
 AddressSpaceStats AddressSpaceCounters();
 
-// The image and heap mirrors (see GuestBufferMemory.cpp): heap mirrors held and their bytes, then
-// cumulative: mirrors made, 64 KiB blocks copied into them after their fill, heap mirrors read again.
 struct MirrorStats {
     std::uint64_t heapMirrors = 0;
     std::uint64_t heapBytes = 0;
@@ -135,16 +133,12 @@ struct MirrorStats {
 };
 MirrorStats MirrorCounters();
 
-// A registered range an address-based build copies instead of serving in place: its committed bytes
-// and why no import or mirror serves it.
 struct AddressCopy {
     std::uint64_t begin;
     std::uint64_t end;
     std::uint64_t committed;
     const char* reason;
 };
-// The FATAL message for copies whose committed bytes exceed `limit` (APS5_ADDRESS_COPY_MAX_MIB),
-// naming the largest ones; empty within the limit.
 std::string AddressCopyOverflow(std::vector<AddressCopy> copies, std::uint64_t limit);
 
 class GuestBufferMemory {
@@ -187,9 +181,6 @@ public:
     void Upload(bool addressable);
     void UploadPrepare(bool addressable);
     void UploadFinish(bool addressable);
-    // A view off minStorageBufferOffsetAlignment in its GPU owner (a view inside a merged or
-    // imported range) is bound from the aligned offset below it; `adjustment` is the difference,
-    // which the shader adds to every access (RecompileResult::memoryOffsetDword).
     VkDescriptorBufferInfo Descriptor(std::uint64_t address, std::size_t bytes, std::uint32_t& adjustment) const;
     std::vector<ShaderRecompiler::BdaAbi::Range> AddressRanges() const;
     // The BDA table of the cached address space when it serves this upload alone (an address-based
@@ -325,8 +316,6 @@ private:
     // Records the import-to-buffer copies of the given gpuCopy regions into the open batch, with
     // the barriers that order them after earlier recorded writes and before the shaders reading them.
     void recordGpuCopies(std::span<Region* const> copies, bool addressable);
-    // Keeps the bytes of every merged written range a writable heap mirror serves, as uploaded: the
-    // mirror keeps no shadow, and write-back stores only what the GPU changed from them.
     void takeHeapReferences();
     Context context;
     bool stagingAllowed = false;
@@ -342,7 +331,6 @@ private:
     // regions follow the registry's order), so AddSnapshot can search instead of scanning.
     bool regionsSorted = false;
     std::vector<std::pair<std::uint64_t, std::uint64_t>> writes;
-    // By the begin of the merged written range (see takeHeapReferences).
     std::vector<std::pair<std::uint64_t, std::vector<std::byte>>> heapReferences;
     // UploadPrepare ran (regions are frozen); `uploaded` once UploadFinish ran.
     bool prepared = false;

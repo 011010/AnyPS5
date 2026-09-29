@@ -74,7 +74,6 @@ inline std::uint64_t& DeviceProcLookups() {
     return count;
 }
 
-// The size of Context::emptyBuffer.
 inline constexpr std::size_t EmptyBufferBytes = 16;
 
 struct Context {
@@ -119,10 +118,7 @@ struct Context {
     bool drawIndirectFirstInstance = false;
     bool multiDrawIndirect = false;
     bool drawIndirectCount = false;
-    // Occlusion queries count exact samples (occlusionQueryPrecise), not just any-passed.
     bool occlusionQueryPrecise = false;
-    // A small storage buffer bound for a null V# (no records): the recompiler specializes such a
-    // buffer as empty (BufferResource::empty), so shaders never access it.
     VkBuffer emptyBuffer = VK_NULL_HANDLE;
     // The device's list of recorded dispatches whose copied written buffers await a CPU write-back
     // (VulkanDevice's State::copiedWriters; the draw counterpart is DrawCopiedWriters): an indirect

@@ -9,8 +9,6 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 
-// A console with no headset and no voice peers: the library runs its lifecycle and keeps ports and
-// their connections, but no voice ever arrives, so output ports stay empty.
 namespace {
 
 constexpr std::int32_t PortInDevice = 0;
@@ -70,7 +68,6 @@ int APS5_VABI sceVoiceInit(VoiceInitParam* param, int32_t version) {
 }
 
 int APS5_VABI sceVoiceSetThreadsParams(void* params) {
-    // Thread priorities and affinities for the voice threads; this library runs none.
     if (params == nullptr) APS5_INVALID_ARG_EX;
     return 0;
 }
@@ -176,8 +173,6 @@ int APS5_VABI sceVoiceGetPortInfo(uint32_t port_id, VoicePortInfo* info) {
     *info = VoicePortInfo{};
     info->port_type = port.type;
     info->state = PortStateReady;
-    // Titles pace voice by frame (a title divides by the frame length it derives from this).
-    // ponytail: the codec's real frame layout is unknown; 20 ms frames at the port's bitrate.
     if (port.bitrate != 0) info->frame_size = (port.bitrate * VoiceFrameMs + 7999u) / 8000u;
     return 0;
 }
@@ -196,7 +191,6 @@ int APS5_VABI sceVoiceReadFromOPort(uint32_t output_port_id, void* data, uint32_
     auto& voice = State();
     std::lock_guard lock(voice.mutex);
     if (IsInput(RequirePort(voice, output_port_id, __func__).type)) Fail(__func__, "port is not an output port");
-    // Inputs are the absent microphone or WriteToIPort, which is not implemented: nothing to read.
     *size = 0;
     return 0;
 }

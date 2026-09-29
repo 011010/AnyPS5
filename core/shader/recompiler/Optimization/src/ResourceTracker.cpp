@@ -524,10 +524,6 @@ private:
         source = InternSource(descriptor);
     }
 
-    // A raw dword load or store (1-4 dwords, or a scalar dword load) through a V# the SRT walker
-    // cannot compute: the program loads it at a GPU-computed offset (a descriptor heap) or builds
-    // it. No binding holds such a V#, so the shader decodes it and accesses memory through the BDA
-    // page table (MemoryInfo::gpuDescriptor). Other accesses keep failing in GetHandle.
     bool TakeGpuDescriptor(IrValue& inst, std::uint32_t memoryIndex) {
         const IrValue* handle = inst.Argument(0)->Resolve();
         if (handle->Opcode() != IrOpcode::GetBufferResource || handle->ArgumentCount() != 4u) {
@@ -540,7 +536,6 @@ private:
             return false;
         }
         const auto op = inst.Opcode();
-        // A scalar buffer load (s_buffer_load) reads one dword per ReadConstBuffer.
         const bool load = op == IrOpcode::LoadBufferU32 || op == IrOpcode::LoadBufferU32x2 || op == IrOpcode::LoadBufferU32x3 || op == IrOpcode::LoadBufferU32x4 || op == IrOpcode::ReadConstBuffer;
         const bool store = op == IrOpcode::StoreBufferU32 || op == IrOpcode::StoreBufferU32x2 || op == IrOpcode::StoreBufferU32x3 || op == IrOpcode::StoreBufferU32x4;
         auto& memory = m_program.Resources().memoryInfo[memoryIndex];
@@ -690,7 +685,6 @@ private:
     void Collect(IrValue& inst) {
         const auto op = inst.Opcode();
         if (op == IrOpcode::ImageBvhIntersectRay) {
-            // A ray query reads its node through the BDA page table (its T# is a run-time value).
             m_info.usesDma = true;
             return;
         }

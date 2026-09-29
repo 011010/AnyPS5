@@ -18,9 +18,6 @@ void ReturnBdaZeroIf(SpirvEmitterState& state, std::uint32_t condition) {
 }
 
 // (u64 address, u32 bytes, u32 instruction) -> u64 device address of the range holding all the bytes,
-// or 0; the range must grant `permission`. With recordFaults the failure is published first;
-// without, the caller retries byte-wise, and the fault is recorded there if the bytes are unmapped
-// for real.
 std::uint32_t DefineBdaLookup(SpirvEmitterState& state, const char* name, bool recordFaults, std::uint32_t permission = BdaAbi::Read) {
     const auto u32 = TypeU32(state);
     const auto u64 = TypeScalarU64(state);
@@ -119,8 +116,6 @@ std::uint32_t DefineBdaLookup(SpirvEmitterState& state, const char* name, bool r
 
 }
 
-// (u64 address) -> void: notes the page of a store through the table in the fault buffer's written
-// set (see BdaAbi::WrittenPageSlots).
 static std::uint32_t DefineBdaNoteWrite(SpirvEmitterState& state) {
     const auto u32 = TypeU32(state);
     const auto boolean = TypeBool(state);

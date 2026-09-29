@@ -31,7 +31,6 @@ int APS5_VABI sceAgcQueueEndOfPipeActionPatchAddress(std::uint32_t* cmd, const v
 }
 
 int APS5_VABI sceAgcQueueEndOfPipeActionPatchData(uint32_t* cmd, uint64_t data) {
-    // RELEASE_MEM as built by sceAgcCbReleaseMem: [2] data select << 29, [5..6] data.
     Agc::Command::ValidatePacket(cmd, 0x49u, 8, __func__);
     if ((cmd[2] >> 29u) == 1u) Agc::Command::CheckBits(data, 0xffffffffu, __func__);
     cmd[5] = static_cast<std::uint32_t>(data);

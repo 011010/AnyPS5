@@ -173,8 +173,6 @@ std::uint32_t DeviceAddressFromWords(SpirvEmitterState& state, std::uint32_t low
     return Binary(state, spv::OpBitwiseOr, TypeScalarU64(state), low64, high64);
 }
 
-// The byte offset of a buffer access from a V# known only at run time (stride and swizzle are ids),
-// as BufferByteAddress computes it from a specialized one: {offset + immediate, full byte offset}.
 std::pair<std::uint32_t, std::uint32_t> RuntimeBufferByteAddress(SpirvEmitterState& state, std::uint32_t index, std::uint32_t offset, std::uint32_t soffset, std::uint32_t immediate, std::uint32_t stride, std::uint32_t swizzle, std::uint32_t indexStride) {
     const auto u32 = TypeU32(state);
     const auto add = [&](std::uint32_t lhs, std::uint32_t rhs) { return Binary(state, spv::OpIAdd, u32, lhs, rhs); };
@@ -191,9 +189,6 @@ std::pair<std::uint32_t, std::uint32_t> RuntimeBufferByteAddress(SpirvEmitterSta
     return {offset, add(Select(state, u32, swizzle, swizzled, linear), soffset)};
 }
 
-// Visits each dword of a raw access through a GPU-selected V# (MemoryInfo::gpuDescriptor, the four
-// dwords are the handle's arguments) with its guest address and whether RDNA2 bounds checking
-// (OOB_SELECT, per dword for raw vectors) lets it through; a V# of format 0 lets nothing through.
 template <typename TFunction>
 void ForEachGpuDescriptorDword(SpirvValueEmitContext& ctx, const IrValue& inst, const MemoryInfo& mem, std::uint32_t components, TFunction&& function) {
     auto& state = ctx.state;
@@ -224,8 +219,6 @@ void ForEachGpuDescriptorDword(SpirvValueEmitContext& ctx, const IrValue& inst, 
     const auto rawIndexInBounds = Binary(state, spv::OpULessThan, boolean, index, rawRecords);
     for (std::uint32_t component = 0; component < components; component++) {
         const auto [offset, byte] = RuntimeBufferByteAddress(state, index, ctx.Arg(inst, 2), soffset, mem.offset + component * 4u, stride, swizzle, field(word3, 21u, 2u));
-        // OOB_SELECT 0: index and offset against the stride; 1: index only; 2: NUM_RECORDS nonzero;
-        // 3: raw, NUM_RECORDS reduced by SOFFSET first.
         const auto structured = AndCondition(state, indexInBounds, Binary(state, spv::OpULessThan, boolean, offset, stride));
         const auto raw = AndCondition(state, scalarInBounds, Select(state, boolean, swizzle, AndCondition(state, rawIndexInBounds, hasDword(offset, stride)), hasDword(offset, rawRecords)));
         auto inBounds = Select(state, boolean, Binary(state, spv::OpIEqual, boolean, mode, ConstantU32(state, 0u)), structured, indexInBounds);
@@ -661,7 +654,6 @@ const MemoryInfo& BufferMemory(SpirvValueEmitContext& ctx, const IrValue& inst) 
     return mem;
 }
 
-// A raw dword load or store (1-4 dwords) through a GPU-selected V#; false for a bound buffer.
 bool EmitGpuDescriptorAccess(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint32_t components, bool store) {
     if (!ctx.Memory(inst).gpuDescriptor) {
         return false;
@@ -1040,9 +1032,6 @@ void EmitReadConstBuffer(SpirvValueEmitContext& ctx, const IrValue& inst) {
     auto& state = ctx.state;
     const auto address = Binary(state, spv::OpIAdd, TypeU32(state), ctx.Arg(inst, 1), ConstantU32(state, mem.offset));
     if (mem.gpuDescriptor) {
-        // Through a GPU-selected V# (MemoryInfo::gpuDescriptor): the dword at the base plus the
-        // dword-aligned offset, zero past the buffer's STRIDE * NUM_RECORDS bytes (NUM_RECORDS for
-        // stride 0).
         const IrValue* handle = inst.Argument(0)->Resolve();
         if (handle->Opcode() != IrOpcode::GetBufferResource || handle->ArgumentCount() != 4u) {
             ctx.Fail(inst, "has no GPU-selected V#");

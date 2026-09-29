@@ -59,7 +59,6 @@ void RunColorTargetLayoutTests() {
     }
     reject([&] { layout.Detile(std::span(tiled).first(4), restored); });
     reject([&] { layout.Tile(std::span(linear).first(4), tiled); });
-    // Aligned by hand: a PE section cannot ask for 64 KiB alignment.
     static std::vector<std::byte> storage(2 * 65536);
     const std::span guest(reinterpret_cast<std::byte*>((reinterpret_cast<std::uintptr_t>(storage.data()) + 0xffffu) & ~std::uintptr_t{0xffffu}), 65536);
     std::fill(guest.begin(), guest.end(), std::byte{0x6b});

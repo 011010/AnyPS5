@@ -10,8 +10,6 @@
 
 namespace {
 
-// The valid bit (31) releases a queue stalled on the REWIND; the release store publishes the commands
-// the title wrote behind it before setting the bit.
 int SetRewindState(std::uint32_t* cmd, std::uint8_t state, const char* function) {
     Agc::Command::ValidatePacket(cmd, 0x59u, 2, function);
     Agc::Command::CheckBits(state, 1, function);

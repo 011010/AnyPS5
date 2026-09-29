@@ -35,12 +35,7 @@ ShaderRecompiler::DescriptorBinding binding(Role role, std::uint32_t slot) {
     return {ShaderRecompiler::DescriptorKind::StorageBuffer, role, 0, slot, 1, {}, false};
 }
 
-// Heap ranges that no import serves are mirrored. A read-only one: the build binds the mirror, the
-// next build with the range unchanged copies nothing into it, and the blocks a CPU write changed are
-// read again. A writable one: a descriptor's store reaches guest memory at write-back, and only the
-// bytes the GPU changed (a CPU store made while the GPU works stays).
 void heapMirrorTests(const Context& context, const BdaTestAccess& access) {
-    // Heap mirrors refresh from the arena's write tracking; without it they are never made.
     Require(GuestArena::GuestArenaAvailable_nid_postfix() && GuestArena::GuestArenaWriteWatched_nid_postfix(), "the heap mirror tests need the write-watched guest arena");
     constexpr std::size_t bytes = 2 * 65536;
     void* block = GuestArena::GuestArenaAllocate_nid_postfix(bytes, 65536);
@@ -56,8 +51,6 @@ void heapMirrorTests(const Context& context, const BdaTestAccess& access) {
         else GuestAllocations::GuestAllocationsRemove_nid_postfix(mutation, block);
         GuestAllocations::GuestAllocationsEnd_nid_postfix(mutation);
     };
-    // An address-based build that writes 32 bytes at `written` (nothing for 0), with `gpu` run
-    // between its upload and its write-back; returns the device address serving the range.
     const auto build = [&](std::uint64_t written, const std::function<void(GuestBufferMemory&)>& gpu) {
         GuestBufferMemory leased(context);
         leased.AcquireRegistered();
@@ -71,7 +64,6 @@ void heapMirrorTests(const Context& context, const BdaTestAccess& access) {
         leased.WriteBack();
         return device;
     };
-    // An address-based build sweeps the mirrors whose ranges are gone (an earlier test's too).
     const auto sweep = [&] {
         GuestBufferMemory leased(context);
         leased.AcquireRegistered();
@@ -113,8 +105,6 @@ void heapMirrorTests(const Context& context, const BdaTestAccess& access) {
     Require(MirrorCounters().heapMirrors == before.heapMirrors, "the writable heap mirror outlived its range");
 
 #ifdef _WIN32
-    // A build that throws after queuing a mirror's changed blocks (another mirror's range became
-    // inaccessible) must not mark those blocks current: the next build copies them.
     {
         constexpr std::size_t half = 2 * 65536;
         void* pair = GuestArena::GuestArenaAllocate_nid_postfix(2 * half, 65536);
@@ -145,7 +135,6 @@ void heapMirrorTests(const Context& context, const BdaTestAccess& access) {
         const auto device = firstDevice();
         first[5] = 0x66;
         DWORD previous = 0;
-        // A protection change outside the registry, as a heap decommit is: the page cache is told.
         Require(VirtualProtect(second, 65536, PAGE_NOACCESS, &previous) != 0, "cannot protect the second heap range");
         GuestAllocations::GuestAllocationsInvalidate_nid_postfix(reinterpret_cast<std::uintptr_t>(second), 65536);
         bool threw = false;
@@ -166,10 +155,6 @@ void heapMirrorTests(const Context& context, const BdaTestAccess& access) {
     }
 #endif
 #ifdef _WIN32
-    // A writable range with a read-only page (a direct memory page mapped at several addresses is
-    // read-only in every view): the mirror holds the page's bytes, a store next to it is written
-    // back, and a GPU change inside it fails the write-back instead of being dropped. A descriptor's
-    // copy outside an address-based build holds the page's bytes too.
     {
         constexpr std::size_t size = 2 * 65536;
         void* raw = GuestArena::GuestArenaAllocate_nid_postfix(size, 65536);
@@ -304,7 +289,6 @@ void RunBdaResourceTests(const Context& context, const BdaTestAccess& access) {
         Require(range.begin == snapshots[0].address && range.end == range.begin + source.size(), "64-bit guest address was truncated");
         const auto fault = access.bytes(access.descriptor(5).buffer);
         for (const auto byte : fault) Require(byte == std::byte{}, "fault buffer was not initialized");
-        // A store into a read-only table range names the range and why stores cannot reach it.
         const ShaderRecompiler::BdaAbi::Fault denied{ShaderRecompiler::BdaAbi::FaultState::Ready, ShaderRecompiler::BdaAbi::FaultReason::Permission, snapshots[0].address + 4, 4, 0, 0x88, 0};
         std::memcpy(fault.data(), &denied, sizeof(denied));
         reject([&] { resources.WriteBack(); }, "read-only in the BDA table");
@@ -372,7 +356,6 @@ void RunBdaResourceTests(const Context& context, const BdaTestAccess& access) {
         if (dropped.enabled) Require(dropped.waiterDrops == after.waiterDrops + 1 && LeaseCounters().cacheDrops == dropped.waiterDrops, "the free did not drop the cached address space");
     }
     heapMirrorTests(context, access);
-    // The copies left to an address-based build: nothing within the limit, the largest first past it.
     Require(AddressCopyOverflow({{0x1000, 0x3000, 0x2000, "uncommitted pages"}}, 0x2000).empty(), "copies within the limit were refused");
     const auto copies = AddressCopyOverflow({{0x1000, 0x2000, 0x1000, "not mirrored"}, {0x10000, 0x30000, 0x18000, "uncommitted pages"}}, 0x2000);
     Require(!copies.empty() && copies.find("0x10000+0x20000 (0.1 MiB committed, uncommitted pages)") < copies.find("0x1000+0x1000"), "the copy limit does not name the largest copy first");

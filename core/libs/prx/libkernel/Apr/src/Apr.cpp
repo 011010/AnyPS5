@@ -187,7 +187,6 @@ int APS5_VABI sceKernelAprResolveFilepathsToIdsAndFileSizes(const char** paths, 
     return 0;
 }
 
-// The prefix is prepended to every path; titles pass "" with absolute /app0 paths.
 int APS5_VABI sceKernelAprResolveFilepathsWithPrefixToIdsAndFileSizes(const char* prefix, const char** paths, uint32_t count, uint32_t* ids, uint64_t* sizes, uint32_t* error_index) {
     if (!prefix || !paths || !ids) return _fail(GUEST_EINVAL);
     for (uint32_t index = 0; index < count; ++index) {
@@ -223,8 +222,6 @@ int APS5_VABI sceKernelAprSubmitCommandBuffer(const Apr::CommandBufferObject* bu
     return 0;
 }
 
-// Command buffers run synchronously, so a submission is complete (result 0) before its id is returned
-// and waiting on it has nothing left to do.
 int APS5_VABI sceKernelAprSubmitCommandBufferAndGetId(const Apr::CommandBufferObject* buffer, uint32_t priority, uint32_t* id) {
     if (!id) return _fail(GUEST_EINVAL);
     const int result = sceKernelAprSubmitCommandBuffer(buffer, priority);

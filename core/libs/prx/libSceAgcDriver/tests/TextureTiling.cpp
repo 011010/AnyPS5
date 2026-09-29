@@ -88,15 +88,11 @@ void RunTextureTilingTests() {
     {
         const auto mips = ComputeMipLayout(TextureTileMode::RenderTarget64KB, 56, 257, 129, 1);
         Require(mips[0].blocksPerRow == 3 && mips[0].tiledSize == 393216, "render target surfaces must pad to complete 128 by 128 blocks for 32-bit pixels");
-        // The detiler writes linear rows at the padded pitch (three 128-texel blocks), so the linear
-        // region spans whole padded rows.
         Require(mips[0].pitchBytes == 1536 && mips[0].linearSize == 1536u * 129u, "detiled render target rows must span the padded block width");
         Require(ComputeSurfaceSize(mips, 6) == 2359296, "render target cube faces must retain the padded guest slice stride");
     }
     for (const auto format : std::array<std::uint32_t, 5>{1, 7, 56, 71, 77}) {
         const auto mips = ComputeMipLayout(TextureTileMode::RenderTarget64KB, format, 1024, 513, 11);
-        // Linear offsets follow the tiled ones (the smallest regular level first), with the tail levels
-        // after the chain, so the ranges are checked for overlap in address order, not level order.
         std::vector<std::pair<std::uint64_t, std::uint64_t>> ranges;
         bool tailSeen = false;
         for (const auto& mip : mips) {
@@ -113,11 +109,8 @@ void RunTextureTilingTests() {
         for (std::size_t index = 1; index < ranges.size(); ++index) Require(ranges[index].first >= ranges[index - 1].second, "detiled mip levels must occupy separate ranges");
         Require(tailSeen && !mips.front().tail, "render target mip chains must cover both regular blocks and mip tails");
     }
-    // Block-compressed formats are laid out in render target tiling too: a 64 by 64 texel level is one
-    // guest 64KB block.
     const auto compressed = ComputeMipLayout(TextureTileMode::RenderTarget64KB, 169, 64, 64, 1);
     Require(compressed.size() == 1 && compressed[0].tiledSize == 65536 && compressed[0].linearSize != 0, "block compressed render target layout is wrong");
-    // Formats 128, 129 and 132 are laid out in render target tiling as well.
     Require(ComputeMipLayout(TextureTileMode::RenderTarget64KB, 132, 64, 64, 1).size() == 1, "format 132 render target layout is missing");
     reject([] { ComputeMipLayout(TextureTileMode::RenderTarget64KB, 74, 64, 64, 1); }, "unsupported bytes per element");
 

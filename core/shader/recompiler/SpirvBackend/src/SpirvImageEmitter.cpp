@@ -301,8 +301,6 @@ std::uint32_t ResultVector(SpirvValueEmitContext& ctx, const ImageEmitAccess& ac
             component[index] = index == 0u ? F32BitsToU32(ctx, value) : ConstantU32(state, 0);
             continue;
         }
-        // Through a depth view read for its bits, only the depth channel (X) is a texel: the view
-        // gives 1.0 where the integer view gives 1 (ONE, or W of the single channel).
         const auto selector = (access.image.shaderSwizzle >> (index * 3u)) & 7u;
         if (access.image.depthBits && !gather && selector != 4u) {
             component[index] = ConstantU32(state, selector == 1u || selector == 7u ? 1u : 0u);
@@ -789,7 +787,6 @@ void EmitSampleOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, con
         if (std::find(capabilities.begin(), capabilities.end(), static_cast<std::uint32_t>(spv::CapabilityMinLod)) == capabilities.end()) ctx.Fail(access.inst, "clamps its LOD, which needs the device's shaderResourceMinLod");
         const auto clamp = AddressF32(ctx, access, setup.layout.clamp);
         if ((operandMask & spv::ImageOperandsLodMask) != 0u) {
-            // An explicit level takes no MinLod operand: the level itself is clamped.
             const auto clamped = state.module.AllocateId();
             state.module.AddFunction(spv::OpExtInst, TypeF32(state), clamped, GlslStd450(state), GLSLstd450FMax, operands.back(), clamp);
             operands.back() = clamped;
@@ -957,11 +954,6 @@ void EmitImageAtomicXor32(SpirvValueEmitContext& ctx, const IrValue& inst) {
     EmitImage(ctx, inst);
 }
 
-// image_bvh_intersect_ray tests one ray against one BVH node; the guest shader owns the traversal
-// and its stack. This is the GFX10 (RT IP 1.1) node test as AMD's GPURT software fallback defines it
-// (IntersectCommon.hlsl), with the node layouts of GPURT's gfx10 TriangleNode1_0 and BoxNode1_0, as
-// SharpEmu ports it. The node is read through the BDA page table; an inactive lane, a null BVH, an
-// out-of-range node or another node type returns four invalid dwords.
 void EmitImageBvhIntersectRay(SpirvValueEmitContext& ctx, const IrValue& inst) {
     auto& state = ctx.state;
     const auto u32 = TypeU32(state);
@@ -999,10 +991,6 @@ void EmitImageBvhIntersectRay(SpirvValueEmitContext& ctx, const IrValue& inst) {
         const auto component = [&](std::uint32_t index) { return ctx.Arg(*address, index); };
         const bool a16 = (ctx.Memory(inst).imageSampleFlags & RdnaImageSampleFlagA16) != 0u;
 
-        // The node pointer: its byte offset divided by eight above bits 2:0, which hold the type
-        // (0-1 triangle, 4 float16 box, 5 float32 box). The T#: base_address[39:0] in 256-byte
-        // units, box_grow_value[62:55], box_sort_en[63], size[105:64] (the last valid 64-byte
-        // node), triangle_return_mode[120].
         const auto node = component(0);
         const auto type = op(spv::OpBitwiseAnd, u32, node, uint(7u));
         const auto nodeIndex = op(spv::OpShiftRightLogical, u64, widen(node), BdaConstant(state, 3u));
@@ -1016,7 +1004,6 @@ void EmitImageBvhIntersectRay(SpirvValueEmitContext& ctx, const IrValue& inst) {
         const auto valid = both(present, op(spv::OpULessThanEqual, boolean, nodeIndex, lastNode));
         const auto isTriangle = both(valid, op(spv::OpULessThanEqual, boolean, type, uint(1u)));
         const auto isBox16 = both(valid, op(spv::OpIEqual, boolean, type, uint(4u)));
-        // A float32 box node spans two 64-byte units.
         const auto isBox32 = both(both(present, op(spv::OpULessThan, boolean, nodeIndex, lastNode)), op(spv::OpIEqual, boolean, type, uint(5u)));
 
         const auto extent = asFloat(component(1));
@@ -1030,7 +1017,6 @@ void EmitImageBvhIntersectRay(SpirvValueEmitContext& ctx, const IrValue& inst) {
                 inverse[axis] = asFloat(component(8u + axis));
                 continue;
             }
-            // Six halves in three dwords: the direction, then the inverse direction.
             const auto half = [&](std::uint32_t index) {
                 const auto packed = component(5u + index / 2u);
                 return EmitF16BitsToF32(state, index % 2u == 0u ? op(spv::OpBitwiseAnd, u32, packed, uint(0xffffu)) : op(spv::OpShiftRightLogical, u32, packed, uint(16u)));
@@ -1039,10 +1025,6 @@ void EmitImageBvhIntersectRay(SpirvValueEmitContext& ctx, const IrValue& inst) {
             inverse[axis] = half(3u + axis);
         }
 
-        // The node's first `count` dwords (a multiple of four). A node lies in one range, so one
-        // probe of its span and direct loads read it; a node the table does not map as one aligned
-        // range records an Unmapped fault and reads as zeros. APS5_BDA_BYTE_READS=1 (no probe)
-        // reads it with the per-byte lookups.
         const auto nodeDwords = [&](std::uint32_t count) {
             std::vector<std::uint32_t> dwords;
             if (state.bdaProbeFunction == 0) {
@@ -1088,10 +1070,6 @@ void EmitImageBvhIntersectRay(SpirvValueEmitContext& ctx, const IrValue& inst) {
             return op(spv::OpFAdd, f32, op(spv::OpFAdd, f32, op(spv::OpFMul, f32, a[0], b[0]), op(spv::OpFMul, f32, a[1], b[1])), op(spv::OpFMul, f32, a[2], b[2]));
         };
 
-        // fast_intersect_triangle and SwizzleBarycentrics: type 0 tests (v0, v1, v2), type 1 tests
-        // (v1, v3, v2). A miss returns t_num = +inf over t_denom = 1. The barycentric return mode
-        // yields the i/j numerators the builder's rotation maps back; the other mode yields the
-        // triangle id and a hit flag.
         const auto triangle = [&] {
             const auto d = nodeDwords(16u);
             const auto second = op(spv::OpIEqual, boolean, type, uint(1u));
@@ -1131,12 +1109,8 @@ void EmitImageBvhIntersectRay(SpirvValueEmitContext& ctx, const IrValue& inst) {
             return compose({asUint(tNum), asUint(tDenom), selectU(barycentrics, asUint(barycentric(0u)), triangleId), selectU(barycentrics, asUint(barycentric(2u)), selectU(hit, uint(1u), uint(0u)))});
         };
 
-        // IntersectNodeBvh4 with fast_intersect_bbox: a slab test clipped to [0, extent], a NaN
-        // interval misses, box_grow_value widens the exit time by that many 2^-24 steps, and the
-        // optional sort orders the hit children by entry time.
         const auto boxes = [&](bool fp16) {
             const auto d = nodeDwords(fp16 ? 16u : 28u);
-            // Bound 0-2 is the minimum, 3-5 the maximum of one child box, from dword 4.
             const auto bound = [&](std::uint32_t child, std::uint32_t index) {
                 const auto position = child * 6u + index;
                 if (!fp16) {
@@ -1145,7 +1119,6 @@ void EmitImageBvhIntersectRay(SpirvValueEmitContext& ctx, const IrValue& inst) {
                 const auto packed = d[4u + position / 2u];
                 return EmitF16BitsToF32(state, position % 2u == 0u ? op(spv::OpBitwiseAnd, u32, packed, uint(0xffffu)) : op(spv::OpShiftRightLogical, u32, packed, uint(16u)));
             };
-            // HLSL max3/min3: a NaN operand propagates to the NaN check.
             const auto nanMax = [&](std::uint32_t a, std::uint32_t b) { return selectF(either(isNan(a), op(spv::OpFOrdGreaterThan, boolean, a, b)), a, b); };
             const auto nanMin = [&](std::uint32_t a, std::uint32_t b) { return selectF(either(isNan(a), op(spv::OpFOrdLessThan, boolean, a, b)), a, b); };
             const auto zero = real(0u);
@@ -1171,7 +1144,6 @@ void EmitImageBvhIntersectRay(SpirvValueEmitContext& ctx, const IrValue& inst) {
                 children[child] = selectU(hit, d[child], invalid);
                 keys[child] = minT;
             }
-            // The hardware sorting network; an invalid child always sinks.
             auto sorted = children;
             for (const auto [a, b] : std::array<std::pair<std::uint32_t, std::uint32_t>, 5>{{{0, 2}, {1, 3}, {0, 1}, {2, 3}, {1, 2}}}) {
                 const auto bValid = op(spv::OpINotEqual, boolean, sorted[b], invalid);

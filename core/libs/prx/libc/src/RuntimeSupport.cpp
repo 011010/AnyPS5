@@ -104,7 +104,6 @@ unsigned int APS5_VABI _ZSt14_Random_devicev_nid_postfix() {
     throw std::runtime_error("_Throw_Cpp_error: C++ thread error " + std::to_string(code));
 }
 
-// The title's std::error_category object carries its own Dinkumware vtable and string ABI.
 const void* APS5_VABI _ZSt16generic_categoryv_nid_postfix() {
     NotImplemented_nid_no_patch(__func__);
     return nullptr;

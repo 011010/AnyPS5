@@ -86,8 +86,6 @@ void validateFlags(std::uint32_t flags) {
     if ((flags & RdnaImageSampleFlagCd) != 0u) {
         throw std::runtime_error("unsupported image coarse derivative (_cd) address layout");
     }
-    // The _a sample aliases (OPM set) keep the plain address layout: the adjustment only touches reserved
-    // bits of the sampler's dword 3, which the resource tracker canonicalizes (as in Kyty).
     const auto lodModes = flags & (RdnaImageSampleFlagLod | RdnaImageSampleFlagBias | RdnaImageSampleFlagDerivative | RdnaImageSampleFlagLevelZero);
     if (std::popcount(lodModes) > 1) {
         throw std::runtime_error("conflicting image LOD modes");
@@ -229,9 +227,6 @@ RdnaInstruction DecodeRdnaMimg(std::uint32_t programCounter, std::span<const std
     }
     const auto opcode = ((word0 >> 18u) & 0x7Fu) | ((word0 & 1u) << 7u);
     const auto& info = lookupOpcode(opcode);
-    // Word0 bit 12 is UNORM, unnormalized addressing, which only a sampler reads: loads, stores and
-    // atomics address texels by integer anyway (the ISA wants it set on stores and atomics, and the
-    // RTIP ray queries require it). On a sample or gather it is not implemented.
     const auto reservedWord0 = info.sample || info.gather ? 0x000350C0u : 0x000340C0u;
     if ((word0 & reservedWord0) != 0u || (word1 & 0x3C000000u) != 0u) {
         char message[96];
@@ -262,8 +257,6 @@ RdnaInstruction DecodeRdnaMimg(std::uint32_t programCounter, std::span<const std
     if (d16 && !(info.sample || info.gather || opcode == 0u || opcode == 1u || opcode == 8u || opcode == 9u)) {
         throw std::runtime_error("MIMG opcode does not support D16");
     }
-    // A ray query addresses 32-bit dwords: the node pointer, the ray extent, the origin xyz, then the
-    // direction and the inverse direction xyz, packed as six halves in three dwords with A16.
     const bool rayQuery = info.opcode == RdnaOpcode::ImageBvhIntersectRay;
     std::uint32_t components = rayQuery ? (a16 ? 8u : 11u) : opcode == 0x0Eu ? 1u : coordinateCount(dimension);
     if (opcode == 1u || opcode == 9u) {

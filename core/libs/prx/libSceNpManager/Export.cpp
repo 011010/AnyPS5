@@ -128,28 +128,24 @@ void APS5_VABI sceNpRegisterGamePresenceCallback(void* callback, void* userdata)
 
 int APS5_VABI sceNpRegisterNpReachabilityStateCallback(void* callback, void* userdata) {
     (void)userdata;
-    // The signed-out state never changes, so registered callbacks never fire.
     if (!callback) return SCE_NP_ERROR_INVALID_ARGUMENT;
     return 0;
 }
 
 int APS5_VABI sceNpRegisterPlusEventCallback(void* callback, void* userdata) {
     (void)userdata;
-    // The signed-out state never changes, so registered callbacks never fire.
     if (!callback) return SCE_NP_ERROR_INVALID_ARGUMENT;
     return 0;
 }
 
 int APS5_VABI sceNpRegisterPremiumEventCallback(void* callback, void* userdata) {
     (void)userdata;
-    // The signed-out state never changes, so registered callbacks never fire.
     if (!callback) return SCE_NP_ERROR_INVALID_ARGUMENT;
     return 0;
 }
 
 int APS5_VABI sceNpRegisterStateCallback(void* callback, void* userdata) {
     (void)userdata;
-    // The signed-out state never changes, so registered callbacks never fire.
     if (!callback) return SCE_NP_ERROR_INVALID_ARGUMENT;
     return 0;
 }

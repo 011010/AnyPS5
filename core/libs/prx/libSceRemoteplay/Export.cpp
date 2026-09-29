@@ -5,7 +5,6 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 
-// A PC has no Remote Play: the library initializes and every user stays disconnected.
 constexpr int REMOTEPLAY_CONNECTION_STATUS_DISCONNECT = 0;
 
 extern "C" {

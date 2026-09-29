@@ -99,7 +99,6 @@ void stateTests() {
     queue.context[0x91] = 0x30020;
     state = AgcDriver::Graphics::DecodeState(queue);
     Require(state.scissor.offset.x == 3 && state.scissor.offset.y == 1 && state.scissor.extent.width == 29 && state.scissor.extent.height == 2, "scissor intersection changed");
-    // DCC_ENABLE: the target is written uncompressed, its keys at CB_COLOR0_DCC_BASE.
     queue.context[0x31c] |= 0x10000000;
     queue.context[0x325] = 0x1234;
     Require(AgcDriver::Graphics::DecodeState(queue).color.dccAddress == 0x123400, "DCC key address decode changed");
@@ -110,11 +109,9 @@ void stateTests() {
     queue.context[0x3b8] |= 5u << 14u;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "unsupported color tile mode");
     queue = makeState();
-    // A linear width off the 256-byte pitch alignment is padded (rows of 64 texels here).
     queue.context[0x3b0] = (62u << 14u) | 3u;
     Require(AgcDriver::Graphics::DecodeState(queue).color.bytes == 64u * 4u * 4u, "padded linear pitch changed");
     queue = makeState();
-    // Slot 1 written by the shader needs an export format.
     queue.context[0x8e] = 0xff;
     queue.context[0x8f] = 0xff;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "color export format 0");
@@ -238,8 +235,6 @@ void DisabledColorTests() {
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "missing register");
 }
 
-// Depth/stencil tests against a bound surface: Scaleform's mask pass (stencil ALWAYS, add 1) and
-// content pass (stencil EQUAL), as a Scaleform menu draws them.
 void DepthStencilTests() {
     auto queue = makeState();
     queue.context[0x000] = 0;
@@ -270,35 +265,29 @@ void DepthStencilTests() {
     const auto& front = state.stencilFront;
     Require(front.compareOp == VK_COMPARE_OP_ALWAYS && front.passOp == VK_STENCIL_OP_INCREMENT_AND_CLAMP && front.failOp == VK_STENCIL_OP_KEEP && front.reference == 1 && front.writeMask == 0xff, "stencil mask pass changed");
     Require(std::memcmp(&state.stencilBack, &front, sizeof(front)) == 0, "back faces without BACKFACE_ENABLE must use the front state");
-    // The content pass: EQUAL to 2, nothing written.
     queue.context[0x10b] = 0;
     queue.context[0x10c] = 0x01ffff02;
     queue.context[0x200] = 0x00200211;
     state = AgcDriver::Graphics::DecodeState(queue);
     Require(state.stencilFront.compareOp == VK_COMPARE_OP_EQUAL && state.stencilFront.reference == 2 && state.stencilFront.passOp == VK_STENCIL_OP_KEEP, "stencil content pass changed");
-    // Clearing to 0 with REPLACE_TEST under ALWAYS.
     queue.context[0x10b] = 0x00030030;
     queue.context[0x10c] = 0x01ffff00;
     queue.context[0x200] = 0x00700771;
     state = AgcDriver::Graphics::DecodeState(queue);
     Require(state.stencilFront.passOp == VK_STENCIL_OP_REPLACE && state.stencilFront.reference == 0 && std::memcmp(&state.stencilBack, &state.stencilFront, sizeof(state.stencilFront)) == 0, "stencil clear pass changed");
-    // BACKFACE_ENABLE: back faces get STENCILFUNC_BF, the _BF operations and DB_STENCILREFMASK_BF.
     queue.context[0x200] = 0x007007f1;
     state = AgcDriver::Graphics::DecodeState(queue);
     Require(state.stencilBack.compareOp == VK_COMPARE_OP_ALWAYS && state.stencilBack.passOp == VK_STENCIL_OP_KEEP && state.stencilBack.writeMask == 0 && state.stencilBack.reference == 1, "back-face stencil state changed");
-    // REPLACE_OP writing a value the test compares differently has no single Vulkan reference.
     queue.context[0x10b] = 0x40;
     queue.context[0x10c] = 0x05ffff02;
     queue.context[0x200] = 0x00200211;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "stencil replacement");
-    // Adding anything but 1 has no Vulkan operation.
     queue.context[0x10b] = 0x50;
     queue.context[0x200] = 0x00700711;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "stencil add/subtract");
     queue.context[0x10b] = 0;
     queue.context[0x000] = 1;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "DB_RENDER_CONTROL");
-    // CB_COLOR_VIEW's mip level is bits 26-29.
     queue = makeState();
     queue.context[0x31b] = 1u << 26u;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "mip exceeds");
@@ -334,7 +323,6 @@ void DepthClipTests() {
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "inverted viewport depth clamp");
     queue.context[0xb4] = 0;
     for (std::uint32_t bit = 0; bit < 32; ++bit) {
-        // DX_CLIP_SPACE_DEF (19) and ZCLIP_NEAR/FAR_DISABLE (26, 27, depth clamping) are decoded.
         if (bit == 19 || bit == 26 || bit == 27) continue;
         queue.context[0x204] = 1u << bit;
         expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "PA_CL_CLIP_CNTL");
@@ -666,7 +654,6 @@ void expectSingleFailure(const ShaderRecompiler::DescriptorBinding& binding, std
     expectResourceFailure(vertex, fragment, reason);
 }
 
-// A binding the resources accept (building them throws nothing), leaving no Vulkan object behind.
 void expectSingleAccepted(const ShaderRecompiler::DescriptorBinding& binding, std::string_view what) {
     ShaderRecompiler::RecompileResult vertex;
     ShaderRecompiler::RecompileResult fragment;
@@ -802,8 +789,6 @@ void resourceTests() {
         mutate(binding);
         return binding;
     };
-    // Image and sampler bindings are implemented: a buffer's four-DWORD V# is no T#, and the mock
-    // context has no sampler slots, so a sampler binding exceeds its per-stage limit.
     expectSingleFailure(changed([](auto& binding) { binding.role = Role::GuestImages; binding.kind = Kind::SampledImage; }), "guest texture descriptor must contain 8 dwords");
     expectSingleFailure(changed([](auto& binding) { binding.role = Role::GuestImages; binding.kind = Kind::StorageImage; }), "guest storage image descriptors must contain 8 dwords");
     expectSingleFailure(changed([](auto& binding) { binding.role = Role::GuestSamplers; binding.kind = Kind::Sampler; }), "shader sampler descriptors exceed per-stage limits");
@@ -825,8 +810,6 @@ void resourceTests() {
     expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[3] |= 0x40000000u; }), "unsupported type");
     expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[1] |= 0x3fffu << 16u; binding.guestDescriptor[2] = 0xffffffffu; }), "descriptor range limit");
     expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[2] = 8192; }), "descriptor range limit");
-    // A V# left pointing at unmapped memory binds its committed pages only (none here); the rest reads
-    // as zeros (GuestBufferMemory::addDescriptorRegion), so it is not rejected.
     expectSingleAccepted(changed([](auto& binding) { binding.guestDescriptor = vsharp(reinterpret_cast<const void*>(0x1000), 8); }), "an unmapped V#");
     expectSingleFailure(changed([&](auto& binding) { binding.guestDescriptor = vsharp(reinterpret_cast<const void*>(state.color.address), 64); }), "aliases the render target");
     expectSingleAccepted(changed([](auto& binding) { binding.count = 3; binding.guestDescriptor = join(join(vsharp(guestFirst.data(), 16), vsharp(guestSecond.data(), 32)), vsharp(reinterpret_cast<const void*>(0x1000), 8)); }), "an unmapped V# element");
@@ -1051,8 +1034,6 @@ void rectListTests() {
     expectFailure([&] { static_cast<void>(BuildRectListShaders(vertex, fragment, target)); }, "per-vertex interpolation");
     fragment.fragmentParameters[0].perVertex = false;
     vertex.parameterExports.clear();
-    // A fragment input the vertex shader does not export is built as a missing parameter (see
-    // RectListShaders.cpp), not rejected.
     auto unexported = BuildRectListShaders(vertex, fragment, target);
     Require(!unexported.control.spirv.empty() && !unexported.evaluation.spirv.empty(), "rect-list shaders with an unexported parameter are empty");
     fragment.fragmentParameters.clear();
@@ -1234,8 +1215,6 @@ void validationTests() {
 }
 
 int main() {
-    // The guest allocation tests expect mutations of leased ranges to be refused; they need not wait
-    // the default minute for each refusal. Set before the registry first reads it.
     _putenv_s("APS5_PIN_WAIT_MS", "200");
     try {
         {
@@ -1273,7 +1252,6 @@ int main() {
         mock = MockVulkan{};
         auto bdaContext = mockContext();
         bdaContext.bufferDeviceAddress = true;
-        // The fault buffer (with its written-page slots) is larger than the mock's 4 KiB default.
         bdaContext.limits.maxStorageBufferRange = 1u << 27;
         RunBdaResourceTests(bdaContext, {
             [](VkBuffer buffer) -> std::span<std::byte> { return mock.memories.at(mock.bufferMemory.at(buffer)); },
@@ -1284,7 +1262,6 @@ int main() {
                 throw std::runtime_error("missing BDA test descriptor");
             },
             [](VkDeviceAddress address) {
-                // The inverse of mockGetBufferDeviceAddress.
                 const auto offset = address - 0x100000000000ULL;
                 const auto buffer = reinterpret_cast<VkBuffer>(offset / 0x10000);
                 return std::span<std::byte>(mock.memories.at(mock.bufferMemory.at(buffer))).subspan(offset % 0x10000);

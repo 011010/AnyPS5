@@ -62,7 +62,6 @@ static void CheckNamedAndHintedMappings() {
     Require(sceKernelMunmap(first, length) == 0);
 }
 
-// Direct memory contents follow the physical pages: unmapped and mapped again elsewhere, they read back.
 static void CheckDirectMemoryFollowsPhysicalPages() {
     constexpr std::size_t page = 0x4000;
     std::int64_t phys = 0;

@@ -203,8 +203,6 @@ struct Submission {
     // submission trusts only labels the recorder noted with a newer stamp (see Recorder::NoteLabel).
     std::uint64_t received = 0;
     std::chrono::steady_clock::time_point enqueuedAt{};
-    // The guest commands behind a REWIND (commands stop at it): the title writes them after submitting
-    // and marks the REWIND valid, so they are read only then (Driver::executeRewindTail).
     const std::uint32_t* rewindTail = nullptr;
     std::size_t rewindWords = 0;
 };
@@ -528,17 +526,12 @@ private:
 
 public:
 
-    // Copies a submission's commands, stopping after the first REWIND: what follows it is read when the
-    // REWIND becomes valid. INDIRECT_BUFFER packets are followed as the CP follows them: a chained one
-    // (bit 20 of its size dword) replaces the rest of its buffer with the target, a call inserts the
-    // target and continues after the packet.
     static void copyCommands(Submission& submission, const std::uint32_t* guest, std::size_t words) {
         submission.commands.clear();
         std::size_t budget = std::size_t{1} << 26u;
         copySegment(submission, guest, words, budget);
     }
 
-    // Appends one command segment; true when a REWIND ended the copy.
     static bool copySegment(Submission& submission, const std::uint32_t* guest, std::size_t words, std::size_t& budget) {
         require(words <= budget, "command buffer jumps exceed the copy limit (a jump loop?)");
         budget -= words;
@@ -547,7 +540,6 @@ public:
             if (Pm4::FillerPacket(header)) { submission.commands.push_back(header); ++cursor; continue; }
             const auto count = (header & 0xc0000000u) == 0xc0000000u ? Pm4::PacketWords(header) : words - cursor;
             if ((header & 0xc0000000u) != 0xc0000000u || count > words - cursor) {
-                // Malformed: copied as is for validate to report with its context.
                 submission.commands.insert(submission.commands.end(), guest + cursor, guest + words);
                 return false;
             }
@@ -574,8 +566,6 @@ public:
         return false;
     }
 
-    // Holds the submitting thread while an output named by a flip in the submission has a full flip
-    // queue (mutex not held: the presenter needs the driver to finish flips).
     void waitForFlipRoom(const Submission& submission) {
         for (std::size_t cursor = 0; cursor < submission.commands.size(); cursor += Pm4::PacketWords(submission.commands[cursor])) {
             if (submission.commands[cursor] != FlipPacketHeader) continue;
@@ -590,7 +580,6 @@ public:
         }
     }
 
-    // Takes the flip reservations and rendering waits the submission's packets name (mutex held).
     void reserveOutputs(Submission& submission) {
         for (std::size_t cursor = 0; cursor < submission.commands.size();) {
             const auto* words = submission.commands.data() + cursor;
@@ -613,8 +602,6 @@ public:
         }
     }
 
-    // REWIND stalls the queue until the CPU marks it valid (sceAgcRewindPatchSetRewindState); the
-    // commands behind it are copied from guest memory only then and run as a continuation.
     void executeRewindTail(const Submission& stalled) {
         std::atomic_ref<std::uint32_t> control(*const_cast<std::uint32_t*>(stalled.rewindTail - 1));
         while ((control.load(std::memory_order_acquire) & 0x80000000u) == 0) {
@@ -3250,8 +3237,6 @@ private:
             pendingDispatchPhases().outcome = DispatchOutcome::CopyHle;
             return;
         }
-        // USE_THREAD_DIMENSIONS that is no whole number of groups: the host launches whole groups,
-        // the partial-group variant retires the threads past the size.
         if (indirectArguments == 0 && (packet[4] & 0x20u) != 0) {
             const std::array<std::uint32_t, 3> threads{packet[1], packet[2], packet[3]};
             for (std::uint32_t axis = 0; axis < 3; ++axis) {
@@ -3322,7 +3307,6 @@ private:
         };
         mix(address);
         mix(packet[4] & 0x8000u);
-        // The partial-group size is shader data of the compiled result.
         for (const auto threads : compute.partialThreads) mix(threads);
         for (const auto word : userData) mix(word);
         // Only the shader registers the request reads (thread counts and RSRC1/2; the program
@@ -3997,9 +3981,6 @@ private:
         if (!drawParameters.indirect && !drawParameters.indexed && (drawParameters.indexCount == 0 || drawParameters.instanceCount == 0)) return DrawVerdict::Nothing;
         static const bool traceIndirect = std::getenv("APS5_TRACE_INDIRECT_DRAWS") != nullptr;
         if (traceIndirect && drawParameters.indirect) std::fprintf(stderr, "[draw] indirect packet %s args 0x%llx count %u reached\n", Pm4::Name(packet[0]).c_str(), static_cast<unsigned long long>(drawParameters.indirect->arguments), drawParameters.indirect->count);
-        // A draw without color writes or a pixel shader draws nothing, unless it tests depth or
-        // stencil against a bound surface: such depth-only draws need a pipeline without a
-        // fragment stage, which is not implemented.
         {
             const auto targetMask = queue.context.find(0x8e);
             const auto shaderMask = queue.context.find(0x8f);
@@ -5156,13 +5137,6 @@ private:
         return true;
     }
 
-    // PIXEL_PIPE_STAT_DUMP, drained like a label: every draw before it completed, so the recorder's
-    // sample count is the DB counter at this point. The PS5 layout interleaves a begin and an end
-    // counter per DB (16 of them, 16 bytes apart; a query's begin dump writes the first of each
-    // pair, its end dump the second): the count goes to the first DB and the others stay at zero,
-    // all with bit 63 marking the result ready.
-    // ponytail: a GPU drain per dump; accumulate on the GPU behind the batch if titles dump many
-    // per frame.
     void dumpSampleCounters(std::uint64_t address) {
         std::uint64_t samples = 0;
         {

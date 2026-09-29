@@ -7,7 +7,6 @@
 #include <string>
 
 namespace {
-// Exports to the system gallery; the lifecycle is honest, exports themselves are not implemented.
 std::atomic<bool> g_initialized{false};
 }
 

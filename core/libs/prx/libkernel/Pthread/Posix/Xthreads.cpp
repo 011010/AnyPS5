@@ -9,9 +9,6 @@
 #include "../../Time/include/Time.hpp"
 #include "Common.hpp"
 
-// Dinkumware C11 thread support as the title's own libc.prx implements it: each _Mtx_t/_Cnd_t is a
-// pointer-sized slot holding the sce object, and results are _Thrd_* codes.
-
 extern "C" {
 int APS5_VABI scePthreadCreate(Pthread* thread, const PthreadAttr* attr, PthreadEntry entry, void* arg, const char* name);
 int APS5_VABI scePthreadJoin(Pthread thread, void** retval);
@@ -37,7 +34,6 @@ int initResult(int result) {
     return result == 0 ? ThrdSuccess : result == SceEnomem ? ThrdNomem : ThrdError;
 }
 
-// std::_Pad as laid out by the title's libc; _Go() is the first vtable slot.
 struct GuestPad {
     unsigned (APS5_VABI* const* vtable)(GuestPad*);
     PthreadCond cond;
@@ -101,7 +97,6 @@ int APS5_VABI _Cnd_broadcast_nid_postfix(PthreadCond* cond) {
     return ThrdSuccess;
 }
 
-// xtime has the KernelTimespec layout and is an absolute gettimeofday deadline.
 int APS5_VABI _Cnd_timedwait_nid_postfix(PthreadCond* cond, PthreadMutex* mutex, const KernelTimespec* deadline) {
     KernelUseconds usec = 0;
     if (!PosixThread::RelativeMicroseconds(GuestRealtimeClock, deadline, &usec)) throw std::runtime_error("_Cnd_timedwait: invalid xtime");
@@ -120,7 +115,6 @@ Pthread APS5_VABI _Thrd_id_nid_postfix() {
     return scePthreadSelf();
 }
 
-// Microseconds since the epoch, not the 100 ns ticks of other Dinkumware ports.
 std::int64_t APS5_VABI _Xtime_get_ticks_nid_postfix() {
     KernelTimeval now{};
     gettimeofday_nid_postfix(&now, nullptr);

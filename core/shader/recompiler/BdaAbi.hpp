@@ -45,10 +45,6 @@ static_assert(offsetof(Range, deviceAddress) == 16 && offsetof(Range, permission
 static_assert(std::is_standard_layout_v<Fault> && std::is_trivially_copyable_v<Fault> && sizeof(Fault) == 32);
 static_assert(offsetof(Fault, address) == 8 && offsetof(Fault, instruction) == 24);
 
-// After the Fault record, the fault buffer holds the pages the shader stored to through the table
-// (Write permission), for the host to mark GPU-written once the work completed: an overflow word,
-// then an open-addressed set of page number + 1 (0 is free), probed WrittenPageProbes slots from a
-// multiplicative hash. A store that finds no slot sets the overflow word.
 inline constexpr std::uint32_t WrittenPageShift = 12;
 inline constexpr std::uint32_t WrittenPageSlots = 4096;
 inline constexpr std::uint32_t WrittenPageProbes = 8;

@@ -9,7 +9,6 @@
 #include <iostream>
 #include <vector>
 
-// Resources.cpp submits and reaps through the active recorder; these tests record nothing.
 namespace AgcDriver::Graphics {
 Recorder* Recorder::Active() { return nullptr; }
 void Recorder::Submit() { Require(false, "the device tests have no recorder"); }

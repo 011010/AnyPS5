@@ -77,7 +77,6 @@ int APS5_VABI sceAgcUnknownFuseShaderHalves(Shader* fused_result, const Shader* 
     const auto& frontRsrc2 = FindRegister(front->sh_registers, frontCount, isGs ? SPI_SHADER_PGM_RSRC2_GS : SPI_SHADER_PGM_RSRC2_HS);
     auto& fusedRsrc1 = FindRegister(fused, fusedCount, isGs ? SPI_SHADER_PGM_RSRC1_GS : SPI_SHADER_PGM_RSRC1_HS);
     auto& fusedRsrc2 = FindRegister(fused, fusedCount, isGs ? SPI_SHADER_PGM_RSRC2_GS : SPI_SHADER_PGM_RSRC2_HS);
-    // Both halves run in one wave, so VGPRs are the larger of the two and shared VGPRs are reallocated (after Kyty).
     const std::uint32_t frontVgprs = ((frontRsrc1.value & 0x3fu) + 1u) * 4u;
     const std::uint32_t backVgprs = ((fusedRsrc1.value & 0x3fu) + 1u) * 4u;
     const std::uint32_t frontTotal = frontVgprs + (frontRsrc2.value >> 28u) * 8u;
@@ -94,7 +93,6 @@ int APS5_VABI sceAgcUnknownFuseShaderHalves(Shader* fused_result, const Shader* 
         MergeMax(fusedRsrc1, frontRsrc1, 28, 0x3u);
     }
     fusedRsrc2.value = (fusedRsrc2.value & 0xf7ffffc1u) | (frontRsrc2.value & 0x0800003eu);
-    // The fused program starts at the front half; its address goes in the ES/LS program registers.
     const std::uint32_t lo = isGs ? SPI_SHADER_PGM_LO_ES : SPI_SHADER_PGM_LO_LS;
     auto& loRegister = FindRegister(fused, fusedCount, lo);
     auto& hiRegister = FindRegister(fused, fusedCount, lo + 1u);

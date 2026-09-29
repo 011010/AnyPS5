@@ -264,10 +264,7 @@ std::shared_ptr<StorageTexture> sampledStorageSource(const Context& context, con
 // `guestBytes` is the surface size when the caller described the surface already (0: described here).
 std::shared_ptr<Texture> cachedTexture(const Context& context, std::span<const std::uint32_t> words, const GuestTextureResource& resource, VkComponentMapping components, std::uint64_t guestBytes = 0) {
     CaptureTrace::Log("sampled-lookup address=%llx width=%u height=%u dcc=%llx", static_cast<unsigned long long>(resource.baseAddress), resource.width, resource.height, static_cast<unsigned long long>(resource.dccAddress));
-    // A depth surface's contents live in its GPU image; its guest memory is stale.
     if (auto depth = DepthSurfaceTexture(context, words, resource, components)) return depth;
-    // The recompiler reads such a T# through a float view (IsDepthBitsTexture), which only a depth
-    // surface provides.
     if (words.size() >= 4 && ShaderRecompiler::IsDepthBitsTexture(words[1], words[3])) {
         char text[160];
         std::snprintf(text, sizeof(text), "AGC graphics: 32-bit integer read of the depth-layout texture 0x%llx, which is no depth surface drawn with, is not implemented", static_cast<unsigned long long>(resource.baseAddress));
@@ -829,7 +826,6 @@ void ShaderResources::buildPrepare(std::span<const CompiledShader> shaders, cons
                         const bool written = element >= binding.bufferWritten.size() || binding.bufferWritten[element];
                         const bool atomic = element < binding.bufferAtomic.size() && binding.bufferAtomic[element];
                         const auto index = addGuestBuffer(std::span<const std::uint32_t>(binding.guestDescriptor).subspan(static_cast<std::size_t>(element) * 4, 4), target, indexAddress, indexBytes, written, atomic);
-                        // The element's byte offset in the shader data (RecompileResult::memoryOffsetDword).
                         const auto& push = shader.program->pushConstants;
                         if (!push.empty()) {
                             const auto position = shader.program->memoryOffsetDword * 4u + element;
@@ -2029,7 +2025,6 @@ std::size_t ShaderResources::addGuestBuffer(std::span<const std::uint32_t> words
     const auto address = descriptor.Base48();
     const auto byteSize = descriptor.GetSize();
     if (byteSize == 0 || address == 0) {
-        // A null V#: every access is out of bounds in the shader (BufferResource::empty).
         allocations.push_back({0, EmptyBufferBytes, false, nullptr, ShaderRecompiler::DescriptorRole::GuestBuffers, false});
         return allocations.size() - 1;
     }

@@ -196,7 +196,6 @@ std::uint32_t ExportRawComponent(SpirvValueEmitContext& ctx, std::uint32_t vecto
 std::uint32_t ExportVector(SpirvValueEmitContext& ctx, std::uint32_t data, const ExportInfo& exp, bool uintOutput) {
     auto& state = ctx.state;
     if (exp.compr && !uintOutput) {
-        // SPI_SHADER_COL_FORMAT: 5 UNORM16_ABGR, 6 SNORM16_ABGR, otherwise FP16_ABGR.
         const auto mode = MrtOutputMode(state, exp);
         const auto unpack = mode == 5u ? GLSLstd450UnpackUnorm2x16 : mode == 6u ? GLSLstd450UnpackSnorm2x16 : GLSLstd450UnpackHalf2x16;
         std::array<std::uint32_t, 4> f32 {ConstantF32(state, 0u), ConstantF32(state, 0u), ConstantF32(state, 0u), ConstantF32(state, 0x3f800000u)};
@@ -226,7 +225,6 @@ std::uint32_t ExportVector(SpirvValueEmitContext& ctx, std::uint32_t data, const
         ConstantU32(state, 0u),
         ConstantU32(state, uintOutput ? 1u : 0x3f800000u),
     };
-    // SPI_SHADER_COL_FORMAT 32_R, 32_GR and 32_AR export only those components; the rest read as 0, alpha 1.
     const auto mode = MrtOutputMode(state, exp);
     const auto exported = exp.en & (mode == 1u ? 0x1u : mode == 2u ? 0x3u : mode == 3u ? 0x9u : 0xfu);
     if (exp.compr) {

@@ -80,7 +80,6 @@ bool Replay(const char* path) {
         const auto result = ShaderRecompiler::Recompile(request.request);
         std::printf("  recompiled: %zu SPIR-V words\n", result.spirv.size());
         if (g_spirv) {
-            // For spirv-val: <request>.spv in the working directory.
             std::string name(path);
             name = name.substr(name.find_last_of("/\\") + 1) + ".spv";
             std::ofstream(name, std::ios::binary).write(reinterpret_cast<const char*>(result.spirv.data()), static_cast<std::streamsize>(result.spirv.size() * sizeof(result.spirv[0])));

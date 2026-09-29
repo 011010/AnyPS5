@@ -43,9 +43,6 @@ struct ShaderComputeStageInfo {
     std::array<bool, 3> groupIdEnable;
     bool tgSizeEnable;
     std::uint32_t threadIdComponentCount;
-    // A dispatch sized in threads (USE_THREAD_DIMENSIONS) that is no whole number of workgroups:
-    // its size per axis, the last workgroup partial; zero otherwise. Variants key on whether it
-    // is set only; the size reaches the shader as shader data.
     std::array<std::uint32_t, 3> partialThreads;
 
     [[nodiscard]] bool PartialGroups() const {
@@ -327,9 +324,6 @@ struct RecompileResult {
     SharedSpirv spirv;
     std::vector<DescriptorBinding> bindings;
     std::vector<std::byte> pushConstants;
-    // The shader data dword of the guest buffers' byte offsets, one byte per GuestBuffers element
-    // (four per dword), zero as populated: a driver binding an element below its view (the storage
-    // buffer offset alignment) stores the difference there, the shader adds it to every access.
     std::uint32_t memoryOffsetDword = 0;
     std::uint32_t bdaAbiVersion = 0;
     std::vector<VertexAttribute> vertexAttributes;

@@ -47,9 +47,6 @@ static int NativeFlock(int descriptor, int operation) {
     if (operation & 4) flags |= LOCKFILE_FAIL_IMMEDIATELY;
     return ::LockFileEx(handle, flags, 0, MAXDWORD, MAXDWORD, &overlapped) ? 0 : -1;
 }
-// Positioned I/O through OVERLAPPED is atomic, unlike seek + read, which races when streaming threads share a
-// descriptor. ponytail: on a synchronous handle it still moves the file pointer to offset + n, which POSIX pread
-// does not; a mixed read()/pread() user on one descriptor would notice.
 static std::int64_t NativePositioned(int descriptor, void* buf, std::size_t nbytes, std::int64_t offset, bool write) {
     if (nbytes > static_cast<std::size_t>(std::numeric_limits<DWORD>::max())) {
         throw std::runtime_error("NativePositioned: nbytes exceeds platform limit");

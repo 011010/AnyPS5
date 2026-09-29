@@ -48,7 +48,6 @@ struct ImageSampleLayout {
     std::uint32_t bias = NoImageComponent;
     std::uint32_t coord = 0;
     std::uint32_t lod = NoImageComponent;
-    // The _cl minimum level, after the coordinates.
     std::uint32_t clamp = NoImageComponent;
     std::uint32_t gradX = NoImageComponent;
     std::uint32_t gradY = NoImageComponent;
@@ -67,7 +66,6 @@ struct MemoryResourceAccess {
     std::uint32_t indexOffset = 0;
     std::uint32_t byteOffset = 0;
     bool addIndexOffset = false;
-    // Memory operands of the loads and stores: Volatile for a coherent access (MemoryInfo::coherent).
     std::uint32_t memoryAccess = 0;
 };
 
@@ -101,8 +99,6 @@ struct SpirvEmitterState {
     // The lookup without fault recording that wide reads try first (see EmitBdaDwordReads); 0 when
     // every read takes the byte path.
     std::uint32_t bdaProbeFunction = 0;
-    // The lookup requiring Write and the written-page note of stores through the table (0 unless
-    // ShaderInfo::bdaWrites).
     std::uint32_t bdaWritePointerFunction = 0;
     std::uint32_t bdaNoteWriteFunction = 0;
     // False for programs with workgroup barriers: faulting BDA accesses then continue (see BdaInvocationsMayStop).

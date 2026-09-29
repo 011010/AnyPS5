@@ -291,8 +291,6 @@ ThickLayout ComputeThickLayout(TextureTileMode tileMode, std::uint32_t format, s
 SurfaceGeometry DescribeSurface(const GuestTextureResource& descriptor) {
     SurfaceGeometry geometry;
     if (descriptor.dimension == TextureDimension::k3D && (descriptor.tileMode == TextureTileMode::kD64KBX || descriptor.tileMode == TextureTileMode::kR64KBX)) {
-        // addrlib keeps display and rotated swizzles thin for 3D (only Z and standard ones are thick):
-        // each depth slice is laid out as an array slice, its index XORed in through the equation.
         Require(descriptor.mipCount == 1, "mipmapped 3D textures are not implemented");
         const auto depth = descriptor.depthOrLastArray + 1u;
         geometry.mips = ComputeMipLayout(descriptor.tileMode, descriptor.format, descriptor.width, descriptor.height, 1u);

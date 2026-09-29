@@ -42,7 +42,6 @@ std::uint32_t GuestFormatFor(VkFormat format, std::uint32_t elementBytes) {
 // The color buffer as a single-mip 2D surface descriptor (tile mode SW_64KB_R_X).
 GuestTextureResource SurfaceForTarget(const ColorTarget& color) {
     Require(color.tileMode == ColorTileMode::RenderTarget, "only 64 KiB tiled color targets are resident");
-    // A mipmapped target is its whole chain; the attachment view picks the mip.
     const bool chain = color.mipCount > 1;
     GuestTextureResource surface{};
     surface.baseAddress = chain ? color.surfaceAddress : color.address;
@@ -503,7 +502,6 @@ void CheckBufferAliases(std::span<const CompiledShader> shaders, const ColorTarg
                 const ShaderRecompiler::ShaderBufferResource descriptor{{words[offset], words[offset + 1], words[offset + 2], words[offset + 3]}};
                 const auto address = descriptor.Base48();
                 const auto size = descriptor.GetSize();
-                // A null V# binds nothing (ShaderResources::addGuestBuffer).
                 if (size == 0 || address == 0) continue;
                 Require(!overlap(address, size, target.address, target.bytes), "shader buffer aliases the render target");
                 Require(!overlap(address, size, indexAddress, indexBytes), "writable shader buffer aliases the index buffer");
@@ -1140,8 +1138,6 @@ void recordDraw(const Context& context, const State& state, const Pm4::DrawParam
     if (continued) {
         record.pipeline->Continue(commands, state.viewport, state.scissor);
     } else {
-        // Depth surfaces stay in the general layout too; an earlier pass's depth writes (the recorder's
-        // trailing barrier after a pass does not name them) are made visible here.
         const VkMemoryBarrier before{VK_STRUCTURE_TYPE_MEMORY_BARRIER, nullptr, VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT};
         context.Resolved(&DeviceFunctions::cmdPipelineBarrier, "vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | inputs.shaderStages, 0, 1, &before, 0, nullptr, 0, nullptr);
         countBarrier(1);
@@ -1331,7 +1327,6 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         binding.target = std::make_unique<RenderTarget>(context, color, state.blends[index].blendEnable != 0);
         targetViews.push_back(binding.target->View());
     }
-    // The depth surface is the last attachment (Pipeline::AcquireFramebuffer).
     if (state.depth) targetViews.push_back(DepthSurfaceView(context, *state.depth));
     timer.phase(PhasePrepare);
     const bool recordDraws = RecordDraws();
@@ -1477,7 +1472,6 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         // only a template the resource cache serves under this content key (reusable: no lease,
         // no copied writes, every direct region import- or mirror-served) of a direct draw, so a
         // hit's proof is the template's ProveCurrent and nothing needs completion work.
-        // ponytail: none for depth draws (the recipe replays color targets only); add the depth view when they need the hit path.
         if (recipeOut != nullptr && DrawRecipes() && cacheable && !outcome.waited && args == nullptr && resources->Reusable() && !state.depth) {
             auto recipe = std::make_shared<DrawRecipe>();
             recipe->device = context.device;

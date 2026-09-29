@@ -33,7 +33,6 @@ ColorTargetLayout::ColorTargetLayout(std::uint32_t width, std::uint32_t height, 
     std::uint32_t paddedHeight = height;
     switch (mode) {
         case ColorTileMode::Linear: {
-            // Rows are padded to 256 bytes, addrlib's linear pitch alignment (linear textures use the same).
             const auto pitchAlignment = 256u / bytesPerElement;
             pitch = (width + pitchAlignment - 1u) / pitchAlignment * pitchAlignment;
             break;

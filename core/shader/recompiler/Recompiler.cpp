@@ -97,7 +97,6 @@ IrProgram PrepareResourceProgram(const RecompileRequest& request) {
 
     TranslateOptions translateOptions {};
     translateOptions.stage = stageKind;
-    // For diagnostics: where the code ran when its plan was built (programs share plans by code).
     translateOptions.shaderHash = request.shader.codeAddress;
     translateOptions.waveSize = request.context.waveSize;
     translateOptions.userDataBaseRegister = request.context.userDataBaseRegister;

@@ -9,8 +9,6 @@
 
 namespace {
 
-// The host keyboard drives the virtual pad (docs/INPUT_MAPPING.md), so no USB keyboard is attached:
-// opening the keyboard succeeds, as on a console with none plugged in, and it never reports events.
 std::mutex g_keyboardMutex;
 std::set<int32_t> g_openKeyboards;
 
@@ -99,7 +97,6 @@ int APS5_VABI sceImeSetTextGeometry(TextAreaMode mode, const TextGeometry* geome
 
 int APS5_VABI sceImeUpdate(EventHandler handler) {
  if (!handler) APS5_INVALID_ARG_EX;
- // Only keyboard events could be pending (sceImeOpen is not implemented), and none are generated.
  return 0;
 }
 

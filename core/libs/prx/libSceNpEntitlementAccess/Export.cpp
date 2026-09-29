@@ -14,7 +14,6 @@
 #include <windows.h>
 #endif
 
-// The base game is the full SKU; the add-ons the account owns come from anyps5-entitlements.ini (below).
 static constexpr int SCE_NP_ENTITLEMENT_ACCESS_ERROR_PARAMETER = static_cast<int>(0x80558003);
 static constexpr int SCE_NP_ENTITLEMENT_ACCESS_ERROR_NOT_FOUND = static_cast<int>(0x80558007);
 static constexpr uint32_t SKU_FLAG_FULL = 3;
@@ -33,10 +32,6 @@ std::filesystem::path EntitlementsPath() {
 #endif
 }
 
-// The add-on entitlements the account owns: one unified entitlement label per line of
-// anyps5-entitlements.ini next to the executable (ANYPS5_ENTITLEMENTS names another file), '#' and ';'
-// starting comments. Without the file the account owns no add-on. They are reported as installed
-// license-only add-ons (package type 3, download status 4), as Kyty reports them.
 const std::vector<NpEntitlementAccessAddcontEntitlementInfo>& OwnedAddons() {
     static const auto owned = [] {
         std::vector<NpEntitlementAccessAddcontEntitlementInfo> addons;

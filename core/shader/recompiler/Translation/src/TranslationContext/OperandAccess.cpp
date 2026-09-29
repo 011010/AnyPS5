@@ -36,7 +36,6 @@ RdnaOperand TranslationContext::destinationOperand(const RdnaInstruction& inst) 
     return destination;
 }
 
-// The destination read as a mac accumulator: its own value, which the instruction's DPP does not move.
 RdnaOperand TranslationContext::accumulatorOperand(const RdnaInstruction& inst) {
     RdnaOperand accumulator = inst.destination;
     accumulator.dpp = false;

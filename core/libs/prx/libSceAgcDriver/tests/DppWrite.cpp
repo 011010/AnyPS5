@@ -1,5 +1,3 @@
-// A DPP instruction's row and bank masks gate its VGPR write, not only its source read: the rows a
-// mask leaves out keep their value (a scan adding the other row's total into the odd rows only).
 #include "ControlFlow/GraphBuilder.hpp"
 #include "ControlFlow/Structurizer.hpp"
 #include "RdnaDecoder/RdnaInstructionDecoder.hpp"
@@ -12,7 +10,6 @@
 using namespace ShaderRecompiler;
 
 int main() {
-    // v_add_nc_u32_dpp v1, v0, v1 quad_perm:[0,1,2,3] row_mask:0xa bank_mask:0xf; s_endpgm
     const std::vector<std::uint32_t> code{0x4a0202fau, 0xaf00e400u, 0xbf810000u};
     try {
         const auto decoded = RdnaInstructionDecoder{}.Decode(code);

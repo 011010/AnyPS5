@@ -219,17 +219,12 @@ void Trace(const char* format, ...) {
     va_end(args);
 }
 
-// Direct memory keeps its contents across mappings: titles unmap physical pages and map them again at
-// another address (titles move their pools that way) and read back what they wrote through the old one.
-// The contents move by copying at unmap and map; a shared section with views (as in Kyty) would alias
-// them for real but loses the write watching of the guest arena.
 struct DirectMapping {
     std::uintptr_t end;
     std::uint64_t phys;
 };
 std::mutex g_directLock;
 std::map<std::uintptr_t, DirectMapping> g_directMappings;
-// Contents of unmapped direct memory by physical page; all-zero pages are left out.
 std::map<std::uint64_t, std::unique_ptr<unsigned char[]>> g_physPages;
 
 void ProtectOrThrow(std::uintptr_t address, std::size_t len, int nativeProt) {
@@ -248,13 +243,8 @@ void SaveContents(std::uintptr_t address, std::size_t len, std::uint64_t phys) {
     }
 }
 
-// A physical page mapped at more than one address has the same contents in every view, and every
-// view lacks write access while it is shared (g_shared).
-// ponytail: a write to a shared page faults; handing the page to the writing view on the fault, with
-// the GPU driver's imports of the other views, is the upgrade if a title writes through an alias.
 std::set<std::uintptr_t> g_shared;
 
-// The views of physPage in g_directMappings.
 std::vector<std::uintptr_t> Views(std::uint64_t physPage) {
     std::vector<std::uintptr_t> views;
     for (const auto& [base, mapping] : g_directMappings) {
@@ -273,9 +263,6 @@ int SharedProtection(int nativeProt) {
     return nativeProt & ~PROT_WRITE;
 }
 
-// Takes the shared page out of its sharing; the views left keep sharing it, or the last one gets its
-// own protection back. The views must still hold the same bytes: a write that reached one of them
-// (the GPU writes through its imports of guest memory) would have been lost to the others.
 void Unshare(std::uintptr_t page, std::uint64_t physPage) {
     const auto others = Views(physPage);
     if (others.empty()) throw std::runtime_error("shared direct memory page has no other view");
@@ -293,7 +280,6 @@ void Unshare(std::uintptr_t page, std::uint64_t physPage) {
     ProtectOrThrow(others.front(), PS5_PAGE_SIZE, last ? prot : SharedProtection(prot));
 }
 
-// Takes [start, end) out of the direct mappings; with save its bytes stay as the contents of its pages.
 void EraseMappings(std::uintptr_t start, std::uintptr_t end, bool save) {
     auto it = g_directMappings.lower_bound(start);
     if (it != g_directMappings.begin() && std::prev(it)->second.end > start) --it;
@@ -317,7 +303,6 @@ void EraseMappings(std::uintptr_t start, std::uintptr_t end, bool save) {
     }
 }
 
-// Records a fresh mapping of phys at address (zero-filled, already protected nativeProt) and brings its contents back.
 void AddMapping(std::uintptr_t address, std::size_t len, std::uint64_t phys, int nativeProt) {
     std::vector<std::pair<std::size_t, std::uintptr_t>> shared;
     for (const auto& [base, mapping] : g_directMappings) {
@@ -355,7 +340,6 @@ bool RemapFixedIntoRegistered(GuestAllocations::Mutation& mutation, void* addr, 
         const auto address = reinterpret_cast<std::uintptr_t>(addr);
         std::lock_guard lock(g_directLock);
         EraseMappings(address, address + len, true);
-        // The range shows the physical pages' contents now, not what was mapped there before.
 #ifdef _WIN32
         if (physStart >= 0 && !VirtualFree(addr, len, MEM_DECOMMIT)) throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "VirtualFree decommit failed");
         if (!VirtualAlloc(addr, len, MEM_COMMIT, WinProtFromPosix(nativeProtection))) throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "VirtualAlloc commit failed");
@@ -443,8 +427,6 @@ void* MapAligned(void* addr, size_t len, int prot, int flags, size_t alignment) 
     return aligned;
 }
 
-// SCE protections as the title set them: the host page protection keeps only the CPU bits, but titles
-// read the GPU and AMPR bits back (a streamer reads straight into memory the APR may write).
 struct ProtectedRange {
     std::uintptr_t end;
     int prot;

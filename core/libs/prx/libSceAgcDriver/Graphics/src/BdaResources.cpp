@@ -255,9 +255,6 @@ void BdaResources::CheckFault() const {
     std::ostringstream message;
     message << "BDA access failed: address=0x" << std::hex << report.address << " instruction=0x" << report.instruction << std::dec << " bytes=" << report.bytes << " stage=" << report.stage << " reason=" << static_cast<std::uint32_t>(report.reason);
     if (report.reason == ShaderRecompiler::BdaAbi::FaultReason::Permission && table != nullptr) {
-        // Only a writable range imported in place is writable through the table (see
-        // GuestBufferMemory::addressRange): a store into a range served by a mirror or a copy would
-        // not reach guest memory, so it faults. Name the range and how it is served.
         const auto bytes = table->Bytes();
         ShaderRecompiler::BdaAbi::Header header{};
         std::memcpy(&header, bytes.data(), sizeof(header));
@@ -276,10 +273,6 @@ void BdaResources::CheckFault() const {
 
 namespace AgcDriver::Graphics {
 
-// ponytail: the pages are marked once the work completed, so a CPU read of them before that (a
-// capture or texture upload of later work in the same batch) is not made to wait for the stores,
-// as descriptor-bound writes are (Recorder::NotePendingWrites); note the V#s' ranges at record
-// time if that shows up.
 void BdaResources::markWrittenPages() const {
     namespace Abi = ShaderRecompiler::BdaAbi;
     auto* words = reinterpret_cast<std::uint32_t*>(fault->Bytes().data());
