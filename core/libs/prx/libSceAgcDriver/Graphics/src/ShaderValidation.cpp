@@ -349,7 +349,9 @@ Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysi
     if (mesh) {
         Require(state.stages.mesh.has_value(), "mesh configuration is missing");
         const auto& config = *state.stages.mesh;
-        mode(spv::ExecutionModeLocalSize, {config.threadsPerGroup, 1, 1});
+        const auto local = module.modes.find(spv::ExecutionModeLocalSize);
+        const bool paired = state.stages.vertexWaveSize == 64u && subgroup.subgroupSize == 32u && local != module.modes.end() && local->second == std::vector<std::uint32_t>{config.threadsPerGroup / 2u, 1, 1};
+        mode(spv::ExecutionModeLocalSize, {paired ? config.threadsPerGroup / 2u : config.threadsPerGroup, 1, 1});
         mode(spv::ExecutionModeOutputVertices, {config.maxVertices});
         mode(spv::ExecutionModeOutputPrimitivesEXT, {config.maxPrimitives});
         mode(spv::ExecutionModeOutputTrianglesEXT, {});
