@@ -134,21 +134,12 @@ int APS5_VABI sceKernelAvailableDirectMemorySize(int64_t search_start, int64_t s
 }
 
 int APS5_VABI sceKernelDirectMemoryQuery(int64_t offset, int flags, void* info, size_t info_size) {
- (void)flags;
+ constexpr int SCE_KERNEL_DMQ_FIND_NEXT = 1;
  if (!info || offset < 0) return SCE_KERNEL_ERROR_EINVAL;
  struct DirectMemoryQueryInfo { int64_t start; int64_t end; int memory_type; };
  if (info_size < sizeof(DirectMemoryQueryInfo)) return SCE_KERNEL_ERROR_EINVAL;
  auto* q = static_cast<DirectMemoryQueryInfo*>(info);
- DirectMemoryBlock block{};
- if (DirectMemoryQueryBlock(static_cast<uint64_t>(offset), &block)) {
-  q->start = static_cast<int64_t>(block.start);
-  q->end = static_cast<int64_t>(block.end);
-  q->memory_type = block.memoryType;
- } else {
-  q->start = offset & ~static_cast<int64_t>(PS5_PAGE_SIZE - 1);
-  q->end = q->start + PS5_PAGE_SIZE;
-  q->memory_type = -1;
- }
+ if (!DirectMemoryFind(offset, (flags & SCE_KERNEL_DMQ_FIND_NEXT) != 0, &q->start, &q->end, &q->memory_type)) return SCE_KERNEL_ERROR_EACCES;
  return 0;
 }
 
@@ -225,6 +216,8 @@ int APS5_VABI sceKernelVirtualQuery(const void* addr, int flags, VirtualQueryInf
   info->start = best->allocationAddress;
   info->end = best->allocationAddress + best->allocationBytes;
   info->protection = (best->readable ? 1 : 0) | (best->writable ? 2 : 0) | (!best->releasable ? 4 : 0);
+  int recorded = 0;
+  if (GuestProtection(std::max<uintptr_t>(address, info->start), &recorded)) info->protection = recorded;
   info->is_direct = best->releasable ? 1u : 0u;
   info->is_committed = 1;
   ApplyRangeName(std::max<uintptr_t>(address, info->start), info);
@@ -286,12 +279,14 @@ int APS5_VABI sceKernelMtypeprotect(const void* addr, size_t len, int type, int 
  return 0;
 }
 
+// The mapping that contains addr, as sceKernelVirtualQuery reports it without FIND_NEXT.
 int APS5_VABI sceKernelQueryMemoryProtection(void* addr, void** start, void** end, int* prot) {
- (void)addr;
- (void)start;
- (void)end;
- (void)prot;
- NotImplemented_nid_no_patch(__func__);
+ VirtualQueryInfo info{};
+ const int result = sceKernelVirtualQuery(addr, 0, &info, sizeof(info));
+ if (result != 0) return result;
+ if (start) *start = reinterpret_cast<void*>(info.start);
+ if (end) *end = reinterpret_cast<void*>(info.end);
+ if (prot) *prot = info.protection;
  return 0;
 }
 
