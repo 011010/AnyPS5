@@ -1273,6 +1273,8 @@ int main() {
         mock = MockVulkan{};
         auto bdaContext = mockContext();
         bdaContext.bufferDeviceAddress = true;
+        // The fault buffer (with its written-page slots) is larger than the mock's 4 KiB default.
+        bdaContext.limits.maxStorageBufferRange = 1u << 27;
         RunBdaResourceTests(bdaContext, {
             [](VkBuffer buffer) -> std::span<std::byte> { return mock.memories.at(mock.bufferMemory.at(buffer)); },
             [](std::uint32_t binding) {
@@ -1280,6 +1282,12 @@ int main() {
                     if (it->binding == binding) return it->buffers.at(0);
                 }
                 throw std::runtime_error("missing BDA test descriptor");
+            },
+            [](VkDeviceAddress address) {
+                // The inverse of mockGetBufferDeviceAddress.
+                const auto offset = address - 0x100000000000ULL;
+                const auto buffer = reinterpret_cast<VkBuffer>(offset / 0x10000);
+                return std::span<std::byte>(mock.memories.at(mock.bufferMemory.at(buffer))).subspan(offset % 0x10000);
             }
         });
         Require(mock.live == 0, "BDA resources leaked Vulkan objects");

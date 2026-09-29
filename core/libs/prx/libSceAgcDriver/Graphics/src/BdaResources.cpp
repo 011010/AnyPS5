@@ -254,6 +254,21 @@ void BdaResources::CheckFault() const {
     }
     std::ostringstream message;
     message << "BDA access failed: address=0x" << std::hex << report.address << " instruction=0x" << report.instruction << std::dec << " bytes=" << report.bytes << " stage=" << report.stage << " reason=" << static_cast<std::uint32_t>(report.reason);
+    if (report.reason == ShaderRecompiler::BdaAbi::FaultReason::Permission && table != nullptr) {
+        // Only a writable range imported in place is writable through the table (see
+        // GuestBufferMemory::addressRange): a store into a range served by a mirror or a copy would
+        // not reach guest memory, so it faults. Name the range and how it is served.
+        const auto bytes = table->Bytes();
+        ShaderRecompiler::BdaAbi::Header header{};
+        std::memcpy(&header, bytes.data(), sizeof(header));
+        for (std::uint32_t index = 0; index < header.count; ++index) {
+            ShaderRecompiler::BdaAbi::Range range{};
+            std::memcpy(&range, bytes.data() + sizeof(header) + index * sizeof(range), sizeof(range));
+            if (report.address < range.begin || report.address >= range.end) continue;
+            message << std::hex << "; the store hit 0x" << range.begin << "+0x" << range.end - range.begin << ", read-only in the BDA table: stores through GPU-selected descriptors reach only writable ranges imported in place, not ones served by a mirror or a copy (past APS5_HOST_IMPORT_MIB, or refused by the driver)";
+            break;
+        }
+    }
     throw std::runtime_error(message.str());
 }
 
