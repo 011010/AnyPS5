@@ -13,10 +13,12 @@ add_executable(nid_patcher
         ${CMAKE_CURRENT_SOURCE_DIR}/nid/src/BinaryPatcherFactory.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/nid/src/main.cpp
 )
+
 target_include_directories(nid_patcher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/nid/include)
 target_compile_features(nid_patcher PRIVATE cxx_std_20)
 
 if(MINGW)
+    target_link_options(nid_patcher PRIVATE -static -static-libgcc -static-libstdc++)
     add_compile_options(-fno-asynchronous-unwind-tables)
 endif()
 
@@ -105,6 +107,17 @@ foreach(LIB_DIR ${LIBS_DIRS})
         list(APPEND PATCHED_OUTPUTS ${PATCHED_FILE})
     endif()
 endforeach()
+
+set(LIBCOHTML_PATCHED ${PATCHED_DIR}/libcohtml.prx)
+set(LIBCOHTML_PROSPERO_PATCHED ${PATCHED_DIR}/libcohtml.Prospero.prx)
+add_custom_command(
+        OUTPUT ${LIBCOHTML_PROSPERO_PATCHED}
+        COMMAND ${CMAKE_COMMAND} -E copy "${LIBCOHTML_PATCHED}" "${LIBCOHTML_PROSPERO_PATCHED}"
+        DEPENDS ${LIBCOHTML_PATCHED}
+        VERBATIM
+)
+add_custom_target(libcohtml_prospero DEPENDS ${LIBCOHTML_PROSPERO_PATCHED})
+list(APPEND PATCHED_OUTPUTS ${LIBCOHTML_PROSPERO_PATCHED})
 
 add_custom_target(libs DEPENDS ${PATCHED_OUTPUTS})
 
@@ -385,9 +398,17 @@ if(BUILD_TESTING)
         set_tests_properties(guest_rtc PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceRtc>")
     endif()
+    add_executable(guest_font_tests tests/GuestFont.cpp)
+    target_include_directories(guest_font_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(guest_font_tests PRIVATE libSceFont libSceFontFt libc)
+    add_test(NAME guest_font COMMAND guest_font_tests)
+    if(WIN32)
+        set_tests_properties(guest_font PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceFont>")
+    endif()
     add_executable(guest_json_tests tests/GuestJson.cpp)
     target_include_directories(guest_json_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(guest_json_tests PRIVATE libSceJson2)
+    target_link_libraries(guest_json_tests PRIVATE libSceJson2 libc)
     add_test(NAME guest_json COMMAND guest_json_tests)
     if(WIN32)
         set_tests_properties(guest_json PROPERTIES ENVIRONMENT_MODIFICATION
@@ -395,7 +416,7 @@ if(BUILD_TESTING)
     endif()
     add_executable(fiber_tests tests/Fiber.cpp)
     target_include_directories(fiber_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(fiber_tests PRIVATE libSceFiber)
+    target_link_libraries(fiber_tests PRIVATE libSceFiber libc)
     add_test(NAME fiber COMMAND fiber_tests)
     if(WIN32)
         set_tests_properties(fiber PROPERTIES ENVIRONMENT_MODIFICATION

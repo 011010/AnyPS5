@@ -30,6 +30,7 @@ bool IsScalarAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::SLshlB32:
         case RdnaOpcode::SLshrB32:
         case RdnaOpcode::SAshrI32:
+        case RdnaOpcode::SAshrI64:
         case RdnaOpcode::SBfeU32:
         case RdnaOpcode::SBfeI32:
         case RdnaOpcode::SCmpEqI32:
@@ -41,6 +42,7 @@ bool IsScalarAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::SAbsI32:
         case RdnaOpcode::SAbsdiffI32:
         case RdnaOpcode::SBrevB32:
+        case RdnaOpcode::SBrevB64:
         case RdnaOpcode::SSextI32I8:
         case RdnaOpcode::SSextI32I16:
         case RdnaOpcode::SBcnt0I32B32:
@@ -257,6 +259,7 @@ bool IsVectorAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VAdd3U32:
         case RdnaOpcode::VLshlAddU32:
         case RdnaOpcode::VAddLshlU32:
+        case RdnaOpcode::VPermB32:
         case RdnaOpcode::VXadU32:
         case RdnaOpcode::VLshlOrB32:
         case RdnaOpcode::VAndOrB32:
