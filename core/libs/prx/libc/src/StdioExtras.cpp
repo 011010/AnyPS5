@@ -1,4 +1,3 @@
-#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -51,26 +50,6 @@ int APS5_VABI sprintf_s_nid_postfix(char* buffer, size_t size, const char* forma
     std::abort();
 }
 
-struct GuestLconv {
-    const char* monetary[7];
-    char monetaryFlags[14];
-    const char* decimalPoint;
-    const char* numeric[4];
-    const char* falseName;
-    const char* trueName;
-    const char* no;
-    const char* yes;
-};
-static_assert(sizeof(GuestLconv) == 0x90);
-
-const GuestLconv* APS5_VABI localeconv_nid_postfix() {
-    static const GuestLconv lconv{
-        {"", "", "", "", "", "", ""},
-        {CHAR_MAX, CHAR_MAX, CHAR_MAX, CHAR_MAX, CHAR_MAX, CHAR_MAX, CHAR_MAX, CHAR_MAX, CHAR_MAX, CHAR_MAX, CHAR_MAX, CHAR_MAX, CHAR_MAX, CHAR_MAX},
-        ".", {"", "", "", ""}, "false", "true", "", ""};
-    return &lconv;
-}
-
 // Only the "C" locale exists.
 const char* APS5_VABI setlocale_nid_postfix(int category, const char* locale) {
     (void)category;
@@ -120,10 +99,6 @@ void APS5_VABI _ZdlPvm_nid_postfix(void* pointer, std::size_t) {
 
 void APS5_VABI _ZdaPvm_nid_postfix(void* pointer, std::size_t) {
     if (pointer != nullptr) ApplicationHeapFree_nid_no_patch(pointer);
-}
-
-void* APS5_VABI _ZnwmSt11align_val_t_nid_postfix(std::size_t size, std::size_t alignment) {
-    return GuestHeap::GuestHeapAlign_nid_postfix(alignment, size);
 }
 
 void APS5_VABI _ZdlPvSt11align_val_t_nid_postfix(void* pointer, std::size_t alignment) {
