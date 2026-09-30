@@ -4,7 +4,6 @@
 #include "prx/libSceAgcDriver/Graphics/include/Resources.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Texture.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
-#include "prx/libc/include/GuestArena.hpp"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -15,7 +14,6 @@
 #include <map>
 #include <mutex>
 #include <stdexcept>
-#include <utility>
 
 namespace AgcDriver::Graphics {
 
@@ -314,7 +312,7 @@ std::size_t publishUnits(const std::shared_ptr<UnitShadow>& shadow, std::uint64_
         for (auto unit = first; unit <= last; ++unit) {
             const auto k = static_cast<std::size_t>(unit - first);
             if (!selected[k] || !shadow->Live(unit)) continue;
-            if (changed[k] != 0) {
+            if (changed[k] == GuestMemory::BlockWritten) {
                 // Newer bytes reached the import since the retile: the slab's are dead.
                 shadow->generation[unit] = 0;
                 (cpu[k] != 0 ? Stats().staleDroppedCpu : Stats().staleDroppedDriver).fetch_add(1, std::memory_order_relaxed);
@@ -418,7 +416,7 @@ bool evictOne(Shadows& registry) {
 }
 
 bool UnitShadowEnabled() {
-    static const bool enabled = std::getenv("APS5_NO_UNIT_SHADOW") == nullptr && GuestArena::GuestArenaWriteWatched_nid_postfix();
+    static const bool enabled = std::getenv("APS5_NO_UNIT_SHADOW") == nullptr && GuestMemory::WriteWatched();
     return enabled;
 }
 
@@ -519,13 +517,7 @@ VkDeviceSize SlabOffset(const HostImport& import, const ShadowSlab& slab, std::u
 
 std::optional<ShadowDestination> ShadowDestinationFor(const Context& context, const HostImport& import, std::uint64_t begin, std::uint64_t end) {
     if (!UnitShadowEnabled() || end <= begin || begin < import.base || end > import.base + import.bytes) return std::nullopt;
-    static const auto arena = [] {
-        std::uintptr_t base = 0;
-        std::size_t size = 0;
-        GuestArena::GuestArenaRange_nid_postfix(&base, &size);
-        return std::pair<std::uint64_t, std::uint64_t>{base, size};
-    }();
-    if (arena.second == 0 || begin < arena.first || end > arena.first + arena.second) return std::nullopt;
+    if (!GuestMemory::Watched(begin, static_cast<std::size_t>(end - begin))) return std::nullopt;
     auto& registry = Registry();
     std::shared_ptr<UnitShadow> shadow;
     std::size_t slabIndex = 0;
