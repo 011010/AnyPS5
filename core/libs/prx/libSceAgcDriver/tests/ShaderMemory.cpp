@@ -218,8 +218,14 @@ void verifyBindlessTable() {
         return request;
     };
     const auto covered = [](const std::vector<MemoryRegion>& regions, const void* pointer, std::size_t bytes) {
-        const auto address = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(pointer));
-        return std::any_of(regions.begin(), regions.end(), [&](const MemoryRegion& region) { return address >= region.guestAddress && address + bytes <= region.guestAddress + region.bytes.size(); });
+        auto address = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(pointer));
+        const auto end = address + bytes;
+        while (address < end) {
+            const auto region = std::find_if(regions.begin(), regions.end(), [&](const MemoryRegion& candidate) { return address >= candidate.guestAddress && address < candidate.guestAddress + candidate.bytes.size(); });
+            if (region == regions.end()) return false;
+            address = region->guestAddress + region->bytes.size();
+        }
+        return true;
     };
     const auto mappingOf = [&](const ResourceSnapshot& snapshot) {
         require(snapshot.flattenedSrt.size() >= 1u + 2u * slots, "bindless: the mapping block is missing from the flattened SRT");
