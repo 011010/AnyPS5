@@ -13,6 +13,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <map>
+#include <set>
 #include <string_view>
 #include <type_traits>
 #include <vector>
@@ -864,6 +865,7 @@ struct ModuleShape {
     std::uint32_t perVertexLength = 3;
     bool parameterOutput = false;
     bool rectParameters = false;
+    bool secondTarget = false;
 };
 
 void emit(std::vector<std::uint32_t>& out, spv::Op op, std::initializer_list<std::uint32_t> operands) {
@@ -901,6 +903,12 @@ std::vector<std::uint32_t> makeModule(const ModuleShape& shape) {
         emit(declarations, spv::OpVariable, {outputPointer, parameter, spv::StorageClassOutput});
         emit(annotations, spv::OpDecorate, {parameter, spv::DecorationLocation, 0});
         extraInterface.push_back(parameter);
+    }
+    if (shape.secondTarget) {
+        const auto target = id();
+        emit(declarations, spv::OpVariable, {outputPointer, target, spv::StorageClassOutput});
+        emit(annotations, spv::OpDecorate, {target, spv::DecorationLocation, 1});
+        extraInterface.push_back(target);
     }
     if (shape.rectParameters) {
         const auto pointer = id();
@@ -1096,6 +1104,15 @@ void validationTests() {
         vertex.spirv = makeModule({.barycentric = true});
         pixel.spirv = makeModule({.fragment = true});
         expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, true); }, "requires a fragment shader");
+    }
+    {
+        ShaderRecompiler::RecompileResult vertex;
+        vertex.spirv = makeModule({});
+        ShaderRecompiler::RecompileResult pixel;
+        pixel.spirv = makeModule({.fragment = true, .secondTarget = true});
+        const std::array<AgcDriver::Graphics::CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &pixel, 0}}};
+        const VkPhysicalDeviceSubgroupProperties subgroup{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
+        Require(state.colors.empty() && AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, false) == std::set<std::uint32_t>{0u}, "an export past the attachments was not dropped");
     }
     {
         ShaderRecompiler::RecompileResult vertex;
