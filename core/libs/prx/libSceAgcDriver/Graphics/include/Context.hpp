@@ -129,6 +129,7 @@ struct Context {
     // VK_EXT_descriptor_indexing with non-uniform sampled/storage image array indexing enabled
     // (bindless image tables in graphics stages).
     bool descriptorIndexing = false;
+    bool primitiveListRestart = false;
 
     template<typename TFunction>
     TFunction Function(const char* name) const {
