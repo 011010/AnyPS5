@@ -279,25 +279,34 @@ const HostImport* importAllocation(const Context& context, HostImports& state, s
     HostImport entry{base, bytes, VK_NULL_HANDLE, VK_NULL_HANDLE, 0};
 #ifdef _WIN32
     // Drivers pin imported pages, so every page must be committed and accessible.
-    bool privateWritable = true;
-    bool mapped = false;
+    bool writable = true;
+    bool readOnly = true;
+    MEMORY_BASIC_INFORMATION refused{};
     for (std::uint64_t cursor = base; cursor < base + bytes;) {
         MEMORY_BASIC_INFORMATION info{};
         if (VirtualQuery(reinterpret_cast<const void*>(cursor), &info, sizeof(info)) == 0 || info.State != MEM_COMMIT || (info.Protect & (PAGE_NOACCESS | PAGE_GUARD)) != 0) {
             state.failed.insert(base);
             return nullptr;
         }
-        if (info.Type == MEM_MAPPED) mapped = true;
         const auto protection = info.Protect & 0xffu;
-        if (info.Type != MEM_PRIVATE || (protection != PAGE_READWRITE && protection != PAGE_EXECUTE_READWRITE)) privateWritable = false;
+        const bool pageWritable = (info.Type == MEM_PRIVATE || info.Type == MEM_IMAGE) && (protection == PAGE_READWRITE || protection == PAGE_EXECUTE_READWRITE || protection == PAGE_WRITECOPY || protection == PAGE_EXECUTE_WRITECOPY);
+        const bool pageReadOnly = info.Type != MEM_MAPPED && (protection == PAGE_READONLY || protection == PAGE_EXECUTE_READ);
+        if (!pageReadOnly) readOnly = false;
+        if (info.Type != MEM_MAPPED && !pageWritable && !pageReadOnly && refused.BaseAddress == nullptr) refused = info;
+        if (!pageWritable) writable = false;
         cursor = reinterpret_cast<std::uint64_t>(info.BaseAddress) + info.RegionSize;
     }
-    if (!privateWritable) {
-        entry.alias = mapped ? GuestArena::GuestArenaMapAlias_nid_postfix(static_cast<std::uintptr_t>(base), static_cast<std::size_t>(bytes)) : nullptr;
-        if (entry.alias == nullptr) {
-            state.failed.insert(base);
-            return nullptr;
+    if (!writable && readOnly) {
+        state.failed.insert(base);
+        return nullptr;
+    }
+    if (!writable) {
+        if (refused.BaseAddress != nullptr) {
+            char text[256];
+            std::snprintf(text, sizeof(text), "AGC graphics: host import of 0x%llx+0x%llx: memory at 0x%llx (type 0x%lx, protection 0x%lx) is neither read-write, read-only nor a shared mapping", static_cast<unsigned long long>(base), static_cast<unsigned long long>(bytes), reinterpret_cast<unsigned long long>(refused.BaseAddress), refused.Type, refused.Protect);
+            throw std::runtime_error(text);
         }
+        entry.alias = GuestArena::GuestArenaMapAlias_nid_postfix(static_cast<std::uintptr_t>(base), static_cast<std::size_t>(bytes));
     }
 #endif
     decideImportWatch(context, state);

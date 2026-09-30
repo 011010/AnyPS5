@@ -4,6 +4,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <algorithm>
+#include <cstdio>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
@@ -11,6 +12,7 @@
 #include <memory>
 #include <vector>
 #include <stdexcept>
+#include <string>
 #include <system_error>
 
 namespace GuestArena {
@@ -115,19 +117,30 @@ public:
 
     void* MapAlias(std::uintptr_t address, std::size_t bytes) {
         std::lock_guard lock(mutex);
-        if (address % pageBytes != 0 || bytes % pageBytes != 0 || bytes == 0) return nullptr;
+        const auto refuse = [&](const char* reason) {
+            char text[192];
+            std::snprintf(text, sizeof(text), "read-write alias of shared guest memory 0x%llx+0x%llx: %s", static_cast<unsigned long long>(address), static_cast<unsigned long long>(bytes), reason);
+            return std::runtime_error(text);
+        };
+        if (address % pageBytes != 0 || bytes % pageBytes != 0 || bytes == 0) throw refuse("the range is not made of whole shared pages");
         auto view = views.find(address);
-        if (view == views.end()) return nullptr;
+        if (view == views.end()) throw refuse("the range does not start at a shared view");
         const auto section = view->second.section;
         const auto offset = view->second.offset;
         SYSTEM_INFO system{};
         GetSystemInfo(&system);
-        if (offset % system.dwAllocationGranularity != 0) return nullptr;
+        if (offset % system.dwAllocationGranularity != 0) throw refuse("the section offset is not a multiple of the allocation granularity");
         for (std::size_t done = 0; done < bytes; done += pageBytes, ++view) {
-            if (view == views.end() || view->first != address + done || view->second.offset != offset + done) return nullptr;
-            if (view->second.section != section && !sameSection(view->second.section->handle, section->handle)) return nullptr;
+            if (view == views.end() || view->first != address + done || view->second.offset != offset + done) throw refuse("the range is not one contiguous run of views of a section");
+            if (view->second.section != section && !sameSection(view->second.section->handle, section->handle)) throw refuse("the range spans several sections");
         }
-        return map(section->handle, GetCurrentProcess(), nullptr, offset, bytes, 0, PAGE_READWRITE, nullptr, 0);
+        void* alias = map(section->handle, GetCurrentProcess(), nullptr, offset, bytes, 0, PAGE_READWRITE, nullptr, 0);
+        if (alias == nullptr) {
+            char text[160];
+            std::snprintf(text, sizeof(text), "MapViewOfFile3 of a read-write alias of shared guest memory 0x%llx+0x%llx", static_cast<unsigned long long>(address), static_cast<unsigned long long>(bytes));
+            throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), text);
+        }
+        return alias;
     }
 
     void UnmapAlias(void* alias) {
