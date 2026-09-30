@@ -53,7 +53,7 @@ std::optional<std::filesystem::path> ResolveAlias(const std::string& guestPath) 
 struct WorkingDirectory {
     std::mutex mutex;
     const std::filesystem::path root = std::filesystem::canonical(std::filesystem::current_path());
-    std::filesystem::path current = std::filesystem::is_directory(root / "app0") ? root / "app0" : root;
+    std::filesystem::path current = root;
 };
 WorkingDirectory& Directories() { static WorkingDirectory state; return state; }
 std::filesystem::path Resolve(WorkingDirectory& state, const char* path) {
