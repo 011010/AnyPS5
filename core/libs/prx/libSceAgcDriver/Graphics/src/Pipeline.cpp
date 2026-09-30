@@ -41,7 +41,7 @@ void ValidateViewport(const Context& context, const VkViewport& viewport) {
     Require(std::min(viewport.y, viewport.y + viewport.height) >= context.limits.viewportBoundsRange[0] && std::max(viewport.y, viewport.y + viewport.height) <= context.limits.viewportBoundsRange[1], "viewport Y exceeds device bounds");
 }
 
-Pipeline::Pipeline(const Context& context, const State& state, const VertexInputLayout& vertexInput, const ShaderResources& resources, std::span<const CompiledShader> shaders, VkImageLayout attachmentLayout) : context(context), _modules(shaders.size()), attachments(state.colors.size()) {
+Pipeline::Pipeline(const Context& context, const State& state, const VertexInputLayout& vertexInput, const ShaderResources& resources, std::span<const CompiledShader> shaders, VkImageLayout attachmentLayout) : context(context), _modules(shaders.size()), attachments(state.colors.size() + (state.depth ? 1u : 0u)), colorAttachments(state.colors.size()) {
     // A cached pipeline may outlive its device's teardown (see ClearCachedPipelines); it must not keep
     // the buffer pool, which is reset with the device, alive past it.
     this->context.bufferPool.reset();
@@ -105,6 +105,20 @@ Pipeline::Pipeline(const Context& context, const State& state, const VertexInput
         subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         subpass.colorAttachmentCount = static_cast<std::uint32_t>(references.size());
         subpass.pColorAttachments = references.empty() ? nullptr : references.data();
+        const VkAttachmentReference depthReference{static_cast<std::uint32_t>(colors.size()), VK_IMAGE_LAYOUT_GENERAL};
+        if (state.depth) {
+            VkAttachmentDescription depth{};
+            depth.format = state.depth->format;
+            depth.samples = VK_SAMPLE_COUNT_1_BIT;
+            depth.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            depth.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            depth.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+            depth.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+            depth.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+            colors.push_back(depth);
+            subpass.pDepthStencilAttachment = &depthReference;
+        }
         VkRenderPassCreateInfo passInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
         passInfo.attachmentCount = static_cast<std::uint32_t>(colors.size());
         passInfo.pAttachments = colors.empty() ? nullptr : colors.data();
@@ -138,6 +152,13 @@ Pipeline::Pipeline(const Context& context, const State& state, const VertexInput
         raster.lineWidth = 1;
         VkPipelineMultisampleStateCreateInfo samples{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
         samples.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+        VkPipelineDepthStencilStateCreateInfo depthStencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+        depthStencil.depthTestEnable = state.depthTest;
+        depthStencil.depthWriteEnable = state.depthWrite;
+        depthStencil.depthCompareOp = state.depthCompare;
+        depthStencil.stencilTestEnable = state.stencilTest;
+        depthStencil.front = state.stencilFront;
+        depthStencil.back = state.stencilBack;
         VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
         blend.attachmentCount = static_cast<std::uint32_t>(state.blends.size());
         blend.pAttachments = state.blends.empty() ? nullptr : state.blends.data();
@@ -155,6 +176,7 @@ Pipeline::Pipeline(const Context& context, const State& state, const VertexInput
         pipelineInfo.pViewportState = &viewports;
         pipelineInfo.pRasterizationState = &raster;
         pipelineInfo.pMultisampleState = &samples;
+        pipelineInfo.pDepthStencilState = state.depth ? &depthStencil : nullptr;
         pipelineInfo.pColorBlendState = &blend;
         pipelineInfo.pDynamicState = &dynamic;
         pipelineInfo.layout = layout;
@@ -202,7 +224,7 @@ VkPipelineLayout Pipeline::Layout() const {
 }
 
 std::shared_ptr<Framebuffer> Pipeline::AcquireFramebuffer(std::span<const VkImageView> targets, std::span<const std::shared_ptr<StorageTexture>> owners, VkExtent2D extent) {
-    Require(targets.size() == attachments && targets.size() == owners.size(), "render targets do not match the pipeline's color attachments");
+    Require(targets.size() == attachments && owners.size() == colorAttachments, "render targets do not match the pipeline's attachments");
     const bool resident = std::all_of(owners.begin(), owners.end(), [](const auto& owner) { return owner != nullptr; });
     if (resident) {
         // Entries whose views are gone can never match again and go as soon as no recorded draw holds
@@ -252,13 +274,6 @@ void Pipeline::Continue(VkCommandBuffer commands, const VkViewport& viewport, co
     context.Resolved(&DeviceFunctions::cmdBindPipeline, "vkCmdBindPipeline")(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     context.Resolved(&DeviceFunctions::cmdSetViewport, "vkCmdSetViewport")(commands, 0, 1, &viewport);
     context.Resolved(&DeviceFunctions::cmdSetScissor, "vkCmdSetScissor")(commands, 0, 1, &scissor);
-}
-
-void Pipeline::PushConstants(VkCommandBuffer commands, std::span<const CompiledShader> shaders) const {
-    const auto stages = PushConstantStages(shaders);
-    if (stages == 0) return;
-    const auto bytes = AssemblePushConstants(shaders);
-    context.Resolved(&DeviceFunctions::cmdPushConstants, "vkCmdPushConstants")(commands, layout, stages, 0, PipelinePushConstantBytes, bytes.data());
 }
 
 void Pipeline::PushConstants(VkCommandBuffer commands, VkShaderStageFlags stages, std::span<const std::byte, PipelinePushConstantBytes> bytes) const {
@@ -322,6 +337,16 @@ std::vector<std::byte> pipelineKey(const Context& context, const State& state, c
     for (const auto value : state.blendConstants) append(key, value);
     append(key, state.colors.size());
     for (const auto& color : state.colors) append(key, color.format);
+    append(key, state.depth.has_value());
+    if (state.depth) {
+        append(key, state.depth->format);
+        append(key, state.depthTest);
+        append(key, state.depthWrite);
+        append(key, state.depthCompare);
+        append(key, state.stencilTest);
+        append(key, state.stencilFront);
+        append(key, state.stencilBack);
+    }
     append(key, state.stages.mesh.has_value());
     if (state.stages.mesh) {
         const auto& mesh = *state.stages.mesh;
