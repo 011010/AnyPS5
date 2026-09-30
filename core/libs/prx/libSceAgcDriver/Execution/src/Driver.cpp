@@ -4834,6 +4834,10 @@ private:
                 fold(*programResults[0], direct);
                 if (graphics.rectList && patched.contains(0)) buildRectList();
                 snapshot();
+                if (auto known = localDevice->KnownDrawRejection(graphics, stages)) {
+                    rejected = std::move(*known);
+                    return DrawVerdict::Rejected;
+                }
                 lockForDraw();
                 noteDrawWriters(stages, submission.queue);
                 phase(DrawRowVectors);
@@ -4858,6 +4862,12 @@ private:
         if (drawHit && !recipeStages.empty()) {
             recipe = findDrawRecipe(drawKey, recipeStages);
             if (recipe == nullptr) VulkanDevice::NoteDrawRecipeMiss(VulkanDevice::DrawRecipePrecheck::NoRecipe);
+        }
+        if (recipe == nullptr) {
+            if (auto known = localDevice->KnownDrawRejection(graphics, stages)) {
+                rejected = std::move(*known);
+                return DrawVerdict::Rejected;
+            }
         }
         lockForDraw();
         noteDrawWriters(stages, submission.queue);
