@@ -19,6 +19,10 @@ void GuestArenaRelease_nid_postfix(const void* pointer, std::size_t bytes);
 void GuestArenaRange_nid_postfix(std::uintptr_t* base, std::size_t* bytes);
 bool GuestArenaWriteWatched_nid_postfix();
 #ifdef _WIN32
+void GuestArenaSetProtection_nid_postfix(std::uintptr_t address, std::size_t bytes, std::uint32_t protection);
+bool GuestArenaHandleWrite_nid_postfix(std::uintptr_t address);
+bool GuestArenaProtection_nid_postfix(std::uintptr_t address, std::uint32_t* protection);
+bool GuestArenaCollectWrites_nid_postfix(std::uintptr_t address, std::size_t bytes, void** pages, std::size_t* count, bool clear);
 void GuestArenaCommit_nid_postfix(void* pointer, std::size_t bytes, std::uint32_t protection, std::size_t granule);
 void GuestArenaReset_nid_postfix(void* pointer, std::size_t bytes);
 void GuestArenaMap_nid_postfix(void* pointer, std::size_t bytes, void* section, std::uint64_t offset, std::uint32_t protection);

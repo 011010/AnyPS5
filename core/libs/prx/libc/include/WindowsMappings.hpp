@@ -7,6 +7,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <map>
+#include <memory>
+#include <vector>
 #include <stdexcept>
 #include <system_error>
 
@@ -44,6 +47,11 @@ public:
                 cursor += size;
             } else {
                 if (memory.State != MEM_COMMIT) throw std::runtime_error("guest memory is not committed");
+                const auto mapped = views.find(cursor & ~(pageBytes - 1));
+                if (mapped != views.end()) {
+                    mapped->second.protection = protection;
+                    mapped->second.armed = false;
+                }
                 DWORD previous;
                 if (!VirtualProtect(reinterpret_cast<void*>(cursor), stop - cursor, protection, &previous)) fail("protect guest memory");
                 cursor = stop;
@@ -66,11 +74,110 @@ public:
             if (!map(section, GetCurrentProcess(), page, offset + done, pageBytes, MEM_REPLACE_PLACEHOLDER, PAGE_EXECUTE_READWRITE, nullptr, 0)) fail("map shared guest page");
             DWORD previous;
             if (!VirtualProtect(page, pageBytes, protection, &previous)) fail("protect shared guest page");
+            const auto key = std::make_pair(reinterpret_cast<std::uintptr_t>(section), offset + done);
+            auto shared = physical[key].lock();
+            if (!shared) {
+                shared = std::make_shared<SharedPage>();
+                physical[key] = shared;
+            }
+            const auto base = cursor + done;
+            shared->aliases.push_back(base);
+            views.emplace(base, View{shared, protection, 0, false});
         }
+    }
+
+    void SetProtection(std::uintptr_t address, std::size_t bytes, DWORD protection) {
+        std::lock_guard lock(mutex);
+        for (auto it = views.lower_bound(address); it != views.end() && it->first < address + bytes; ++it) {
+            it->second.protection = protection;
+            it->second.armed = false;
+        }
+    }
+
+    bool HandleWrite(std::uintptr_t address) {
+        std::lock_guard lock(mutex);
+        const auto base = address & ~(pageBytes - 1);
+        const auto found = views.find(base);
+        if (found == views.end() || !writable(found->second.protection)) return false;
+        auto& view = found->second;
+        ++view.page->generation;
+        DWORD previous;
+        if (!VirtualProtect(reinterpret_cast<void*>(base), pageBytes, view.protection, &previous)) fail("resume shared memory write");
+        view.armed = false;
+        return true;
+    }
+
+    bool Protection(std::uintptr_t address, std::uint32_t* protection) {
+        std::lock_guard lock(mutex);
+        const auto found = views.find(address & ~(pageBytes - 1));
+        if (found == views.end()) return false;
+        *protection = found->second.protection;
+        return true;
+    }
+
+    bool Collect(std::uintptr_t address, std::size_t bytes, void** pages, std::size_t* count, bool clear) {
+        std::lock_guard lock(mutex);
+        const auto capacity = *count;
+        *count = 0;
+        const auto end = address + bytes;
+        for (auto cursor = address; cursor < end;) {
+            const auto base = cursor & ~(pageBytes - 1);
+            const auto found = views.find(base);
+            if (found != views.end()) {
+                auto& view = found->second;
+                const auto stop = std::min(end, base + pageBytes);
+                if (view.protection == PAGE_NOACCESS) return false;
+                if (view.seen != view.page->generation) {
+                    const auto needed = (stop - cursor + 4095) / 4096;
+                    if (needed > capacity - *count) {
+                        for (auto at = cursor; *count < capacity; at += 4096) pages[(*count)++] = reinterpret_cast<void*>(at);
+                        return true;
+                    }
+                    for (auto at = cursor; at < stop; at += 4096) pages[(*count)++] = reinterpret_cast<void*>(at);
+                }
+                if (clear) {
+                    for (const auto alias : view.page->aliases) {
+                        auto& other = views.at(alias);
+                        if (!writable(other.protection) || other.armed) continue;
+                        DWORD previous;
+                        const DWORD protection = other.protection == PAGE_EXECUTE_READWRITE ? PAGE_EXECUTE_READ : PAGE_READONLY;
+                        if (!VirtualProtect(reinterpret_cast<void*>(alias), pageBytes, protection, &previous)) fail("arm shared memory write tracking");
+                        other.armed = true;
+                    }
+                    view.seen = view.page->generation;
+                }
+                cursor = stop;
+            } else {
+                const auto memory = query(cursor);
+                if (memory.State != MEM_COMMIT || memory.Type != MEM_PRIVATE) return false;
+                const auto stop = std::min(end, reinterpret_cast<std::uintptr_t>(memory.BaseAddress) + memory.RegionSize);
+                ULONG_PTR available = capacity - *count;
+                if (available == 0) return true;
+                DWORD granularity = 0;
+                if (GetWriteWatch(clear ? WRITE_WATCH_FLAG_RESET : 0, reinterpret_cast<void*>(cursor), stop - cursor, pages + *count, &available, &granularity) != 0) fail("collect private guest writes");
+                *count += available;
+                if (*count == capacity) return true;
+                cursor = stop;
+            }
+        }
+        return true;
     }
 
 private:
     static constexpr std::size_t pageBytes = 0x4000;
+    struct SharedPage {
+        std::uint64_t generation = 1;
+        std::vector<std::uintptr_t> aliases;
+    };
+    struct View {
+        std::shared_ptr<SharedPage> page;
+        DWORD protection;
+        std::uint64_t seen;
+        bool armed;
+    };
+    static bool writable(DWORD protection) {
+        return protection == PAGE_READWRITE || protection == PAGE_EXECUTE_READWRITE;
+    }
     using AllocateFunction = PVOID (WINAPI*)(HANDLE, PVOID, SIZE_T, ULONG, ULONG, MEM_EXTENDED_PARAMETER*, ULONG);
     using MapFunction = PVOID (WINAPI*)(HANDLE, HANDLE, PVOID, ULONG64, SIZE_T, ULONG, ULONG, MEM_EXTENDED_PARAMETER*, ULONG);
     using UnmapFunction = BOOL (WINAPI*)(HANDLE, PVOID, ULONG);
@@ -125,6 +232,11 @@ private:
             if (allocationEnd > end || query(allocationEnd).AllocationBase == memory.AllocationBase) throw std::runtime_error("guest release truncates a host allocation");
             if (memory.Type == MEM_MAPPED) {
                 if (!unmap(GetCurrentProcess(), reinterpret_cast<void*>(cursor), MEM_PRESERVE_PLACEHOLDER)) fail("unmap shared guest page");
+                const auto found = views.find(cursor);
+                if (found != views.end()) {
+                    std::erase(found->second.page->aliases, cursor);
+                    views.erase(found);
+                }
             } else if (memory.Type == MEM_PRIVATE) {
                 if (!VirtualFree(reinterpret_cast<void*>(cursor), allocationEnd - cursor, MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER)) fail("release private guest memory");
             } else {
@@ -140,6 +252,8 @@ private:
         if (query(address).RegionSize != bytes && !VirtualFree(reinterpret_cast<void*>(address), bytes, MEM_RELEASE | MEM_COALESCE_PLACEHOLDERS)) fail("coalesce guest placeholders");
     }
 
+    std::map<std::uintptr_t, View> views;
+    std::map<std::pair<std::uintptr_t, std::uint64_t>, std::weak_ptr<SharedPage>> physical;
     std::mutex mutex;
     AllocateFunction allocate = nullptr;
     MapFunction map = nullptr;

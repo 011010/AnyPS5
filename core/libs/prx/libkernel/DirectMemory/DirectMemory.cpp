@@ -112,6 +112,7 @@ static int munmap_release(void* addr) {
 }
 
 static int mprotect(void* addr, size_t len, int prot) {
+    GuestArena::GuestArenaSetProtection_nid_postfix(reinterpret_cast<std::uintptr_t>(addr), len, WinProtFromPosix(prot));
     if (prot != PROT_NONE && KernelArena::Get().Contains(addr, len)) CommitArenaRange(addr, len, WinProtFromPosix(prot));
     auto cursor = reinterpret_cast<std::uintptr_t>(addr);
     const auto end = cursor + len;
@@ -278,6 +279,7 @@ struct DirectMapping {
     std::uintptr_t end;
     std::uint64_t phys;
     int memoryType;
+    std::shared_ptr<PhysicalBacking> backing;
 };
 
 std::map<std::uintptr_t, DirectMapping> g_directMappings;
@@ -289,8 +291,8 @@ void EraseMappings(std::uintptr_t start, std::uintptr_t end) {
         const auto base = it->first;
         const auto mapping = it->second;
         it = g_directMappings.erase(it);
-        if (base < start) g_directMappings.emplace(base, DirectMapping{start, mapping.phys, mapping.memoryType});
-        if (mapping.end > end) it = g_directMappings.emplace(end, DirectMapping{mapping.end, mapping.phys + end - base, mapping.memoryType}).first;
+        if (base < start) g_directMappings.emplace(base, DirectMapping{start, mapping.phys, mapping.memoryType, mapping.backing});
+        if (mapping.end > end) it = g_directMappings.emplace(end, DirectMapping{mapping.end, mapping.phys + end - base, mapping.memoryType, mapping.backing}).first;
     }
 }
 
@@ -317,7 +319,7 @@ void AddMapping(std::uintptr_t address, std::size_t len, std::uint64_t phys, int
             bytes += PS5_PAGE_SIZE;
         }
         page.backing->Map(address + offset, bytes, page.offset, nativeProt);
-        g_directMappings.emplace(address + offset, DirectMapping{address + offset + bytes, phys + offset, page.backing->MemoryType()});
+        g_directMappings.emplace(address + offset, DirectMapping{address + offset + bytes, phys + offset, page.backing->MemoryType(), page.backing});
         offset += bytes;
     }
 }

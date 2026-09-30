@@ -506,7 +506,9 @@ bool describePages(std::uintptr_t address, std::size_t bytes, Emit&& emit) {
         const auto base = reinterpret_cast<std::uintptr_t>(memory.BaseAddress);
         if (memory.RegionSize > std::numeric_limits<std::uintptr_t>::max() - base || base + memory.RegionSize <= cursor) return false;
         const auto regionEnd = base + memory.RegionSize;
-        const auto protection = memory.Protect & 0xffu;
+        std::uint32_t logicalProtection = memory.Protect;
+        GuestArena::GuestArenaProtection_nid_postfix(cursor, &logicalProtection);
+        const auto protection = logicalProtection & 0xffu;
         const bool committed = memory.State == MEM_COMMIT && (memory.Protect & (PAGE_GUARD | PAGE_NOACCESS)) == 0;
         const bool readable = committed && readableProtection(protection);
         const bool writable = readable && writableProtection(protection);
@@ -762,9 +764,9 @@ std::uint64_t collectWrites(std::uint64_t address, std::size_t bytes, bool memoi
     static const bool singlePass = std::getenv("APS5_NO_SINGLE_PASS_COLLECT") == nullptr;
     bool dirty = false;
     while (cursor < stop) {
-        ULONG_PTR count = tracker.pages.size();
-        DWORD granularity = 0;
-        if (GetWriteWatch(singlePass ? WRITE_WATCH_FLAG_RESET : 0, reinterpret_cast<void*>(cursor), static_cast<std::size_t>(stop - cursor), tracker.pages.data(), &count, &granularity) != 0) {
+        std::size_t count = tracker.pages.size();
+        DWORD granularity = 4096;
+        if (!GuestArena::GuestArenaCollectWrites_nid_postfix(cursor, static_cast<std::size_t>(stop - cursor), tracker.pages.data(), &count, singlePass)) {
             // Uncommitted pages inside the range make the call fail; such ranges are compared instead.
             return 0;
         }
@@ -782,9 +784,9 @@ std::uint64_t collectWrites(std::uint64_t address, std::size_t bytes, bool memoi
         // The resetting pass reports pages again, so a write racing the first pass is stamped too.
         cursor = address & ~(page - 1);
         while (cursor < stop) {
-            ULONG_PTR count = tracker.pages.size();
-            DWORD granularity = 0;
-            if (GetWriteWatch(WRITE_WATCH_FLAG_RESET, reinterpret_cast<void*>(cursor), static_cast<std::size_t>(stop - cursor), tracker.pages.data(), &count, &granularity) != 0) return 0;
+            std::size_t count = tracker.pages.size();
+            DWORD granularity = 4096;
+            if (!GuestArena::GuestArenaCollectWrites_nid_postfix(cursor, static_cast<std::size_t>(stop - cursor), tracker.pages.data(), &count, true)) return 0;
             for (ULONG_PTR i = 0; i < count; ++i) {
                 const auto block = (reinterpret_cast<std::uintptr_t>(tracker.pages[i]) - tracker.base) / WriteBlockBytes;
                 tracker.blocks[block] = tracker.generation;
