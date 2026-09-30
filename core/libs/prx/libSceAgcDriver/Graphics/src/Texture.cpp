@@ -1098,7 +1098,7 @@ bool StorageTexture::Refresh() {
     // clear code make every result dead on hardware too. Without a generation (no tracking) a
     // unit's stamps say nothing, so it is stored.
     const auto droppable = [&](std::uint32_t unit) {
-        if (IsDccClear(keys)) return true;
+        if (keysChanged && IsDccClear(keys)) return true;
         return layerGeneration[unit] != 0 && unit < stampedBlocks.size() && stampedBlocks[unit] != 0;
     };
     // A clear code -> uncompressed flip on an image with results pending: an unstamped pending
@@ -1140,6 +1140,7 @@ bool StorageTexture::Refresh() {
         stored[layer] = true;
         anyStored = true;
     }
+    if (anyStored && !keysChanged && descriptor.dccAddress != 0 && IsDccClear(uploadedKeys)) stored.assign(trackedLayers, true);
     if (pendingResults) {
         static std::atomic<int> reports{0};
         if (reports.fetch_add(1) < 8) std::fprintf(stderr, "[gpu] storage image 0x%llx: guest memory changed while GPU results were pending; keeping the CPU's blocks\n", static_cast<unsigned long long>(descriptor.baseAddress));
