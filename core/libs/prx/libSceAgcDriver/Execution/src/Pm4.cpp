@@ -720,7 +720,7 @@ void Execute(std::span<const std::uint32_t> packet, QueueState& queue) {
         }
         case 0x49: {
             // Earlier work has drained by the time the driver reaches this packet, so the end-of-pipe
-            // write can happen immediately. Interrupt delivery is not modeled.
+            // write can happen immediately.
             const auto dataSelect = packet[2] >> 29u;
             const auto destination = address(packet[3], packet[4]);
             if (dataSelect == 0 || destination == 0) return;

@@ -13,6 +13,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <map>
+#include <set>
 #include <string_view>
 #include <type_traits>
 #include <vector>
@@ -198,10 +199,15 @@ void ShaderStageTests() {
     queue.context[0x1ff] = 64;
     queue.context[0x2ce] = 3;
     queue.context[0x29b] = 2;
+    queue.context[0x2ab] = 4;
     queue.shader[0x8a] = 3u << 29u;
     queue.shader[0x8b] = 3u << 16u;
     auto stages = AgcDriver::Graphics::DecodeState(queue).stages;
     Require(stages.path == AgcDriver::Graphics::ShaderPath::Geometry && stages.mesh && stages.mesh->primitivesPerGroup == 21 && stages.mesh->verticesPerGroup == 63, "geometry assembly changed");
+    Require(stages.mesh->maxVertices == 64 && stages.mesh->maxPrimitives == 21 && stages.mesh->threadsPerGroup == 64 && stages.mesh->esgsItemSize == 4, "geometry subgroup outputs changed");
+    queue.context[0x2ab] = 0;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "invalid VGT_ESGS_RING_ITEMSIZE");
+    queue.context[0x2ab] = 4;
     queue.userConfig[0x25b] = 0;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "invalid geometry subgroup");
     queue = makeState();
@@ -859,6 +865,7 @@ struct ModuleShape {
     std::uint32_t perVertexLength = 3;
     bool parameterOutput = false;
     bool rectParameters = false;
+    bool secondTarget = false;
 };
 
 void emit(std::vector<std::uint32_t>& out, spv::Op op, std::initializer_list<std::uint32_t> operands) {
@@ -896,6 +903,12 @@ std::vector<std::uint32_t> makeModule(const ModuleShape& shape) {
         emit(declarations, spv::OpVariable, {outputPointer, parameter, spv::StorageClassOutput});
         emit(annotations, spv::OpDecorate, {parameter, spv::DecorationLocation, 0});
         extraInterface.push_back(parameter);
+    }
+    if (shape.secondTarget) {
+        const auto target = id();
+        emit(declarations, spv::OpVariable, {outputPointer, target, spv::StorageClassOutput});
+        emit(annotations, spv::OpDecorate, {target, spv::DecorationLocation, 1});
+        extraInterface.push_back(target);
     }
     if (shape.rectParameters) {
         const auto pointer = id();
@@ -1094,6 +1107,15 @@ void validationTests() {
     }
     {
         ShaderRecompiler::RecompileResult vertex;
+        vertex.spirv = makeModule({});
+        ShaderRecompiler::RecompileResult pixel;
+        pixel.spirv = makeModule({.fragment = true, .secondTarget = true});
+        const std::array<AgcDriver::Graphics::CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &pixel, 0}}};
+        const VkPhysicalDeviceSubgroupProperties subgroup{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
+        Require(state.colors.empty() && AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, false) == std::set<std::uint32_t>{0u}, "an export past the attachments was not dropped");
+    }
+    {
+        ShaderRecompiler::RecompileResult vertex;
         vertex.spirv = makeModule({.vertexInput = true});
         ShaderRecompiler::VertexAttribute attribute{0, 4, {{0x1000, 32u << 16u, 3, 77u << 12u}}, 0};
         const std::array<AgcDriver::Graphics::CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &fragment, 0}}};
@@ -1243,7 +1265,8 @@ bool recompilesDebugBranch(std::uint32_t opcode) {
     auto queue = makeState();
     queue.context[0x1b3] = 0x2u;
     queue.context[0x1b4] = 0x2u;
-    const auto pixel = AgcDriver::Graphics::DecodePixelStageInfo(queue.context, true, 0xe4u);
+    const auto state = AgcDriver::Graphics::DecodeState(queue);
+    const auto pixel = AgcDriver::Graphics::DecodePixelStageInfo(queue.context, AgcDriver::Graphics::ExportMappings(state));
     const std::array<std::uint32_t, 4> code{0xbf800000u | (opcode << 16u) | 1u, 0xf800180fu, 0x00000000u, 0xbf810000u};
     ShaderRecompiler::RecompileRequest request{};
     request.shader = {ShaderRecompiler::ShaderStage::Fragment, 0x30000u, code, 0, {}};
