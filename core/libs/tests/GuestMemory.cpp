@@ -1,6 +1,8 @@
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
 #include "prx/libc/include/GuestHeap.hpp"
+#include "prx/libc/include/GuestArena.hpp"
+#include <array>
 #include "SceTypes.hpp"
 #include <cstring>
 #include <exception>
@@ -190,11 +192,66 @@ static void CheckHeapAfterMappingReuse() {
     GuestHeap::GuestHeapFree_nid_postfix(pointer);
 }
 
+static void CheckSharedWriteTracking() {
+#ifdef _WIN32
+    constexpr std::size_t page = 0x4000;
+    std::int64_t phys = 0;
+    Require(sceKernelAllocateDirectMemory(0, 0x7fffffffffll, page * 3, 0, 0, &phys) == 0);
+    void* first = nullptr;
+    void* second = nullptr;
+    Require(sceKernelMapDirectMemory(&first, page * 3, 3, 0, phys, 0) == 0);
+    Require(sceKernelMapDirectMemory(&second, page * 3, 3, 0, phys, 0) == 0);
+    const auto collect = [](void* address, std::size_t bytes, bool clear = true) {
+        std::array<void*, 32> pages{};
+        std::size_t count = pages.size();
+        Require(GuestArena::GuestArenaCollectWrites_nid_postfix(reinterpret_cast<std::uintptr_t>(address), bytes, pages.data(), &count, clear));
+        return count;
+    };
+    Require(collect(first, page * 3) == 12);
+    Require(collect(second, page * 3) == 12);
+    Require(collect(first, page * 3) == 0);
+    Require(collect(second, page * 3) == 0);
+    auto* left = static_cast<volatile unsigned char*>(first);
+    auto* right = static_cast<volatile unsigned char*>(second);
+    left[page + 5] = 21;
+    Require(right[page + 5] == 21);
+    Require(collect(first, page * 3, false) == 4);
+    Require(collect(first, page * 3, false) == 4);
+    Require(collect(first, page * 3) == 4);
+    Require(collect(second, page * 3) == 4);
+    Require(collect(first, page * 3) == 0);
+    right[page * 2] = 42;
+    Require(collect(first, page * 3) == 4);
+    Require(collect(second, page * 3) == 4);
+    Require(collect(second, page * 3) == 0);
+    Require(sceKernelMprotect(first, page * 3, 1) == 0);
+    collect(first, page * 3);
+    collect(second, page * 3);
+    right[0] = 63;
+    Require(left[0] == 63 && collect(first, page * 3) == 4);
+    Require(sceKernelMprotect(first, page * 3, 3) == 0);
+    collect(first, page * 3);
+    left[0] = 84;
+    Require(right[0] == 84 && collect(second, page * 3) != 0);
+    void* third = nullptr;
+    Require(sceKernelMapDirectMemory(&third, page, 3, 0, phys + page, 0) == 0);
+    collect(first, page * 3);
+    collect(second, page * 3);
+    static_cast<volatile unsigned char*>(third)[0] = 105;
+    Require(collect(first, page * 3) == 4 && collect(second, page * 3) == 4);
+    Require(sceKernelMunmap(third, page) == 0);
+    Require(sceKernelMunmap(first, page * 3) == 0);
+    Require(sceKernelMunmap(second, page * 3) == 0);
+    Require(sceKernelReleaseDirectMemory(phys, page * 3) == 0);
+#endif
+}
+
 int main() {
     CheckNamedAndHintedMappings();
     CheckDirectMemoryFollowsPhysicalPages();
     CheckSharedDirectMemoryLifecycle();
     CheckHeapAfterMappingReuse();
+    CheckSharedWriteTracking();
     constexpr std::size_t page = 0x4000;
     const auto failed = reinterpret_cast<void*>(static_cast<std::uintptr_t>(-1));
     const auto reject = [&](std::size_t length, int protection, int flags, int fd,

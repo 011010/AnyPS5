@@ -51,6 +51,7 @@ public:
                 if (mapped != views.end()) {
                     mapped->second.protection = protection;
                     mapped->second.armed = false;
+                    invalidate(*mapped->second.page);
                 }
                 DWORD previous;
                 if (!VirtualProtect(reinterpret_cast<void*>(cursor), stop - cursor, protection, &previous)) fail("protect guest memory");
@@ -83,6 +84,7 @@ public:
             const auto base = cursor + done;
             shared->aliases.push_back(base);
             views.emplace(base, View{shared, protection, 0, false});
+            invalidate(*shared);
         }
     }
 
@@ -91,6 +93,7 @@ public:
         for (auto it = views.lower_bound(address); it != views.end() && it->first < address + bytes; ++it) {
             it->second.protection = protection;
             it->second.armed = false;
+            invalidate(*it->second.page);
         }
     }
 
@@ -100,7 +103,7 @@ public:
         const auto found = views.find(base);
         if (found == views.end() || !writable(found->second.protection)) return false;
         auto& view = found->second;
-        ++view.page->generation;
+        invalidate(*view.page);
         DWORD previous;
         if (!VirtualProtect(reinterpret_cast<void*>(base), pageBytes, view.protection, &previous)) fail("resume shared memory write");
         view.armed = false;
@@ -121,6 +124,14 @@ public:
         *count = 0;
         const auto end = address + bytes;
         for (auto cursor = address; cursor < end;) {
+            const auto nextClean = cleanRanges.upper_bound(cursor);
+            if (nextClean != cleanRanges.begin()) {
+                const auto clean = std::prev(nextClean);
+                if (cursor < clean->second) {
+                    cursor = std::min(end, clean->second);
+                    continue;
+                }
+            }
             const auto base = cursor & ~(pageBytes - 1);
             const auto found = views.find(base);
             if (found != views.end()) {
@@ -145,6 +156,7 @@ public:
                         other.armed = true;
                     }
                     view.seen = view.page->generation;
+                    rememberClean(base, base + pageBytes);
                 }
                 cursor = stop;
             } else {
@@ -175,6 +187,34 @@ private:
         std::uint64_t seen;
         bool armed;
     };
+    void forgetClean(std::uintptr_t start, std::uintptr_t end) {
+        auto it = cleanRanges.lower_bound(start);
+        if (it != cleanRanges.begin() && std::prev(it)->second > start) --it;
+        while (it != cleanRanges.end() && it->first < end) {
+            const auto first = it->first;
+            const auto last = it->second;
+            it = cleanRanges.erase(it);
+            if (first < start) cleanRanges.emplace(first, start);
+            if (last > end) it = cleanRanges.emplace(end, last).first;
+        }
+    }
+
+    void rememberClean(std::uintptr_t start, std::uintptr_t end) {
+        auto it = cleanRanges.lower_bound(start);
+        if (it != cleanRanges.begin() && std::prev(it)->second >= start) --it;
+        while (it != cleanRanges.end() && it->first <= end) {
+            start = std::min(start, it->first);
+            end = std::max(end, it->second);
+            it = cleanRanges.erase(it);
+        }
+        cleanRanges.emplace(start, end);
+    }
+
+    void invalidate(SharedPage& page) {
+        ++page.generation;
+        for (const auto alias : page.aliases) forgetClean(alias, alias + pageBytes);
+    }
+
     static bool writable(DWORD protection) {
         return protection == PAGE_READWRITE || protection == PAGE_EXECUTE_READWRITE;
     }
@@ -216,6 +256,7 @@ private:
 
     void reset(std::uintptr_t address, std::size_t bytes) {
         const auto end = address + bytes;
+        forgetClean(address, end);
         for (auto cursor = address; cursor < end;) {
             const auto memory = query(cursor);
             if (memory.State == MEM_RESERVE) {
@@ -252,6 +293,7 @@ private:
         if (query(address).RegionSize != bytes && !VirtualFree(reinterpret_cast<void*>(address), bytes, MEM_RELEASE | MEM_COALESCE_PLACEHOLDERS)) fail("coalesce guest placeholders");
     }
 
+    std::map<std::uintptr_t, std::uintptr_t> cleanRanges;
     std::map<std::uintptr_t, View> views;
     std::map<std::pair<std::uintptr_t, std::uint64_t>, std::weak_ptr<SharedPage>> physical;
     std::mutex mutex;
