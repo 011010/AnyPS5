@@ -265,10 +265,17 @@ std::shared_ptr<StorageTexture> sampledStorageSource(const Context& context, con
 std::shared_ptr<Texture> cachedTexture(const Context& context, std::span<const std::uint32_t> words, const GuestTextureResource& resource, VkComponentMapping components, std::uint64_t guestBytes = 0) {
     CaptureTrace::Log("sampled-lookup address=%llx width=%u height=%u dcc=%llx", static_cast<unsigned long long>(resource.baseAddress), resource.width, resource.height, static_cast<unsigned long long>(resource.dccAddress));
     if (auto depth = DepthSurfaceTexture(context, words, resource, components)) return depth;
-    if (words.size() >= 4 && ShaderRecompiler::IsDepthBitsTexture(words[1], words[3])) {
+    const auto depthBitsWidth = words.size() >= 4 ? ShaderRecompiler::DepthBitsTextureWidth(words[1], words[3]) : 0u;
+    if (depthBitsWidth == 32u) {
         char text[160];
         std::snprintf(text, sizeof(text), "AGC graphics: 32-bit integer read of the depth-layout texture 0x%llx, which is no depth surface drawn with, is not implemented", static_cast<unsigned long long>(resource.baseAddress));
         throw std::runtime_error(text);
+    }
+    constexpr auto unorm16 = static_cast<std::uint32_t>(ShaderRecompiler::IrBufferFormat::Format16UNorm);
+    if (depthBitsWidth == 16u && resource.format != unorm16) {
+        auto normalized = resource;
+        normalized.format = unorm16;
+        return cachedTexture(context, words, normalized, components, guestBytes);
     }
     static const bool disabled = std::getenv("APS5_NO_TEXTURE_CACHE") != nullptr;
     const bool profile = LookupOutcomes::Profiled();
