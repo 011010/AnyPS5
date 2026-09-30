@@ -1,4 +1,4 @@
-#include "DirectMemory.hpp"
+#include "prx/libkernel/DirectMemory/DirectMemory.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
 #include "prx/libc/include/GuestArena.hpp"
 #include <algorithm>
@@ -6,7 +6,6 @@
 #include <iterator>
 #include <map>
 #include <mutex>
-#include <set>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -19,6 +18,7 @@
 
 #if defined(__linux__)
 #include <sys/mman.h>
+#include <unistd.h>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -57,8 +57,7 @@ struct KernelArena {
 };
 
 static void CommitArenaRange(void* addr, size_t len, DWORD winProt) {
-    if (!VirtualAlloc(addr, len, MEM_COMMIT, winProt))
-        throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "VirtualAlloc commit failed");
+    GuestArena::GuestArenaCommit_nid_postfix(addr, len, winProt, PS5_PAGE_SIZE);
 }
 
 static void* mmap_aligned(size_t len, int prot, size_t alignment) {
@@ -99,9 +98,9 @@ static void* mmap(void* addr, size_t len, int prot, int flags, int, int) {
 }
 
 static int munmap(void* addr, size_t len) {
-    if (!VirtualFree(addr, len, MEM_DECOMMIT))
-        throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "VirtualFree decommit failed");
     auto& arena = KernelArena::Get();
+    if (arena.Contains(addr, len)) GuestArena::GuestArenaReset_nid_postfix(addr, len);
+    else if (!VirtualFree(addr, len, MEM_DECOMMIT)) throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "VirtualFree decommit failed");
     if (arena.Contains(addr, len)) arena.Release(addr, len);
     return 0;
 }
@@ -219,114 +218,108 @@ void Trace(const char* format, ...) {
     va_end(args);
 }
 
+class PhysicalBacking {
+public:
+    explicit PhysicalBacking(std::size_t bytes, int memoryType) : memoryType(memoryType) {
+#ifdef _WIN32
+        const auto size = static_cast<std::uint64_t>(bytes);
+        section = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_EXECUTE_READWRITE, static_cast<DWORD>(size >> 32), static_cast<DWORD>(size), nullptr);
+        if (!section) throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "create direct memory backing");
+#else
+        file = std::tmpfile();
+        if (!file) throw std::system_error(errno, std::generic_category(), "create direct memory backing");
+        if (ftruncate(fileno(file), static_cast<off_t>(bytes)) != 0) {
+            const int error = errno;
+            std::fclose(file);
+            throw std::system_error(error, std::generic_category(), "size direct memory backing");
+        }
+#endif
+    }
+
+    int MemoryType() const { return memoryType; }
+
+    ~PhysicalBacking() {
+#ifdef _WIN32
+        CloseHandle(section);
+#else
+        std::fclose(file);
+#endif
+    }
+
+    PhysicalBacking(const PhysicalBacking&) = delete;
+    PhysicalBacking& operator=(const PhysicalBacking&) = delete;
+
+    void Map(std::uintptr_t address, std::size_t bytes, std::uint64_t offset, int protection) const {
+#ifdef _WIN32
+        GuestArena::GuestArenaMap_nid_postfix(reinterpret_cast<void*>(address), bytes, section, offset, WinProtFromPosix(protection));
+#else
+        if (::mmap(reinterpret_cast<void*>(address), bytes, protection, MAP_SHARED | MAP_FIXED, fileno(file), static_cast<off_t>(offset)) == MAP_FAILED) throw std::system_error(errno, std::generic_category(), "map direct memory backing");
+#endif
+    }
+
+private:
+    int memoryType;
+#ifdef _WIN32
+    HANDLE section = nullptr;
+#else
+    std::FILE* file = nullptr;
+#endif
+};
+
+struct PhysicalPage {
+    std::shared_ptr<PhysicalBacking> backing;
+    std::uint64_t offset;
+};
+
+std::mutex g_directLock;
+std::map<std::uint64_t, PhysicalPage> g_physPages;
+
 struct DirectMapping {
     std::uintptr_t end;
     std::uint64_t phys;
+    int memoryType;
 };
-std::mutex g_directLock;
+
 std::map<std::uintptr_t, DirectMapping> g_directMappings;
-std::map<std::uint64_t, std::unique_ptr<unsigned char[]>> g_physPages;
 
-void ProtectOrThrow(std::uintptr_t address, std::size_t len, int nativeProt) {
-    if (mprotect(reinterpret_cast<void*>(address), len, nativeProt) != 0) throw std::system_error(errno, std::generic_category(), "mprotect failed");
-}
-
-void SaveContents(std::uintptr_t address, std::size_t len, std::uint64_t phys) {
-    static const unsigned char zero[PS5_PAGE_SIZE] = {};
-    ProtectOrThrow(address, len, PROT_READ);
-    for (std::size_t offset = 0; offset < len; offset += PS5_PAGE_SIZE) {
-        const auto* page = reinterpret_cast<const unsigned char*>(address + offset);
-        if (std::memcmp(page, zero, PS5_PAGE_SIZE) == 0) continue;
-        auto& copy = g_physPages[phys + offset];
-        copy.reset(new unsigned char[PS5_PAGE_SIZE]);
-        std::memcpy(copy.get(), page, PS5_PAGE_SIZE);
-    }
-}
-
-std::set<std::uintptr_t> g_shared;
-
-std::vector<std::uintptr_t> Views(std::uint64_t physPage) {
-    std::vector<std::uintptr_t> views;
-    for (const auto& [base, mapping] : g_directMappings) {
-        if (physPage >= mapping.phys && physPage < mapping.phys + (mapping.end - base)) views.push_back(base + (physPage - mapping.phys));
-    }
-    return views;
-}
-
-int NativeProtection(std::uintptr_t view) {
-    int prot = 0;
-    if (!GuestProtection(view, &prot)) throw std::runtime_error("direct memory view has no recorded protection");
-    return LinuxProtFromSce(prot);
-}
-
-int SharedProtection(int nativeProt) {
-    return nativeProt & ~PROT_WRITE;
-}
-
-void Unshare(std::uintptr_t page, std::uint64_t physPage) {
-    const auto others = Views(physPage);
-    if (others.empty()) throw std::runtime_error("shared direct memory page has no other view");
-    ProtectOrThrow(page, PS5_PAGE_SIZE, PROT_READ);
-    ProtectOrThrow(others.front(), PS5_PAGE_SIZE, PROT_READ);
-    if (std::memcmp(reinterpret_cast<const void*>(page), reinterpret_cast<const void*>(others.front()), PS5_PAGE_SIZE) != 0) {
-        char message[160];
-        std::snprintf(message, sizeof(message), "direct memory 0x%llx mapped at 0x%llx and 0x%llx was written through one view; aliased writes are not implemented", static_cast<unsigned long long>(physPage),
-                      static_cast<unsigned long long>(page), static_cast<unsigned long long>(others.front()));
-        throw std::runtime_error(message);
-    }
-    const bool last = others.size() == 1;
-    if (last) g_shared.erase(others.front());
-    const auto prot = NativeProtection(others.front());
-    ProtectOrThrow(others.front(), PS5_PAGE_SIZE, last ? prot : SharedProtection(prot));
-}
-
-void EraseMappings(std::uintptr_t start, std::uintptr_t end, bool save) {
+void EraseMappings(std::uintptr_t start, std::uintptr_t end) {
     auto it = g_directMappings.lower_bound(start);
     if (it != g_directMappings.begin() && std::prev(it)->second.end > start) --it;
     while (it != g_directMappings.end() && it->first < end) {
         const auto base = it->first;
         const auto mapping = it->second;
         it = g_directMappings.erase(it);
-        const auto cutStart = std::max(base, start);
-        const auto cutEnd = std::min(mapping.end, end);
-        if (base < start) g_directMappings.emplace(base, DirectMapping{start, mapping.phys});
-        if (mapping.end > end) it = g_directMappings.emplace(end, DirectMapping{mapping.end, mapping.phys + (end - base)}).first;
-        if (g_shared.empty()) {
-            if (save) SaveContents(cutStart, cutEnd - cutStart, mapping.phys + (cutStart - base));
-            continue;
-        }
-        for (auto page = cutStart; page < cutEnd; page += PS5_PAGE_SIZE) {
-            const auto physPage = mapping.phys + (page - base);
-            if (g_shared.erase(page) != 0) Unshare(page, physPage);
-            else if (save) SaveContents(page, PS5_PAGE_SIZE, physPage);
+        if (base < start) g_directMappings.emplace(base, DirectMapping{start, mapping.phys, mapping.memoryType});
+        if (mapping.end > end) it = g_directMappings.emplace(end, DirectMapping{mapping.end, mapping.phys + end - base, mapping.memoryType}).first;
+    }
+}
+
+
+void ValidatePhysicalRange(std::uint64_t phys, std::size_t len) {
+    for (std::size_t offset = 0; offset < len; offset += PS5_PAGE_SIZE) {
+        if (!g_physPages.contains(phys + offset)) {
+            char message[160];
+            std::snprintf(message, sizeof(message), "direct memory range 0x%llx+0x%zx references unallocated physical page 0x%llx", static_cast<unsigned long long>(phys), len, static_cast<unsigned long long>(phys + offset));
+            throw std::invalid_argument(message);
         }
     }
 }
 
 void AddMapping(std::uintptr_t address, std::size_t len, std::uint64_t phys, int nativeProt) {
-    std::vector<std::pair<std::size_t, std::uintptr_t>> shared;
-    for (const auto& [base, mapping] : g_directMappings) {
-        const auto physEnd = std::min(phys + len, mapping.phys + (mapping.end - base));
-        for (auto page = std::max(phys, mapping.phys); page < physEnd; page += PS5_PAGE_SIZE) shared.emplace_back(page - phys, base + (page - mapping.phys));
+    ValidatePhysicalRange(phys, len);
+    EraseMappings(address, address + len);
+    for (std::size_t offset = 0; offset < len;) {
+        const auto& page = g_physPages.at(phys + offset);
+        std::size_t bytes = PS5_PAGE_SIZE;
+        while (offset + bytes < len) {
+            const auto& next = g_physPages.at(phys + offset + bytes);
+            if (next.backing != page.backing || next.offset != page.offset + bytes) break;
+            bytes += PS5_PAGE_SIZE;
+        }
+        page.backing->Map(address + offset, bytes, page.offset, nativeProt);
+        g_directMappings.emplace(address + offset, DirectMapping{address + offset + bytes, phys + offset, page.backing->MemoryType()});
+        offset += bytes;
     }
-    g_directMappings.emplace(address, DirectMapping{address + len, phys});
-    auto it = g_physPages.lower_bound(phys);
-    const auto last = g_physPages.lower_bound(phys + len);
-    if (it == last && shared.empty()) return;
-    ProtectOrThrow(address, len, PROT_READ | PROT_WRITE);
-    for (; it != last; it = g_physPages.erase(it)) std::memcpy(reinterpret_cast<void*>(address + (it->first - phys)), it->second.get(), PS5_PAGE_SIZE);
-    for (const auto& [offset, view] : shared) {
-        ProtectOrThrow(view, PS5_PAGE_SIZE, PROT_READ);
-        std::memcpy(reinterpret_cast<void*>(address + offset), reinterpret_cast<const void*>(view), PS5_PAGE_SIZE);
-        ProtectOrThrow(view, PS5_PAGE_SIZE, SharedProtection(NativeProtection(view)));
-        g_shared.insert(view);
-    }
-    ProtectOrThrow(address, len, nativeProt);
-    for (const auto& [offset, view] : shared) {
-        ProtectOrThrow(address + offset, PS5_PAGE_SIZE, SharedProtection(nativeProt));
-        g_shared.insert(address + offset);
-    }
-    if (!shared.empty()) Trace("alias %p+0x%zx shares %zu physical pages with older views", reinterpret_cast<void*>(address), len, shared.size());
 }
 
 bool RemapFixedIntoRegistered(GuestAllocations::Mutation& mutation, void* addr, size_t len, int prot, int flags, int64_t physStart = -1) {
@@ -339,15 +332,17 @@ bool RemapFixedIntoRegistered(GuestAllocations::Mutation& mutation, void* addr, 
     mutation.Protect(addr, len, (prot & 3) != 0, (prot & 2) != 0, [&] {
         const auto address = reinterpret_cast<std::uintptr_t>(addr);
         std::lock_guard lock(g_directLock);
-        EraseMappings(address, address + len, true);
+        if (physStart >= 0) {
+            AddMapping(address, len, static_cast<std::uint64_t>(physStart), nativeProtection);
+        } else {
+            EraseMappings(address, address + len);
 #ifdef _WIN32
-        if (physStart >= 0 && !VirtualFree(addr, len, MEM_DECOMMIT)) throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "VirtualFree decommit failed");
-        if (!VirtualAlloc(addr, len, MEM_COMMIT, WinProtFromPosix(nativeProtection))) throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "VirtualAlloc commit failed");
+            GuestArena::GuestArenaReset_nid_postfix(addr, len);
+            if (nativeProtection != PROT_NONE) CommitArenaRange(addr, len, WinProtFromPosix(nativeProtection));
 #else
-        if (physStart >= 0 && madvise(addr, len, MADV_DONTNEED) != 0) throw std::system_error(errno, std::generic_category(), "madvise failed");
+            if (::mmap(addr, len, nativeProtection, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == MAP_FAILED) throw std::system_error(errno, std::generic_category(), "remap anonymous memory");
 #endif
-        if (mprotect(addr, len, nativeProtection) != 0) throw std::system_error(errno, std::generic_category(), "mprotect failed");
-        if (physStart >= 0) AddMapping(address, len, static_cast<std::uint64_t>(physStart), nativeProtection);
+        }
     });
     return true;
 }
@@ -475,11 +470,13 @@ int DoMapDirect(void** addr, size_t len, int prot, int flags, int64_t physStart,
     }
     if (*addr != nullptr && (flags & GuestMapFixedFlag) != 0) mutation.RequireAvailable(*addr, len);
     std::lock_guard lock(g_directLock);
-    void* mapped = MapAligned(*addr, len, LinuxProtFromSce(prot), flags, alignment);
+    ValidatePhysicalRange(static_cast<std::uint64_t>(physStart), len);
+    void* mapped = MapAligned(*addr, len, PROT_NONE, flags, alignment);
     try {
-        mutation.Add(mapped, len, (prot & 3) != 0, (prot & 2) != 0);
         AddMapping(reinterpret_cast<std::uintptr_t>(mapped), len, static_cast<std::uint64_t>(physStart), LinuxProtFromSce(prot));
+        mutation.Add(mapped, len, (prot & 3) != 0, (prot & 2) != 0);
     } catch (...) {
+        EraseMappings(reinterpret_cast<std::uintptr_t>(mapped), reinterpret_cast<std::uintptr_t>(mapped) + len);
         Unmap(mapped, len);
         throw;
     }
@@ -535,8 +532,6 @@ int DoMprotect(const void* addr, size_t len, int prot) {
 #endif
     mutation.Protect(pointer, bytes, (prot & 3) != 0, (prot & 2) != 0, [&] {
         if (mprotect(const_cast<void*>(pointer), bytes, nativeProtection) != 0) throw std::system_error(errno, std::generic_category(), "mprotect failed");
-        std::lock_guard lock(g_directLock);
-        for (auto it = g_shared.lower_bound(first); it != g_shared.end() && *it < end; ++it) ProtectOrThrow(*it, PS5_PAGE_SIZE, SharedProtection(nativeProtection));
     });
     RecordProtection(pointer, bytes, prot);
     return 0;
@@ -547,11 +542,8 @@ int DoMunmap(void* addr, size_t len) {
     if (len == 0 || (len & (PS5_PAGE_SIZE - 1)) != 0 || !addr) return SCE_KERNEL_ERROR_EINVAL;
     GuestAllocations::Mutation mutation;
     mutation.Unmap(addr, len, [&](const void* allocation, bool last) {
-        {
-            const auto address = reinterpret_cast<std::uintptr_t>(addr);
-            std::lock_guard lock(g_directLock);
-            EraseMappings(address, address + len, true);
-        }
+        std::lock_guard lock(g_directLock);
+        EraseMappings(reinterpret_cast<std::uintptr_t>(addr), reinterpret_cast<std::uintptr_t>(addr) + len);
 #if defined(__linux__)
         Unmap(addr, len);
 #else
@@ -580,17 +572,25 @@ int DoReserveVirtual(void** addr, size_t len, size_t alignment) {
     return 0;
 }
 
+void CreateDirectMemoryBacking(int64_t start, size_t len, int memoryType) {
+    std::lock_guard lock(g_directLock);
+    const auto first = static_cast<std::uint64_t>(start);
+    for (std::size_t offset = 0; offset < len; offset += PS5_PAGE_SIZE) {
+        if (g_physPages.contains(first + offset)) throw std::runtime_error("physical allocation overlaps live direct memory");
+    }
+    const auto backing = std::make_shared<PhysicalBacking>(len, memoryType);
+    std::map<std::uint64_t, PhysicalPage> pages;
+    for (std::size_t offset = 0; offset < len; offset += PS5_PAGE_SIZE) pages.emplace(first + offset, PhysicalPage{backing, offset});
+    g_physPages.merge(pages);
+    Trace("allocate physical 0x%llx+0x%zx", static_cast<unsigned long long>(first), len);
+}
+
 void ForgetDirectMemory(int64_t start, size_t len) {
     const auto first = static_cast<std::uint64_t>(start);
-    const auto end = first + len;
     std::lock_guard lock(g_directLock);
-    g_physPages.erase(g_physPages.lower_bound(first), g_physPages.lower_bound(end));
-    std::vector<std::pair<std::uintptr_t, std::uintptr_t>> released;
-    for (const auto& [base, mapping] : g_directMappings) {
-        const auto mappedEnd = mapping.phys + (mapping.end - base);
-        if (mapping.phys < end && first < mappedEnd) released.emplace_back(base + (std::max(first, mapping.phys) - mapping.phys), base + (std::min(end, mappedEnd) - mapping.phys));
-    }
-    for (const auto& [from, to] : released) EraseMappings(from, to, false);
+    ValidatePhysicalRange(first, len);
+    g_physPages.erase(g_physPages.lower_bound(first), g_physPages.lower_bound(first + len));
+    Trace("release physical 0x%llx+0x%zx", static_cast<unsigned long long>(first), len);
 }
 
 bool GuestProtection(uintptr_t addr, int* prot) {
@@ -600,5 +600,18 @@ bool GuestProtection(uintptr_t addr, int* prot) {
     const auto containing = std::prev(next);
     if (addr >= containing->second.end) return false;
     *prot = containing->second.prot;
+    return true;
+}
+
+bool QueryDirectMapping(std::uintptr_t address, std::uintptr_t* start, std::uintptr_t* end, std::uint64_t* offset, int* memoryType) {
+    std::lock_guard lock(g_directLock);
+    const auto next = g_directMappings.upper_bound(address);
+    if (next == g_directMappings.begin()) return false;
+    const auto it = std::prev(next);
+    if (address >= it->second.end) return false;
+    *start = it->first;
+    *end = it->second.end;
+    *offset = it->second.phys;
+    *memoryType = it->second.memoryType;
     return true;
 }

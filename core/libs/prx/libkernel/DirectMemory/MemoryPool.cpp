@@ -1,6 +1,5 @@
-#define _GLIBCXX_HAS_GTHREADS 0
-#include "MemoryPool.hpp"
-#include "DirectMemory.hpp"
+#include "prx/libkernel/DirectMemory/MemoryPool.hpp"
+#include "prx/libkernel/DirectMemory/DirectMemory.hpp"
 #include <map>
 #include <mutex>
 
@@ -20,6 +19,7 @@ struct PhysicalMemoryPool {
         uint64_t cur = (start + align - 1) & ~(align - 1);
         while (cur + len <= end && cur + len <= DIRECT_MEMORY_SIZE) {
             if (_isFree(cur, len)) {
+                CreateDirectMemoryBacking(static_cast<int64_t>(cur), len, memoryType);
                 _mark(cur, len, true);
                 _blocks[cur] = {cur + len, memoryType};
                 *physOut = static_cast<int64_t>(cur);
@@ -32,6 +32,7 @@ struct PhysicalMemoryPool {
 
     void Free(uint64_t start, size_t len) {
         std::lock_guard<std::mutex> lock(_mutex);
+        ForgetDirectMemory(static_cast<int64_t>(start), len);
         _mark(start, len, false);
         const uint64_t end = start + len;
         auto it = _blocks.upper_bound(start);
@@ -99,7 +100,6 @@ int DirectMemoryAlloc(int64_t searchStart, int64_t searchEnd, size_t len, size_t
 }
 
 void DirectMemoryFree(int64_t start, size_t len) {
-    ForgetDirectMemory(start, len);
     PhysicalMemoryPool::Instance().Free(static_cast<uint64_t>(start), len);
 }
 

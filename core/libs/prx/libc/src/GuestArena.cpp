@@ -1,4 +1,5 @@
 #include "prx/libc/include/GuestArena.hpp"
+#include "prx/libc/include/WindowsMappings.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -91,13 +92,8 @@ private:
         for (std::uintptr_t base = PreferredBase; base + MinimumSize <= MapAreaEnd; base += MinimumSize) {
             for (std::size_t size = MaximumSize; size >= MinimumSize; size /= 2) {
                 if (base + size > MapAreaEnd) continue;
-                // Write watching lets the GPU driver learn which pages the CPU wrote instead of comparing
-                // whole resources; the plain reservation is the fallback. Debug aid: APS5_NO_WRITE_WATCH=1
-                // skips it, to measure what the write faults it re-arms cost the game's threads.
-                static const bool noWriteWatch = std::getenv("APS5_NO_WRITE_WATCH") != nullptr;
-                void* reserved = noWriteWatch ? nullptr : VirtualAlloc(reinterpret_cast<void*>(base), size, MEM_RESERVE | MEM_WRITE_WATCH, PAGE_NOACCESS);
-                _writeWatched = reserved != nullptr;
-                if (!reserved) reserved = VirtualAlloc(reinterpret_cast<void*>(base), size, MEM_RESERVE, PAGE_NOACCESS);
+                _writeWatched = std::getenv("APS5_NO_WRITE_WATCH") == nullptr;
+                void* reserved = WindowsMappings::Get().Reserve(reinterpret_cast<void*>(base), size);
                 if (!reserved) continue;
                 _base = reinterpret_cast<std::uintptr_t>(reserved);
                 _end = _base + size;
@@ -149,6 +145,23 @@ void GuestArenaRange_nid_postfix(std::uintptr_t* base, std::size_t* bytes) {
     *base = Arena::Get().Base();
     *bytes = Arena::Get().Size();
 }
+
+#ifdef _WIN32
+void GuestArenaCommit_nid_postfix(void* pointer, std::size_t bytes, std::uint32_t protection, std::size_t granule) {
+    if (!Arena::Get().Contains(pointer, bytes)) throw std::invalid_argument("commit outside the guest arena");
+    WindowsMappings::Get().Commit(pointer, bytes, protection, granule, Arena::Get().WriteWatched());
+}
+
+void GuestArenaReset_nid_postfix(void* pointer, std::size_t bytes) {
+    if (!Arena::Get().Contains(pointer, bytes)) throw std::invalid_argument("reset outside the guest arena");
+    WindowsMappings::Get().Reset(pointer, bytes);
+}
+
+void GuestArenaMap_nid_postfix(void* pointer, std::size_t bytes, void* section, std::uint64_t offset, std::uint32_t protection) {
+    if (!Arena::Get().Contains(pointer, bytes)) throw std::invalid_argument("shared mapping outside the guest arena");
+    WindowsMappings::Get().Map(pointer, bytes, section, offset, protection);
+}
+#endif
 
 bool GuestArenaWriteWatched_nid_postfix() {
     return Arena::Get().WriteWatched();

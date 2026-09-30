@@ -40,7 +40,7 @@ void heapMirrorTests(const Context& context, const BdaTestAccess& access) {
     constexpr std::size_t bytes = 2 * 65536;
     void* block = GuestArena::GuestArenaAllocate_nid_postfix(bytes, 65536);
 #ifdef _WIN32
-    Require(VirtualAlloc(block, bytes, MEM_COMMIT, PAGE_READWRITE) != nullptr, "cannot commit the heap mirror block");
+    GuestArena::GuestArenaCommit_nid_postfix(block, bytes, PAGE_READWRITE, bytes);
 #endif
     auto* guest = static_cast<std::uint8_t*>(block);
     std::memset(block, 0x11, bytes);
@@ -108,7 +108,7 @@ void heapMirrorTests(const Context& context, const BdaTestAccess& access) {
     {
         constexpr std::size_t half = 2 * 65536;
         void* pair = GuestArena::GuestArenaAllocate_nid_postfix(2 * half, 65536);
-        Require(VirtualAlloc(pair, 2 * half, MEM_COMMIT, PAGE_READWRITE) != nullptr, "cannot commit the heap mirror pair");
+        GuestArena::GuestArenaCommit_nid_postfix(pair, 2 * half, PAGE_READWRITE, 2 * half);
         std::memset(pair, 0x11, 2 * half);
         auto* first = static_cast<std::uint8_t*>(pair);
         auto* second = first + half;
@@ -150,7 +150,7 @@ void heapMirrorTests(const Context& context, const BdaTestAccess& access) {
         Require(firstDevice() == device && access.addressBytes(device)[5] == std::byte{0x66}, "an interrupted build left a changed heap block marked current");
         registerPair(false);
         sweep();
-        VirtualFree(pair, 2 * half, MEM_DECOMMIT);
+        GuestArena::GuestArenaReset_nid_postfix(pair, 2 * half);
         GuestArena::GuestArenaRelease_nid_postfix(pair, 2 * half);
     }
 #endif
@@ -158,7 +158,7 @@ void heapMirrorTests(const Context& context, const BdaTestAccess& access) {
     {
         constexpr std::size_t size = 2 * 65536;
         void* raw = GuestArena::GuestArenaAllocate_nid_postfix(size, 65536);
-        Require(VirtualAlloc(raw, size, MEM_COMMIT, PAGE_READWRITE) != nullptr, "cannot commit the aliased range");
+        GuestArena::GuestArenaCommit_nid_postfix(raw, size, PAGE_READWRITE, size);
         auto* bytes8 = static_cast<std::uint8_t*>(raw);
         std::memset(raw, 0x11, size);
         const auto base = reinterpret_cast<std::uintptr_t>(raw);
@@ -209,12 +209,12 @@ void heapMirrorTests(const Context& context, const BdaTestAccess& access) {
         sweep();
         Require(VirtualProtect(reinterpret_cast<void*>(page), 4096, PAGE_READWRITE, &previous) != 0, "cannot restore the aliased page");
         GuestAllocations::GuestAllocationsInvalidate_nid_postfix(page, 4096);
-        VirtualFree(raw, size, MEM_DECOMMIT);
+        GuestArena::GuestArenaReset_nid_postfix(raw, size);
         GuestArena::GuestArenaRelease_nid_postfix(raw, size);
     }
 #endif
 #ifdef _WIN32
-    VirtualFree(block, bytes, MEM_DECOMMIT);
+    GuestArena::GuestArenaReset_nid_postfix(block, bytes);
 #endif
     GuestArena::GuestArenaRelease_nid_postfix(block, bytes);
 }
