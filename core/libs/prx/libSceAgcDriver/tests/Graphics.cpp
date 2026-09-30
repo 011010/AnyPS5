@@ -8,6 +8,7 @@
 #include <spirv/unified1/spirv.hpp>
 #include <array>
 #include <bit>
+#include <cstdlib>
 #include <cstring>
 #include <initializer_list>
 #include <iostream>
@@ -1222,7 +1223,11 @@ void validationTests() {
 }
 
 int main() {
+#ifdef _WIN32
     _putenv_s("APS5_PIN_WAIT_MS", "200");
+#else
+    setenv("APS5_PIN_WAIT_MS", "200", 1);
+#endif
     try {
         {
             const AgcDriver::Graphics::Context context{};
