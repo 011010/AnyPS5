@@ -196,6 +196,10 @@ void logLookup(const LookupRecord& record) {
 
 std::shared_ptr<StorageTexture> cachedStorageTexture(const Context& context, std::span<const std::uint32_t> words, const GuestTextureResource& resource, std::uint32_t mip, std::uint64_t guestBytes = 0);
 
+bool MetadataMoved(const StorageTexture& image, const GuestTextureResource& resource) {
+    return resource.dccAddress != 0 && image.Descriptor().dccAddress != resource.dccAddress;
+}
+
 // Whether a sampled texture over `resource` can be a view of the surface's cached storage image
 // instead of a CPU snapshot (see cachedTexture): the format has a storage form and is not block
 // compressed, and the surface lives in host-imported memory, where the image uploads and refreshes
@@ -287,7 +291,7 @@ std::shared_ptr<Texture> cachedTexture(const Context& context, std::span<const s
     // the GPU supplies the texture by a view of it; anything else needs those results in guest
     // memory first.
     auto source = StorageTexture::FindPending(address, guestBytes);
-    if (source != nullptr && !Texture::CanCopyFrom(*source, resource)) source.reset();
+    if (source != nullptr && (!Texture::CanCopyFrom(*source, resource) || MetadataMoved(*source, resource))) source.reset();
     // Otherwise a surface in host-imported memory is viewed through its cached storage image (made
     // here when there is none): its refresh after a CPU or GPU write is a GPU-direct detile from the
     // import, recorded behind the producer, so no bytes are read or compared on the CPU and nothing
@@ -496,7 +500,12 @@ std::shared_ptr<StorageTexture> cachedStorageTexture(const Context& context, std
     const StorageKey key{context.device, SurfaceKey(context, resource)};
     auto& cache = StorageTextures();
     std::lock_guard lock(cache.mutex);
-    if (auto it = findStorage(cache, key); it != cache.entries.end()) {
+    auto it = findStorage(cache, key);
+    if (it != cache.entries.end() && MetadataMoved(*it->texture, resource)) {
+        evictStorage(cache, it);
+        it = cache.entries.end();
+    }
+    if (it != cache.entries.end()) {
         it->texture->Refresh();
         cache.entries.splice(cache.entries.begin(), cache.entries, it);
         counters.storageHits.fetch_add(1, std::memory_order_relaxed);
