@@ -78,7 +78,7 @@ static_assert(sizeof(IrBindingLayout) == 64, "IrBindingLayout changed: update th
 static_assert(sizeof(IrDescriptorBinding) == 32, "IrDescriptorBinding changed: update the layout encoder");
 static_assert(sizeof(BindingAllocationResult) == 120, "BindingAllocationResult changed: update the allocation encoder");
 static_assert(sizeof(ResourceSpecialization) == 72, "ResourceSpecialization changed: update BuildKey");
-static_assert(sizeof(ResourceSpecialization::Buffer) == 12, "ResourceSpecialization::Buffer changed: update BuildKey");
+static_assert(sizeof(ResourceSpecialization::Buffer) == 16, "ResourceSpecialization::Buffer changed: update BuildKey");
 static_assert(sizeof(ResourceSpecialization::Image) == 36, "ResourceSpecialization::Image changed: update BuildKey");
 static_assert(sizeof(BindingLayout) == 16, "BindingLayout changed: update BuildKey");
 #endif
@@ -273,6 +273,7 @@ void encodeResult(Writer& writer, const RecompileResult& result) {
     writer.Value<std::uint64_t>(result.pushConstants.size());
     for (const auto byte : result.pushConstants) writer.Value(static_cast<std::uint8_t>(byte));
     writer.Value(result.bdaAbiVersion);
+    writer.Value(result.memoryOffsetDword);
     writer.List(result.vertexAttributes, [](Writer& out, const VertexAttribute& attribute) {
         out.Value(attribute.location);
         out.Value(attribute.components);
@@ -304,6 +305,7 @@ void decodeResult(Reader& reader, RecompileResult& result) {
     result.pushConstants.resize(pushConstants.size());
     std::memcpy(result.pushConstants.data(), pushConstants.data(), pushConstants.size());
     reader.Value(result.bdaAbiVersion);
+    reader.Value(result.memoryOffsetDword);
     reader.List(result.vertexAttributes, 28, [](Reader& in, VertexAttribute& attribute) {
         in.Value(attribute.location);
         in.Value(attribute.components);
@@ -331,6 +333,7 @@ void encodeLayout(Writer& writer, const IrBindingLayout& layout) {
     writer.Value(layout.pushDataStartDword);
     writer.Value(layout.memoryOffsetDword);
     writer.Value(layout.memoryOffsetCount);
+    writer.Value(layout.dispatchThreadLimit);
     writer.Values(std::span<const std::uint32_t>(layout.userDataRegisters));
     writer.List(layout.descriptors, [](Writer& out, const IrDescriptorBinding& descriptor) {
         out.Value(descriptor.kind);
@@ -342,6 +345,7 @@ void decodeLayout(Reader& reader, IrBindingLayout& layout) {
     reader.Value(layout.pushDataStartDword);
     reader.Value(layout.memoryOffsetDword);
     reader.Value(layout.memoryOffsetCount);
+    reader.Value(layout.dispatchThreadLimit);
     reader.Values(layout.userDataRegisters);
     reader.List(layout.descriptors, 12, [](Reader& in, IrDescriptorBinding& descriptor) {
         in.Value(descriptor.kind);
@@ -373,6 +377,7 @@ void encodeInfo(Writer& writer, const CompiledShaderInfo& compiled) {
         out.Value(buffer.atomic);
         out.Value(buffer.formatted);
         out.Value(buffer.scalar);
+        out.Value(buffer.empty);
     });
     writer.List(info.images, [](Writer& out, const ImageResource& image) {
         out.Value(image.source);
@@ -390,6 +395,7 @@ void encodeInfo(Writer& writer, const CompiledShaderInfo& compiled) {
         out.Value(image.depthCompare);
         out.Value(image.cube);
         out.Value(image.r128);
+        out.Value(image.depthBits);
         out.Value(image.indirectRoot);
         out.Value(image.indirectMappingOffset);
         out.Value(image.indirectSearchIterations);
@@ -428,6 +434,8 @@ void encodeInfo(Writer& writer, const CompiledShaderInfo& compiled) {
     writer.Value(info.instanceOffsetConflict);
     writer.Value(info.hasBitwiseXor);
     writer.Value(info.usesDma);
+    writer.Value(info.bdaWrites);
+    writer.Value(info.dispatchThreadLimit);
     encodeLayout(writer, compiled.bindings);
 }
 
@@ -442,7 +450,7 @@ void decodeInfo(Reader& reader, CompiledShaderInfo& compiled) {
     auto& info = compiled.info;
     reader.Value(info.scratchDwords);
     reader.Value(info.sharedMemoryBytes);
-    reader.List(info.buffers, 33, [](Reader& in, BufferResource& buffer) {
+    reader.List(info.buffers, 34, [](Reader& in, BufferResource& buffer) {
         in.Value(buffer.source);
         in.Value(buffer.firstUsePc);
         in.Value(buffer.maxByteExtent);
@@ -455,8 +463,9 @@ void decodeInfo(Reader& reader, CompiledShaderInfo& compiled) {
         in.Value(buffer.atomic);
         in.Value(buffer.formatted);
         in.Value(buffer.scalar);
+        in.Value(buffer.empty);
     });
-    reader.List(info.images, 62, [](Reader& in, ImageResource& image) {
+    reader.List(info.images, 63, [](Reader& in, ImageResource& image) {
         in.Value(image.source);
         in.Value(image.firstUsePc);
         in.Value(image.resourceClass);
@@ -472,6 +481,7 @@ void decodeInfo(Reader& reader, CompiledShaderInfo& compiled) {
         in.Value(image.depthCompare);
         in.Value(image.cube);
         in.Value(image.r128);
+        in.Value(image.depthBits);
         in.Value(image.indirectRoot);
         in.Value(image.indirectMappingOffset);
         in.Value(image.indirectSearchIterations);
@@ -510,6 +520,8 @@ void decodeInfo(Reader& reader, CompiledShaderInfo& compiled) {
     reader.Value(info.instanceOffsetConflict);
     reader.Value(info.hasBitwiseXor);
     reader.Value(info.usesDma);
+    reader.Value(info.bdaWrites);
+    reader.Value(info.dispatchThreadLimit);
     decodeLayout(reader, compiled.bindings);
 }
 
@@ -767,6 +779,7 @@ void BuildKey(const RecompileRequest& request, std::uint32_t hostSubgroupSize, c
         out.Value(buffer.packedStride);
         out.Value(buffer.descriptorFormat);
         out.Value(buffer.descriptorSwizzle);
+        out.Value(buffer.empty);
     });
     writer.List(specialization.images, [](Writer& out, const ResourceSpecialization::Image& image) {
         out.Value(image.numericClass);
@@ -779,6 +792,7 @@ void BuildKey(const RecompileRequest& request, std::uint32_t hostSubgroupSize, c
         out.Value(image.indirectSearchIterations);
         out.Value(image.cube);
         out.Value(image.fmask);
+        out.Value(image.depthBits);
     });
     writer.Values(std::span<const std::uint32_t>(specialization.boundDescriptors));
     const auto& switches = switchKey();
