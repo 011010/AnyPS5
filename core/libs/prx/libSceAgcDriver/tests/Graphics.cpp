@@ -1243,7 +1243,8 @@ bool recompilesDebugBranch(std::uint32_t opcode) {
     auto queue = makeState();
     queue.context[0x1b3] = 0x2u;
     queue.context[0x1b4] = 0x2u;
-    const auto pixel = AgcDriver::Graphics::DecodePixelStageInfo(queue.context, true, 0xe4u);
+    const auto state = AgcDriver::Graphics::DecodeState(queue);
+    const auto pixel = AgcDriver::Graphics::DecodePixelStageInfo(queue.context, AgcDriver::Graphics::ExportMappings(state));
     const std::array<std::uint32_t, 4> code{0xbf800000u | (opcode << 16u) | 1u, 0xf800180fu, 0x00000000u, 0xbf810000u};
     ShaderRecompiler::RecompileRequest request{};
     request.shader = {ShaderRecompiler::ShaderStage::Fragment, 0x30000u, code, 0, {}};
