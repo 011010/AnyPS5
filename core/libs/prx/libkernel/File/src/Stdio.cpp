@@ -316,8 +316,7 @@ int APS5_VABI sceKernelGetdirentries(int fd, char* buf, int nbytes, int64_t* bas
     if (buf == nullptr) return SceErrorFromErrno(GUEST_EFAULT);
     if (nbytes <= 0) return SceErrorFromErrno(GUEST_EINVAL);
     if (basep != nullptr) *basep = 0;
-    const int written = File::ReadDirectoryDescriptor(fd, buf, nbytes);
-    return written < 0 ? SceErrorFromErrno(GUEST_ENOTDIR) : written;
+    return File::ReadDirectoryDescriptor(fd, buf, nbytes);
 }
 
 int APS5_VABI sceKernelGetdents(int fd, char* buf, int nbytes) {
