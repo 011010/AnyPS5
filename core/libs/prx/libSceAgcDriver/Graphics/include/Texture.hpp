@@ -109,6 +109,7 @@ public:
     // The image holds every mip of the surface; one storage view per written mip is made on demand,
     // so successive mip writes of a chain share one image and one write-back.
     VkImageView View(std::uint32_t mip);
+    VkImageView FirstLayerView(std::uint32_t mip);
     // Render targets live in the same images: draws attach mip 0 through a view of the color
     // buffer's format and mark the image dirty like a storage write.
     bool Attachable() const { return attachable; }
@@ -363,7 +364,7 @@ private:
     void forgetBorrowed(std::uint32_t first, std::uint32_t count);
     bool overlaps(std::uint64_t address, std::size_t bytes) const;
     bool pendingUnitInside(std::uint64_t address, std::size_t bytes) const;
-    VkImageView createView(std::uint32_t mip) const;
+    VkImageView createView(std::uint32_t mip, bool firstLayer = false) const;
     void release() noexcept;
 
     Context context;
@@ -403,6 +404,7 @@ private:
     VkImageView view = VK_NULL_HANDLE;
     std::uint32_t defaultMip = 0;
     std::map<std::uint32_t, VkImageView> extraViews;
+    std::map<std::uint32_t, VkImageView> firstLayerViews;
     bool attachable = false;
     std::map<std::pair<VkFormat, std::uint32_t>, VkImageView> attachmentViews;
     VkFormat storageFormat = VK_FORMAT_UNDEFINED;

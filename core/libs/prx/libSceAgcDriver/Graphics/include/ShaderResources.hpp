@@ -390,6 +390,7 @@ private:
     std::vector<std::shared_ptr<Texture>> textures;
     std::vector<std::shared_ptr<StorageTexture>> storageTextures;
     std::vector<std::uint32_t> storageMips;
+    std::vector<bool> storageFirstLayer;
     std::vector<bool> storageWritten;
     std::vector<std::shared_ptr<Sampler>> samplers;
     bool reusable = false;
