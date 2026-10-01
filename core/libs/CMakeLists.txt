@@ -43,12 +43,14 @@ configure_windows_unwind(libc)
 
 set(UNPATCHED_DIR ${CMAKE_CURRENT_BINARY_DIR}/libs/unpatched)
 set(PATCHED_DIR ${CMAKE_CURRENT_BINARY_DIR}/libs)
+set(IMPLIB_DIR ${PATCHED_DIR}/implib)
 
 set_target_properties(libc PROPERTIES
         PREFIX ""
         SUFFIX .prx
         RUNTIME_OUTPUT_DIRECTORY ${UNPATCHED_DIR}
         LIBRARY_OUTPUT_DIRECTORY ${UNPATCHED_DIR}
+        ARCHIVE_OUTPUT_DIRECTORY ${IMPLIB_DIR}
 )
 
 set(LIBC_UNPATCHED ${UNPATCHED_DIR}/libc.prx)
@@ -98,6 +100,7 @@ foreach(LIB_DIR ${LIBS_DIRS})
                 SUFFIX .prx
                 RUNTIME_OUTPUT_DIRECTORY ${UNPATCHED_DIR}
                 LIBRARY_OUTPUT_DIRECTORY ${UNPATCHED_DIR}
+                ARCHIVE_OUTPUT_DIRECTORY ${IMPLIB_DIR}
         )
 
         set(UNPATCHED_FILE ${UNPATCHED_DIR}/${LIB_NAME}.prx)
