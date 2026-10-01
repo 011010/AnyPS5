@@ -427,6 +427,56 @@ bool IsVectorAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VCmpGtU64:
         case RdnaOpcode::VCmpNeU64:
         case RdnaOpcode::VCmpxNeI64:
+        case RdnaOpcode::VCmpxFF32:
+        case RdnaOpcode::VCmpxOF32:
+        case RdnaOpcode::VCmpxUF32:
+        case RdnaOpcode::VCmpxTruF32:
+        case RdnaOpcode::VCmpxFI32:
+        case RdnaOpcode::VCmpxTI32:
+        case RdnaOpcode::VCmpxFU32:
+        case RdnaOpcode::VCmpxTU32:
+        case RdnaOpcode::VCmpFI64:
+        case RdnaOpcode::VCmpLtI64:
+        case RdnaOpcode::VCmpLeI64:
+        case RdnaOpcode::VCmpGtI64:
+        case RdnaOpcode::VCmpNeI64:
+        case RdnaOpcode::VCmpGeI64:
+        case RdnaOpcode::VCmpTI64:
+        case RdnaOpcode::VCmpxFI64:
+        case RdnaOpcode::VCmpxLtI64:
+        case RdnaOpcode::VCmpxEqI64:
+        case RdnaOpcode::VCmpxLeI64:
+        case RdnaOpcode::VCmpxGtI64:
+        case RdnaOpcode::VCmpxGeI64:
+        case RdnaOpcode::VCmpxTI64:
+        case RdnaOpcode::VCmpFU64:
+        case RdnaOpcode::VCmpLeU64:
+        case RdnaOpcode::VCmpGeU64:
+        case RdnaOpcode::VCmpTU64:
+        case RdnaOpcode::VCmpxFU64:
+        case RdnaOpcode::VCmpxLtU64:
+        case RdnaOpcode::VCmpxEqU64:
+        case RdnaOpcode::VCmpxLeU64:
+        case RdnaOpcode::VCmpxGtU64:
+        case RdnaOpcode::VCmpxGeU64:
+        case RdnaOpcode::VCmpxTU64:
+        case RdnaOpcode::VCmpFF16:
+        case RdnaOpcode::VCmpOF16:
+        case RdnaOpcode::VCmpUF16:
+        case RdnaOpcode::VCmpNgeF16:
+        case RdnaOpcode::VCmpNlgF16:
+        case RdnaOpcode::VCmpNgtF16:
+        case RdnaOpcode::VCmpNleF16:
+        case RdnaOpcode::VCmpNltF16:
+        case RdnaOpcode::VCmpTruF16:
+        case RdnaOpcode::VCmpxFF16:
+        case RdnaOpcode::VCmpxLgF16:
+        case RdnaOpcode::VCmpxOF16:
+        case RdnaOpcode::VCmpxUF16:
+        case RdnaOpcode::VCmpxNgeF16:
+        case RdnaOpcode::VCmpxNlgF16:
+        case RdnaOpcode::VCmpxNleF16:
+        case RdnaOpcode::VCmpxTruF16:
         case RdnaOpcode::VCmpxNeU64:
         case RdnaOpcode::VCmpxLtU32:
         case RdnaOpcode::VCmpxEqU32:
