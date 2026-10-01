@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver/Driver.hpp"
+#include "Optimization/ShaderStageInputInfo.hpp"
 
 namespace AgcDriver::DriverDetail {
 

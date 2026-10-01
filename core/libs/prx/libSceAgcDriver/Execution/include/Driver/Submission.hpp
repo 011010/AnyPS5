@@ -17,14 +17,6 @@
 
 namespace AgcDriver::DriverDetail {
 
-struct QueueWorker {
-    std::deque<Submission> pending;
-
-    std::atomic<std::uint64_t> queued{0};
-    std::unordered_map<std::uint64_t, std::uint32_t> unfinishedWrites;
-    std::thread thread;
-};
-
 struct Submission {
     std::uint64_t serial;
     std::uint32_t queue;
@@ -41,6 +33,14 @@ struct Submission {
     std::chrono::steady_clock::time_point enqueuedAt{};
     const std::uint32_t* rewindTail = nullptr;
     std::size_t rewindWords = 0;
+};
+
+struct QueueWorker {
+    std::deque<Submission> pending;
+
+    std::atomic<std::uint64_t> queued{0};
+    std::unordered_map<std::uint64_t, std::uint32_t> unfinishedWrites;
+    std::thread thread;
 };
 
 }
