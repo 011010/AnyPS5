@@ -10,6 +10,7 @@
 #include <deque>
 #include <mutex>
 #include <functional>
+#include <list>
 #include <map>
 #include <memory>
 #include <optional>
@@ -19,6 +20,8 @@
 #include <vector>
 
 namespace AgcDriver::Graphics {
+
+class Buffer;
 
 // Accumulates GPU work across guest commands so the CPU does not wait for each one. Dispatches and the
 // copies that feed them record into one open batch; Submit sends it to the queue without waiting and
@@ -91,6 +94,10 @@ public:
     // neither the mutex nor the recorder nor a particular thread. ~Recorder joins the release
     // thread and waits for every release in progress before the device goes.
     void Keep(std::shared_ptr<void> object);
+    static constexpr std::size_t DrawSnapshotBudget = std::size_t{256} << 20u;
+    static constexpr std::size_t DrawSnapshotEntries = 1024;
+    std::shared_ptr<Buffer> ReusableDrawSnapshot(std::uint64_t address, std::size_t bytes);
+    void KeepDrawSnapshot(std::uint64_t address, std::size_t bytes, std::uint64_t generation, std::uint64_t registryGeneration, std::shared_ptr<Buffer> buffer);
     void OnComplete(std::function<void()> action);
     void NotePendingWrite(std::uint64_t address, std::size_t bytes);
     // Notes several [begin, end) ranges and publishes the snapshot once (a dispatch writes many buffers).
@@ -687,6 +694,17 @@ private:
     std::array<Completed, CompletedRingSize> completed;
     std::uint64_t newestSubmitted = 0;
     std::chrono::steady_clock::time_point newestSubmittedAt{};
+    using DrawSnapshotKey = std::pair<std::uint64_t, std::size_t>;
+    struct DrawSnapshot {
+        std::uint64_t generation;
+        std::uint64_t registryGeneration;
+        std::list<DrawSnapshotKey>::iterator recent;
+        std::shared_ptr<Buffer> buffer;
+    };
+    std::map<DrawSnapshotKey, DrawSnapshot> drawSnapshots;
+    std::list<DrawSnapshotKey> drawSnapshotRecency;
+    std::size_t drawSnapshotBytes = 0;
+    void eraseDrawSnapshot(std::map<DrawSnapshotKey, DrawSnapshot>::iterator entry);
 };
 
 }

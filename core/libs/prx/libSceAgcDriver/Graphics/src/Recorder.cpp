@@ -7,6 +7,7 @@
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Pm4Opcodes.hpp"
 #include "prx/libc/include/CpuTopology.hpp"
+#include "prx/libc/include/GuestAllocations.hpp"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -16,6 +17,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <mutex>
@@ -1915,6 +1917,38 @@ std::size_t Recorder::UnsignaledBatches() const {
 void Recorder::Keep(std::shared_ptr<void> object) {
     ensureOpen();
     open->kept.push_back(std::move(object));
+}
+
+void Recorder::eraseDrawSnapshot(std::map<DrawSnapshotKey, DrawSnapshot>::iterator entry) {
+    drawSnapshotBytes -= entry->first.second;
+    drawSnapshotRecency.erase(entry->second.recent);
+    drawSnapshots.erase(entry);
+}
+
+std::shared_ptr<Buffer> Recorder::ReusableDrawSnapshot(std::uint64_t address, std::size_t bytes) {
+    const auto found = drawSnapshots.find({address, bytes});
+    if (found == drawSnapshots.end()) return {};
+    if (found->second.registryGeneration != GuestAllocations::GuestAllocationsGeneration_nid_postfix() || !GuestMemory::UnchangedSince(address, bytes, found->second.generation)) {
+        eraseDrawSnapshot(found);
+        return {};
+    }
+    drawSnapshotRecency.splice(drawSnapshotRecency.end(), drawSnapshotRecency, found->second.recent);
+    return found->second.buffer;
+}
+
+void Recorder::KeepDrawSnapshot(std::uint64_t address, std::size_t bytes, std::uint64_t generation, std::uint64_t registryGeneration, std::shared_ptr<Buffer> buffer) {
+    if (generation == 0 || bytes > DrawSnapshotBudget) return;
+    if (const auto found = drawSnapshots.find({address, bytes}); found != drawSnapshots.end()) eraseDrawSnapshot(found);
+    while (!drawSnapshots.empty() && (drawSnapshotBytes + bytes > DrawSnapshotBudget || drawSnapshots.size() >= DrawSnapshotEntries)) eraseDrawSnapshot(drawSnapshots.find(drawSnapshotRecency.front()));
+    const DrawSnapshotKey key{address, bytes};
+    drawSnapshotRecency.push_back(key);
+    try {
+        drawSnapshots.emplace(key, DrawSnapshot{generation, registryGeneration, std::prev(drawSnapshotRecency.end()), std::move(buffer)});
+    } catch (...) {
+        drawSnapshotRecency.pop_back();
+        throw;
+    }
+    drawSnapshotBytes += bytes;
 }
 
 void Recorder::OnComplete(std::function<void()> action) {
