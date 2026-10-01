@@ -85,4 +85,4 @@ inline bool replace_file(const std::filesystem::path& path, const void* data, st
 #endif
 }
 
-}  // namespace savedata
+}
