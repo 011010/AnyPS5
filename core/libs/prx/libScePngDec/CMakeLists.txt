@@ -11,7 +11,7 @@ if(MINGW)
 endif()
 
 if(BUILD_TESTING)
-    add_executable(guest_png_dec_tests ${LIBS_INCLUDE_DIR}/tests/GuestPngDec.cpp)
+    add_test_executable(guest_png_dec_tests ${LIBS_INCLUDE_DIR}/tests/GuestPngDec.cpp)
     target_include_directories(guest_png_dec_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(guest_png_dec_tests PRIVATE libScePngDec decoder_png libc)
     configure_windows_unwind(guest_png_dec_tests)

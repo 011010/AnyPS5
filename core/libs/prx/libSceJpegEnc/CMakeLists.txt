@@ -11,7 +11,7 @@ if(MINGW)
 endif()
 
 if(BUILD_TESTING)
-    add_executable(guest_jpeg_enc_tests ${LIBS_INCLUDE_DIR}/tests/GuestJpegEnc.cpp)
+    add_test_executable(guest_jpeg_enc_tests ${LIBS_INCLUDE_DIR}/tests/GuestJpegEnc.cpp)
     target_include_directories(guest_jpeg_enc_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(guest_jpeg_enc_tests PRIVATE libSceJpegEnc decoder_jpeg libc)
     configure_windows_unwind(guest_jpeg_enc_tests)

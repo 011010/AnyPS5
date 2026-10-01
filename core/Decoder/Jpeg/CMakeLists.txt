@@ -9,7 +9,7 @@ set_target_properties(decoder_jpeg PROPERTIES
 )
 
 if(BUILD_TESTING)
-    add_executable(decoder_jpeg_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests/Jpeg.cpp)
+    add_test_executable(decoder_jpeg_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests/Jpeg.cpp)
     target_link_libraries(decoder_jpeg_tests PRIVATE decoder_jpeg)
     add_test(NAME decoder_jpeg COMMAND decoder_jpeg_tests)
 endif()

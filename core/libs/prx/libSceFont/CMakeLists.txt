@@ -8,7 +8,7 @@ if(MINGW)
 endif()
 
 if(BUILD_TESTING)
-    add_executable(guest_font_tests ${LIBS_INCLUDE_DIR}/tests/GuestFont.cpp)
+    add_test_executable(guest_font_tests ${LIBS_INCLUDE_DIR}/tests/GuestFont.cpp)
     target_include_directories(guest_font_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(guest_font_tests PRIVATE libSceFont libSceFontFt libc)
     add_test(NAME guest_font COMMAND guest_font_tests)

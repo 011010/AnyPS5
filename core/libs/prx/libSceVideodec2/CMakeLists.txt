@@ -14,7 +14,7 @@ if(MINGW)
 endif()
 
 if(BUILD_TESTING)
-    add_executable(guest_videodec2_tests ${LIBS_INCLUDE_DIR}/tests/GuestVideodec2.cpp)
+    add_test_executable(guest_videodec2_tests ${LIBS_INCLUDE_DIR}/tests/GuestVideodec2.cpp)
     target_include_directories(guest_videodec2_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(guest_videodec2_tests PRIVATE libSceVideodec2 libc)
     configure_windows_unwind(guest_videodec2_tests)

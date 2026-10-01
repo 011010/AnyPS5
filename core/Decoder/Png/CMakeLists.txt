@@ -9,7 +9,7 @@ set_target_properties(decoder_png PROPERTIES
 )
 
 if(BUILD_TESTING)
-    add_executable(decoder_png_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests/Png.cpp)
+    add_test_executable(decoder_png_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests/Png.cpp)
     target_link_libraries(decoder_png_tests PRIVATE decoder_png)
     add_test(NAME decoder_png COMMAND decoder_png_tests)
 endif()

@@ -9,7 +9,7 @@ if(MINGW)
 endif()
 
 if(BUILD_TESTING)
-    add_executable(player_invitation_dialog_tests ${LIBS_INCLUDE_DIR}/tests/PlayerInvitationDialog.cpp)
+    add_test_executable(player_invitation_dialog_tests ${LIBS_INCLUDE_DIR}/tests/PlayerInvitationDialog.cpp)
     target_include_directories(player_invitation_dialog_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(player_invitation_dialog_tests PRIVATE libScePlayerInvitationDialog libc)
     configure_windows_unwind(player_invitation_dialog_tests)

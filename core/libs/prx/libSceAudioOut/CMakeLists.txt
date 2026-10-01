@@ -23,7 +23,7 @@ if(MINGW)
 endif()
 
 if(BUILD_TESTING)
-    add_executable(audio_out2_pad_mix_tests tests/AudioOut2PadMix.cpp src/AudioOut2PadMix.cpp)
+    add_test_executable(audio_out2_pad_mix_tests tests/AudioOut2PadMix.cpp src/AudioOut2PadMix.cpp)
     target_include_directories(audio_out2_pad_mix_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(audio_out2_pad_mix_tests PRIVATE libc)
     configure_windows_unwind(audio_out2_pad_mix_tests)

@@ -12,7 +12,7 @@ if(MINGW)
 endif()
 
 if(BUILD_TESTING)
-    add_executable(guest_resolver_tests ${LIBS_INCLUDE_DIR}/tests/GuestResolver.cpp)
+    add_test_executable(guest_resolver_tests ${LIBS_INCLUDE_DIR}/tests/GuestResolver.cpp)
     target_include_directories(guest_resolver_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(guest_resolver_tests PRIVATE libScePosixForWebKit)
     add_test(NAME guest_resolver COMMAND guest_resolver_tests)
