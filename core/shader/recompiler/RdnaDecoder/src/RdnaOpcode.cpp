@@ -323,6 +323,14 @@ bool IsVectorAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VAshrrevI32:
         case RdnaOpcode::VLshlrevB64:
         case RdnaOpcode::VLshrrevB64:
+        case RdnaOpcode::VAshrrevI64:
+        case RdnaOpcode::VAddNcI32:
+        case RdnaOpcode::VSubNcI32:
+        case RdnaOpcode::VMulLoU16:
+        case RdnaOpcode::VMadU16:
+        case RdnaOpcode::VMadI16:
+        case RdnaOpcode::VMadU32U16:
+        case RdnaOpcode::VMadI32I16:
         case RdnaOpcode::VLshlrevB16:
         case RdnaOpcode::VLshrrevB16:
         case RdnaOpcode::VAshrrevI16:
