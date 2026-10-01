@@ -46,14 +46,19 @@ bool IsScalarAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::SSextI32I8:
         case RdnaOpcode::SSextI32I16:
         case RdnaOpcode::SBcnt0I32B32:
+        case RdnaOpcode::SBcnt0I32B64:
         case RdnaOpcode::SBcnt1I32B32:
         case RdnaOpcode::SBcnt1I32B64:
         case RdnaOpcode::SFf0I32B32:
+        case RdnaOpcode::SFf0I32B64:
         case RdnaOpcode::SFf1I32B32:
         case RdnaOpcode::SFf1I32B64:
         case RdnaOpcode::SFlbitI32B32:
         case RdnaOpcode::SFlbitI32B64:
+        case RdnaOpcode::SFlbitI32:
+        case RdnaOpcode::SFlbitI32I64:
         case RdnaOpcode::SBitreplicateB64B32:
+        case RdnaOpcode::SQuadmaskB32:
         case RdnaOpcode::SQuadmaskB64:
         case RdnaOpcode::SAndSaveexecB32:
         case RdnaOpcode::SOrSaveexecB32:
