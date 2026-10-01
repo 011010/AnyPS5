@@ -32,6 +32,11 @@ Throughout the project, every function at every stage either **does exactly what
 - [__progname](../../core/libs/prx/libkernel/System/src/Process.cpp) (libkernel) - unknown data export
 - [sceSslClose](../../core/libs/prx/libSceSsl/Export.cpp) (libSceSsl) - unknown signature
 - [sceSslGetSerialNumber](../../core/libs/prx/libSceSsl/Export.cpp) (libSceSsl) - unknown signature
+- [X+4jdIS75P0](../../core/libs/prx/libSceAudioIn/Export.cpp) (libSceAudioIn) - unknown name, signature
+- [AOWqIYsgVHs](../../core/libs/prx/libSceContentExport/Export.cpp) (libSceContentExport) - unknown name, signature
+- [GQTObcITIXI](../../core/libs/prx/libSceShare/Export.cpp) (libSceShare) - unknown name, signature
+- [BnMAMrsfVWo](../../core/libs/prx/libc/src/HeapDiagnostics.cpp) (libc) - unknown name, signature
+- AudioPropagation, AudioIn, NpSessionSignaling and PlayerInvitationDialog exports added without an implementation have assumed signatures
 
 ### Functional
 
