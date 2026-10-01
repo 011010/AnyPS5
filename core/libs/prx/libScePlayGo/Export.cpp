@@ -9,8 +9,8 @@
 #include <string>
 
 // The game is fully installed on the host, so every chunk is local and nothing is pending.
-static constexpr int SCE_PLAYGO_ERROR_BAD_POINTER = static_cast<int>(0x80B20004);
-static constexpr int SCE_PLAYGO_ERROR_BAD_HANDLE = static_cast<int>(0x80B20005);
+static constexpr int SCE_PLAYGO_ERROR_BAD_POINTER = static_cast<int>(0x80B2000A);
+static constexpr int SCE_PLAYGO_ERROR_BAD_HANDLE = static_cast<int>(0x80B20009);
 static constexpr int PLAYGO_HANDLE = 1;
 static constexpr int8_t PLAYGO_LOCUS_LOCAL_FAST = 3;
 static constexpr int32_t PLAYGO_INSTALL_SPEED_FULL = 2;
@@ -18,7 +18,7 @@ static constexpr int32_t PLAYGO_INSTALL_SPEED_FULL = 2;
 static int32_t g_installSpeed = PLAYGO_INSTALL_SPEED_FULL;
 
 static constexpr int SCE_PLAYGO_ERROR_BAD_CHUNK_ID = static_cast<int>(0x80B2000C);
-static constexpr int SCE_PLAYGO_ERROR_BAD_SIZE = static_cast<int>(0x80B2000D);
+static constexpr int SCE_PLAYGO_ERROR_BAD_SIZE = static_cast<int>(0x80B2000B);
 
 // The package's chunk table is not part of the dump, so the chunk set comes from the title's
 // playgo-chunkdefs.xml: every listed chunk plus chunks 0 through the default chunk. Games probe
