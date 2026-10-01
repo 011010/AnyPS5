@@ -49,7 +49,52 @@ add_custom_command(
 set(agcDriverSources
         ${CMAKE_CURRENT_SOURCE_DIR}/Unimplemented.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/DisplayBuffer.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/BufferCopy.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/BufferFill.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/CaptureDiagnostics.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/CaptureValidation.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/CommandValidation.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DataHitVerification.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DeferredLabels.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DeviceAccess.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/Diagnostics.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/Dispatch.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DispatchCache.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DispatchCacheStatistics.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DispatchInsert.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DispatchLookup.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DispatchTiming.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/Draw.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DrawCache.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DrawCacheStatistics.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DrawCapture.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DrawDecode.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DrawLookup.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DrawPrecheck.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DrawRegisterKey.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/DrawTiming.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/EntryPoints.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/IndirectDispatch.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/IndirectDraw.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/LabelHistory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/Lifecycle.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/PacketExecution.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/PacketFlush.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/PacketHistory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/PacketMemory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/PacketTiming.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/Presentation.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/QueueWorker.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/ShaderDiagnostics.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/ShaderRegistry.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/Submission.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/SynchronizationStatistics.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/VariantValidation.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/WaitMemory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/WaitStatistics.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/WorkerAffinity.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/WriteEvidence.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver/WrittenBuffers.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/WorkerSampler.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/GuestMemory.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/ShaderMemory.cpp
