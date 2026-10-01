@@ -64,6 +64,7 @@ public:
     Texture& operator=(const Texture&) = delete;
 
     VkImageView View() const;
+    VkImageView FirstLayerView() const { return firstLayerView; }
     // The layout the image is kept in while sampled.
     VkImageLayout Layout() const { return layout; }
     VkDeviceSize AllocationBytes() const { return allocationBytes; }
@@ -78,6 +79,7 @@ public:
 
 private:
     void release() noexcept;
+    void createFirstLayerView(const GuestTextureResource& descriptor, VkImageViewCreateInfo viewInfo);
 
     // Held by value: cached textures outlive the Context of the draw that created them.
     Context context;
@@ -86,6 +88,7 @@ private:
     VkImage image = VK_NULL_HANDLE;
     std::shared_ptr<OwnedImage> owned;
     VkImageView view = VK_NULL_HANDLE;
+    VkImageView firstLayerView = VK_NULL_HANDLE;
     VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VkDeviceSize allocationBytes = 0;
     std::shared_ptr<ResidentColor> source;
