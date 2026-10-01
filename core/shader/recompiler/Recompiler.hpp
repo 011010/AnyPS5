@@ -417,6 +417,7 @@ struct ResourceCapture;
 void SetDebugProbeActive(bool active);
 [[nodiscard]] bool DebugProbeActive();
 [[nodiscard]] bool RayTracingStrict();
+[[nodiscard]] bool RayTracingMiss();
 
 struct RectListShaders {
     RecompileResult control;
