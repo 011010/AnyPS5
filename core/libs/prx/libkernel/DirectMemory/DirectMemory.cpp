@@ -389,11 +389,7 @@ void* MapPlaced(void* addr, size_t len, int prot, int flags, size_t alignment) {
     constexpr int GuestMapFixed = 0x10;
     constexpr int GuestMapNoOverwrite = 0x80;
     constexpr int GuestMapNoCoalesce = 0x400000;
-#if defined(__linux__)
     constexpr int SupportedFlags = GuestMapFixed | GuestMapNoOverwrite | GuestMapNoCoalesce;
-#else
-    constexpr int SupportedFlags = GuestMapFixed | GuestMapNoCoalesce;
-#endif
     if ((flags & ~SupportedFlags) != 0) {
         char message[64];
         std::snprintf(message, sizeof(message), "Unsupported memory mapping flags 0x%x", flags);

@@ -69,13 +69,16 @@ static void CheckNamedAndHintedMappings() {
     Require(sceKernelMapFlexibleMemory(&hinted, length, 3, 0) == 0);
     Require(hinted > first && (reinterpret_cast<std::uintptr_t>(hinted) & 0x3fff) == 0);
     static_cast<volatile unsigned char*>(hinted)[length - 1] = 1;
-#if defined(__linux__)
     bool rejected = false;
     void* overwrite = first;
     try { sceKernelMapFlexibleMemory(&overwrite, 0x4000, 3, 0x90); } catch (const std::exception&) { rejected = true; }
     Require(rejected && overwrite == first);
-#endif
     Require(sceKernelMunmap(hinted, length) == 0);
+    void* exclusive = hinted;
+    Require(sceKernelMapFlexibleMemory(&exclusive, length, 3, 0x90) == 0);
+    Require(exclusive == hinted);
+    static_cast<volatile unsigned char*>(exclusive)[0] = 1;
+    Require(sceKernelMunmap(exclusive, length) == 0);
     Require(sceKernelMunmap(first, length) == 0);
 }
 
