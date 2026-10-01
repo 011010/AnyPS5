@@ -159,6 +159,9 @@ void TranslationContext::eXP(const RdnaInstruction& inst) {
 }
 
 bool TranslationContext::emitInterpolation(const RdnaInstruction& inst) {
+    if ((inst.op == RdnaOpcode::VInterpP1F32 || inst.op == RdnaOpcode::VInterpP2F32) && pixelInput != nullptr && pixelInput->InputIsCustom(inst.source1.value)) {
+        throw std::runtime_error("pixel input " + std::to_string(inst.source1.value) + " passes its vertices through unchanged but is read with v_interp_p1/p2");
+    }
     switch (inst.op) {
         case RdnaOpcode::VInterpP1F32:
             vInterpP1F32(inst);
