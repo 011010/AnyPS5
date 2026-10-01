@@ -143,6 +143,36 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME host_thread_local COMMAND host_thread_local_tests)
     set_tests_properties(host_thread_local PROPERTIES TIMEOUT 15)
+
+    add_test_executable(savedata_core_write_replacement_tests tests/SaveDataWriteReplacement.cpp)
+    target_include_directories(savedata_core_write_replacement_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(savedata_core_write_replacement_tests PRIVATE libSceSaveData)
+    configure_windows_unwind(savedata_core_write_replacement_tests)
+    add_test(NAME savedata_core_write_replacement COMMAND savedata_core_write_replacement_tests)
+
+    add_test_executable(savedata_native_write_replacement_tests tests/SaveDataWriteReplacement.cpp)
+    target_include_directories(savedata_native_write_replacement_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_definitions(savedata_native_write_replacement_tests PRIVATE SAVEDATA_NATIVE_BACKEND)
+    target_link_libraries(savedata_native_write_replacement_tests PRIVATE libSceSaveData.native)
+    configure_windows_unwind(savedata_native_write_replacement_tests)
+    add_test(NAME savedata_native_write_replacement COMMAND savedata_native_write_replacement_tests)
+
+    add_test_executable(savedata_replace_file_failure_tests tests/SaveDataFileWriteFailure.cpp)
+    target_include_directories(savedata_replace_file_failure_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    configure_windows_unwind(savedata_replace_file_failure_tests)
+    add_test(NAME savedata_replace_file_failure COMMAND savedata_replace_file_failure_tests)
+
+    if(MINGW)
+        target_compile_options(savedata_core_write_replacement_tests PRIVATE -fasynchronous-unwind-tables)
+        target_compile_options(savedata_native_write_replacement_tests PRIVATE -fasynchronous-unwind-tables)
+        target_compile_options(savedata_replace_file_failure_tests PRIVATE -fasynchronous-unwind-tables)
+    endif()
+    if(WIN32)
+        set_tests_properties(savedata_core_write_replacement PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceSaveData>")
+        set_tests_properties(savedata_native_write_replacement PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceSaveData.native>")
+    endif()
 endif()
 
 if(MINGW)
