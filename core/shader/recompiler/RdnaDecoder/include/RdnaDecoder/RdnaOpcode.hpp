@@ -710,6 +710,7 @@ enum class RdnaOpcode : std::uint16_t {
     DsMaxF32,
     DsSwizzleB32,
     DsBpermuteB32,
+    DsPermuteB32,
     DsConsume,
     DsAppend,
     DsReadI8,
