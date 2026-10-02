@@ -16,6 +16,8 @@ Throughout the project, every function at every stage either **does exactly what
 - [libSceHmd](../../core/libs/prx/libSceHmd/Export.cpp) implements only the disconnected-headset path: initialization succeeds, device queries report `NotDetected`, and opening a device returns `DeviceDisconnected`. Headset support, tracking, rendering and additional HMD exports are not implemented; SDK-level ABI compatibility and in-game behaviour remain unverified.
 - [libSceNpCommerce](../../core/libs/prx/libSceNpCommerce/Export.cpp) - the PS Store icon show/hide calls do nothing
 - The shader recompiler [skips baryctric coordinates](../../core/shader/recompiler/Recompiler.cpp) (is not even passed to SpirvTargetOptions at row 212).
+- [libSceAvPlayer](../../core/libs/prx/libSceAvPlayer/Export.cpp): `sceAvPlayerSetLogCallback` accepts a callback that is never called, as the player produces no log messages, and `sceAvPlayerSetAvailableBandwidth` has no effect, as it governs HLS sources, which `sceAvPlayerAddSource` does not implement.
+- [sceAvPlayerSetTrickSpeed](../../core/libs/prx/libSceAvPlayer/src/Source.cpp) (libSceAvPlayer) with a negative speed runs the clock backwards but delivers no frames; when a forward speed is set again, playback resumes from the rewound time.
 
 ### Unknown function info
 
@@ -39,6 +41,9 @@ Throughout the project, every function at every stage either **does exactly what
 - [GQTObcITIXI](../../core/libs/prx/libSceShare/Export.cpp) (libSceShare) - unknown name, signature
 - [BnMAMrsfVWo](../../core/libs/prx/libc/src/HeapDiagnostics.cpp) (libc) - unknown name, signature
 - AudioPropagation, AudioIn, NpSessionSignaling and PlayerInvitationDialog exports added without an implementation have assumed signatures
+- [sceAvPlayerStartEx](../../core/libs/prx/libSceAvPlayer/Export.cpp) (libSceAvPlayer) - start info layout unknown; it is ignored and playback starts as with `sceAvPlayerStart`
+- [sceAvPlayerInit / sceAvPlayerInitEx](../../core/libs/prx/libSceAvPlayer/src/Player.cpp) (libSceAvPlayer) - behaviour without a memory replacement unknown; frame and sample buffers then come from the guest heap
+- [SceAvPlayerVideoEx](../../core/libs/SceTypes.hpp) (libSceAvPlayer) - frame rate field and encoding unknown; it is left zero in frame and stream info
 
 ### Functional
 
