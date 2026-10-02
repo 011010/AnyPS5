@@ -1919,36 +1919,53 @@ void Recorder::Keep(std::shared_ptr<void> object) {
     open->kept.push_back(std::move(object));
 }
 
+namespace {
+std::size_t SnapshotPool(Recorder::SnapshotUse use) {
+    return use == Recorder::SnapshotUse::Storage ? 0 : 1;
+}
+}
+
 void Recorder::eraseDrawSnapshot(std::map<DrawSnapshotKey, DrawSnapshot>::iterator entry) {
-    drawSnapshotBytes -= entry->first.second;
-    drawSnapshotRecency.erase(entry->second.recent);
+    auto& pool = drawSnapshotPools[SnapshotPool(std::get<1>(entry->first))];
+    pool.bytes -= std::get<2>(entry->first);
+    pool.recency.erase(entry->second.recent);
     drawSnapshots.erase(entry);
 }
 
-std::shared_ptr<Buffer> Recorder::ReusableDrawSnapshot(std::uint64_t address, std::size_t bytes) {
-    const auto found = drawSnapshots.find({address, bytes});
-    if (found == drawSnapshots.end()) return {};
+std::shared_ptr<Buffer> Recorder::ReusableDrawSnapshot(std::uint64_t address, std::size_t bytes, SnapshotUse use, std::uint32_t* derived) {
+    auto found = use == SnapshotUse::Vertex ? drawSnapshots.lower_bound({address, use, bytes}) : drawSnapshots.find({address, use, bytes});
+    if (found == drawSnapshots.end() || std::get<0>(found->first) != address || std::get<1>(found->first) != use) return {};
     if (found->second.registryGeneration != GuestAllocations::GuestAllocationsGeneration_nid_postfix() || !GuestMemory::UnchangedSince(address, bytes, found->second.generation)) {
         eraseDrawSnapshot(found);
         return {};
     }
-    drawSnapshotRecency.splice(drawSnapshotRecency.end(), drawSnapshotRecency, found->second.recent);
+    auto& recency = drawSnapshotPools[SnapshotPool(use)].recency;
+    recency.splice(recency.end(), recency, found->second.recent);
+    if (derived != nullptr) *derived = found->second.derived;
     return found->second.buffer;
 }
 
-void Recorder::KeepDrawSnapshot(std::uint64_t address, std::size_t bytes, std::uint64_t generation, std::uint64_t registryGeneration, std::shared_ptr<Buffer> buffer) {
-    if (generation == 0 || bytes > DrawSnapshotBudget) return;
-    if (const auto found = drawSnapshots.find({address, bytes}); found != drawSnapshots.end()) eraseDrawSnapshot(found);
-    while (!drawSnapshots.empty() && (drawSnapshotBytes + bytes > DrawSnapshotBudget || drawSnapshots.size() >= DrawSnapshotEntries)) eraseDrawSnapshot(drawSnapshots.find(drawSnapshotRecency.front()));
-    const DrawSnapshotKey key{address, bytes};
-    drawSnapshotRecency.push_back(key);
+void Recorder::KeepDrawSnapshot(std::uint64_t address, std::size_t bytes, std::uint64_t generation, std::uint64_t registryGeneration, std::shared_ptr<Buffer> buffer, SnapshotUse use, std::uint32_t derived) {
+    const bool storage = use == SnapshotUse::Storage;
+    const auto budget = storage ? DrawSnapshotBudget : DrawInputBudget;
+    const auto maxEntries = storage ? DrawSnapshotEntries : DrawInputEntries;
+    auto& pool = drawSnapshotPools[SnapshotPool(use)];
+    if (generation == 0 || bytes > budget) return;
+    if (use == SnapshotUse::Vertex) {
+        for (auto it = drawSnapshots.lower_bound({address, use, 0}); it != drawSnapshots.end() && std::get<0>(it->first) == address && std::get<1>(it->first) == use && std::get<2>(it->first) <= bytes;) eraseDrawSnapshot(it++);
+    } else if (const auto found = drawSnapshots.find({address, use, bytes}); found != drawSnapshots.end()) {
+        eraseDrawSnapshot(found);
+    }
+    while (!pool.recency.empty() && (pool.bytes + bytes > budget || pool.recency.size() >= maxEntries)) eraseDrawSnapshot(drawSnapshots.find(pool.recency.front()));
+    const DrawSnapshotKey key{address, use, bytes};
+    pool.recency.push_back(key);
     try {
-        drawSnapshots.emplace(key, DrawSnapshot{generation, registryGeneration, std::prev(drawSnapshotRecency.end()), std::move(buffer)});
+        drawSnapshots.emplace(key, DrawSnapshot{generation, registryGeneration, std::prev(pool.recency.end()), std::move(buffer), derived});
     } catch (...) {
-        drawSnapshotRecency.pop_back();
+        pool.recency.pop_back();
         throw;
     }
-    drawSnapshotBytes += bytes;
+    pool.bytes += bytes;
 }
 
 void Recorder::OnComplete(std::function<void()> action) {
