@@ -19,6 +19,7 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "SaveData.hpp"
+#include "prx/libSceSaveData/SaveDataFile.hpp"
 
 static constexpr char SAVE_DIR[] = "_sd";
 
@@ -95,28 +96,7 @@ bool file_size_of(const std::string& path, std::size_t* out) {
 // Atomic-ish write: write to a temp file then rename over the target, so a kill mid-write never
 // leaves a torn save behind.
 bool write_file_replace(const std::string& path, const std::vector<char>& data) {
-    const std::string tmp = path + ".tmp";
-    {
-        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
-        if (!f) {
-            return false;
-        }
-        if (!data.empty()) {
-            f.write(data.data(), static_cast<std::streamsize>(data.size()));
-        }
-        f.flush();
-        if (!f) {
-            return false;
-        }
-    }
-    std::error_code ec;
-    std::filesystem::rename(tmp, path, ec);
-    if (ec) {
-        std::filesystem::remove(path, ec);
-        ec.clear();
-        std::filesystem::rename(tmp, path, ec);
-    }
-    return !ec;
+    return savedata::replace_file(path, data.data(), data.size());
 }
 
 bool read_file_all(const std::string& path, std::vector<char>& out) {
