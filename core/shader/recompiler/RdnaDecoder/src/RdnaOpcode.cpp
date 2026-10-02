@@ -193,6 +193,8 @@ bool IsVectorAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VWritelaneB32:
         case RdnaOpcode::VMovreldB32:
         case RdnaOpcode::VNop:
+        case RdnaOpcode::VPipeflush:
+        case RdnaOpcode::VClrexcp:
         case RdnaOpcode::VMovrelsB32:
         case RdnaOpcode::VPermlane16B32:
         case RdnaOpcode::VPermlanex16B32:

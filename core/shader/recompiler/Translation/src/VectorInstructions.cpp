@@ -11,6 +11,8 @@ void TranslateVectorInstruction(IrBuilder& builder, const RdnaInstruction& instr
 bool TranslationContext::emitVector(const RdnaInstruction& inst) {
     switch (inst.op) {
     case RdnaOpcode::VNop:
+    case RdnaOpcode::VPipeflush:
+    case RdnaOpcode::VClrexcp:
         return true;
     case RdnaOpcode::VMovB32:
         movB32(inst, true);
