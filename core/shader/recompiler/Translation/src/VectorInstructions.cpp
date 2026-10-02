@@ -352,6 +352,32 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
     case RdnaOpcode::VCmpUF32:
         emitFloatOrderedCompare(inst, false);
         return true;
+    case RdnaOpcode::VCmpClassF16:
+        emitFloat16ClassCompare(inst, false);
+        return true;
+    case RdnaOpcode::VCmpxClassF16:
+        emitFloat16ClassCompare(inst, true);
+        return true;
+    case RdnaOpcode::VLdexpF16:
+        return vLdexpF16(inst);
+    case RdnaOpcode::VFrexpMantF16:
+        return vFrexpF16(inst, false);
+    case RdnaOpcode::VFrexpExpI16F16:
+        return vFrexpF16(inst, true);
+    case RdnaOpcode::VCvtNormI16F16:
+        return vCvtNormF16(inst, true);
+    case RdnaOpcode::VCvtNormU16F16:
+        return vCvtNormF16(inst, false);
+    case RdnaOpcode::VCvtPknormI16F16:
+        return vCvtPknormF16(inst, true);
+    case RdnaOpcode::VCvtPknormU16F16:
+        return vCvtPknormF16(inst, false);
+    case RdnaOpcode::VSatPkU8I16:
+        return vSatPkU8I16(inst);
+    case RdnaOpcode::VMulLegacyF32:
+        return vMulLegacyF32(inst, false);
+    case RdnaOpcode::VMacLegacyF32:
+        return vMulLegacyF32(inst, true);
     case RdnaOpcode::VCmpClassF32:
         emitFloatClassCompare(inst, false);
         return true;

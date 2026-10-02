@@ -277,6 +277,18 @@ bool IsVectorAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VSubrevI32:
         case RdnaOpcode::VBfmB32:
         case RdnaOpcode::VLdexpF32:
+        case RdnaOpcode::VLdexpF16:
+        case RdnaOpcode::VFrexpMantF16:
+        case RdnaOpcode::VFrexpExpI16F16:
+        case RdnaOpcode::VCvtNormI16F16:
+        case RdnaOpcode::VCvtNormU16F16:
+        case RdnaOpcode::VCvtPknormI16F16:
+        case RdnaOpcode::VCvtPknormU16F16:
+        case RdnaOpcode::VCmpClassF16:
+        case RdnaOpcode::VCmpxClassF16:
+        case RdnaOpcode::VSatPkU8I16:
+        case RdnaOpcode::VMulLegacyF32:
+        case RdnaOpcode::VMacLegacyF32:
         case RdnaOpcode::VCvtPknormI16F32:
         case RdnaOpcode::VCvtPknormU16F32:
         case RdnaOpcode::VCvtPkU16U32:
