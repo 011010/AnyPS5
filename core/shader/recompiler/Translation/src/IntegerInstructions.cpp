@@ -255,8 +255,11 @@ bool TranslationContext::vXor3B32(const RdnaInstruction& inst) {
     return true;
 }
 
-bool TranslationContext::sFf1I32B64(const RdnaInstruction& inst) {
-    const std::array<IrU32, 2> source = extractU64(readU64(sourceAt(inst, 0u)));
+bool TranslationContext::sFfI32B64(const RdnaInstruction& inst, bool zero) {
+    std::array<IrU32, 2> source = extractU64(readU64(sourceAt(inst, 0u)));
+    if (zero) {
+        source = {IrU32(ir.BitwiseNot(source[0].Value())), IrU32(ir.BitwiseNot(source[1].Value()))};
+    }
     const IrU32 lowLsb(ir.Emit(IrOpcode::FindILsb32, IrType::U32, {&source[0].Value()}));
     const IrU32 highLsb(ir.Emit(IrOpcode::FindILsb32, IrType::U32, {&source[1].Value()}));
     const IrU32 highPosition(ir.IAdd(highLsb.Value(), ir.Constant(32u)));
@@ -279,8 +282,13 @@ bool TranslationContext::vFfbh32(const RdnaInstruction& inst, bool sign) {
     return true;
 }
 
-bool TranslationContext::sFlbitI32B64(const RdnaInstruction& inst) {
-    const IrU64 source = readU64(sourceAt(inst, 0u));
+bool TranslationContext::sFlbitI32B64(const RdnaInstruction& inst, bool sign) {
+    IrU64 source = readU64(sourceAt(inst, 0u));
+    if (sign) {
+        const std::array<IrU32, 2> halves = extractU64(source);
+        IrValue& mask = ir.ShiftRightArithmetic(halves[1].Value(), ir.Constant(31u));
+        source = IrU64(ir.ConstructU64(ir.BitwiseXor(halves[0].Value(), mask), ir.BitwiseXor(halves[1].Value(), mask)));
+    }
     const IrU32 msb(ir.Emit(IrOpcode::FindUMsb64, IrType::U32, {&source.Value()}));
     const IrU32 position(ir.ISub(ir.Constant(63u), msb.Value()));
     const IrU1 nonZero(ir.Emit(IrOpcode::INotEqual64, IrType::U1, {&source.Value(), &ir.ConstantU64(0)}));
@@ -414,7 +422,7 @@ bool TranslationContext::sBitreplicateB64B32(const RdnaInstruction& inst) {
     return true;
 }
 
-bool TranslationContext::sQuadmaskB64(const RdnaInstruction& inst) {
+bool TranslationContext::sQuadmask(const RdnaInstruction& inst, bool wide) {
     const auto compact = [&](IrU32 value) {
         IrU32 bits(ir.BitwiseOr(value.Value(), ir.ShiftRightLogical(value.Value(), ir.Constant(1u))));
         bits = IrU32(ir.BitwiseOr(bits.Value(), ir.ShiftRightLogical(bits.Value(), ir.Constant(2u))));
@@ -423,6 +431,12 @@ bool TranslationContext::sQuadmaskB64(const RdnaInstruction& inst) {
         bits = IrU32(ir.BitwiseAnd(ir.BitwiseOr(bits.Value(), ir.ShiftRightLogical(bits.Value(), ir.Constant(6u))), ir.Constant(0x000f000fu)));
         return IrU32(ir.BitwiseAnd(ir.BitwiseOr(bits.Value(), ir.ShiftRightLogical(bits.Value(), ir.Constant(12u))), ir.Constant(0xffu)));
     };
+    if (!wide) {
+        const IrU32 quads = compact(readU32(sourceAt(inst, 0u)));
+        writeOperand(inst.destination, &quads.Value());
+        ir.SetScc(ir.INotEqual(quads.Value(), ir.Constant(0u)));
+        return true;
+    }
     const std::array<IrU32, 2> source = readU32Pair(sourceAt(inst, 0u));
     const IrU32 lowCompact = compact(source[0]);
     const IrU32 highCompact = compact(source[1]);
