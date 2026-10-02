@@ -198,6 +198,7 @@ private:
     bool vLshlAddU32(const RdnaInstruction& inst);
     bool vAddLshlU32(const RdnaInstruction& inst);
     bool vPermB32(const RdnaInstruction& inst);
+    bool vLerpU8(const RdnaInstruction& inst);
     bool vXadU32(const RdnaInstruction& inst);
     bool vLshlOrB32(const RdnaInstruction& inst);
     bool vCndmaskB32(const RdnaInstruction& inst);
