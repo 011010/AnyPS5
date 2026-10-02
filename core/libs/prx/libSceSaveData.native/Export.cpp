@@ -602,8 +602,8 @@ static int setupSaveDataMemory2(const SaveDataMemorySetup2* setup_param, SaveDat
         std::error_code ec;
         std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
         std::vector<char> data;
-        if (have) {
-            read_file_all(path, data);
+        if (have && !read_file_all(path, data)) {
+            return SAVE_DATA_ERROR_INTERNAL;
         }
         data.resize(setup_param->memory_size, 0);
         if (!write_file_replace(path, data)) {
