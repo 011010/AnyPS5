@@ -16,6 +16,7 @@ namespace {
 
 struct TlsAccess {
     std::uint32_t Rva;
+    Domain::FileByteOffset FileOffset;
     std::size_t Length;
     bool StoreImmediate;
     std::uint32_t Immediate;
@@ -84,7 +85,7 @@ PeDirectory WindowsTlsBuilder::Build(const std::vector<std::uint8_t>& source, co
                 const bool storeImmediate = supportedPrefixes && !hasOperandSizePrefix && (info.RexPrefix == 0 || info.RexPrefix == 0x40) && info.Length - position == 11 && bytes[position] == 0xc7 && bytes[position + 1] == 0x04 && bytes[position + 2] == 0x25 && Io::ReadU32(source, header.Offset + offset + position + 3) == 0x28;
                 if (!loadValue && !storeImmediate)
                     throw Domain::RelinkerException("Unsupported Windows guest TLS instruction", header.Offset + offset);
-                accesses.push_back({rva, info.Length, storeImmediate, storeImmediate ? Io::ReadU32(source, header.Offset + offset + position + 7) : 0, storeImmediate ? std::uint8_t{0} : loadRegister, storeImmediate ? 0 : Io::ReadU32(source, header.Offset + offset + position + 3)});
+                accesses.push_back({rva, header.Offset + offset, info.Length, storeImmediate, storeImmediate ? Io::ReadU32(source, header.Offset + offset + position + 7) : 0, storeImmediate ? std::uint8_t{0} : loadRegister, storeImmediate ? 0 : Io::ReadU32(source, header.Offset + offset + position + 3)});
             }
         }
     }
@@ -112,7 +113,7 @@ PeDirectory WindowsTlsBuilder::Build(const std::vector<std::uint8_t>& source, co
         if (access.StoreImmediate || access.Displacement == 0) continue;
         const auto displacement = static_cast<std::int64_t>(std::bit_cast<std::int32_t>(access.Displacement));
         if (displacement < -static_cast<std::int64_t>(blockSize) || displacement + 8 > threadControlBlockSize)
-            throw Domain::RelinkerException("Windows guest TLS load displacement " + std::to_string(displacement) + " is outside the thread TLS block", access.Rva);
+            throw Domain::RelinkerException("Windows guest TLS load displacement " + std::to_string(displacement) + " is outside the thread TLS block", access.FileOffset);
     }
     PeSection data{".gtls", nextRva, SectionRead | SectionWrite | 0x40u, std::vector<std::uint8_t>(templateOffset + blockSize + threadControlBlockSize)};
 

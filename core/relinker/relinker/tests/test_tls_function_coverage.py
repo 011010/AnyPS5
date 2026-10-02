@@ -202,7 +202,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="anyps5-tls-coverage-") as directory:
         work = Path(directory)
 
-        def convert(name, image, error=None, tls_address=0x1240, displacement=0):
+        def convert(name, image, error=None, tls_address=0x1240, displacement=0, error_offset=None):
             source = work / (name + ".elf")
             output = source.with_suffix(".exe")
             source.write_bytes(image)
@@ -210,6 +210,8 @@ def main():
                                     capture_output=True, text=True, timeout=30)
             if error is not None:
                 assert result.returncode == 2 and error in result.stderr and not output.exists(), result
+                if error_offset is not None:
+                    assert f"(offset {error_offset:#x})" in result.stderr, (name, result.stderr)
                 return
             assert result.returncode == 0, (name, result.stdout, result.stderr)
             pe = output.read_bytes()
@@ -248,7 +250,7 @@ def main():
             displacement = struct.unpack_from("<i", image, address + 5)[0]
             convert(name, image, tls_address=address, displacement=displacement)
         for name, image, error in displacement_bounds_cases():
-            convert(name, image, error)
+            convert(name, image, error, error_offset=0x1240)
         rejected = {
             "rsp-displacement": fs_load(4, 40),
             "dword-load": bytes.fromhex("64 8b 04 25 28 00 00 00"),
