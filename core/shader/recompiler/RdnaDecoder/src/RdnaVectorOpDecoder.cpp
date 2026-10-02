@@ -1557,7 +1557,8 @@ void checkNativeVop3Modifiers(RdnaOpcode opcode, bool permlane, bool carryInOut,
         return;
     }
     if (carryInOut || scalarDst) {
-        if (clamp != 0u || omod != 0u || neg != 0u) {
+        const bool floatCompare = scalarDst && isVopcFloatCompareOpcode(opcode);
+        if (clamp != 0u || omod != 0u || (neg != 0u && !floatCompare)) {
             throw std::invalid_argument("VOP3 source modifiers are not implemented");
         }
         return;
