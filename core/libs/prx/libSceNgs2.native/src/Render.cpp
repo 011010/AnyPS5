@@ -17,18 +17,27 @@ static const std::uint8_t* FrameAt(const Ngs2Voice& voice, const Ngs2Block& bloc
     return block.data + (static_cast<std::size_t>(block.info.num_skip_samples) + frame) * voice.channels * sizeof(std::int16_t);
 }
 
-static const std::uint8_t* NextFrame(const Ngs2Voice& voice) {
-    const auto& block = voice.blocks.front();
-    if (block.cursor + 1 < block.info.num_samples) return FrameAt(voice, block, block.cursor + 1);
-    if (block.info.num_repeats != 0) return FrameAt(voice, block, 0);
-    if (voice.blocks.size() > 1) return FrameAt(voice, voice.blocks[1], 0);
-    return FrameAt(voice, block, block.cursor);
+static void ReadPcm(const Ngs2Voice& voice, const std::uint8_t* frame, float* out) {
+    for (std::uint32_t channel = 0; channel < voice.channels; channel++) {
+        std::int16_t sample;
+        std::memcpy(&sample, frame + channel * sizeof(sample), sizeof(sample));
+        out[channel] = sample / 32768.0f;
+    }
 }
 
-static float ReadSample(const std::uint8_t* frame, std::uint32_t channel) {
-    std::int16_t sample;
-    std::memcpy(&sample, frame + channel * sizeof(sample), sizeof(sample));
-    return sample;
+static void ReadFrames(Ngs2Voice& voice, float* current, float* next) {
+    auto& block = voice.blocks.front();
+    if (voice.waveformType == SCE_NGS2_WAVEFORM_TYPE_ATRAC9) {
+        std::memcpy(current, Ngs2Atrac9Frame(voice, block, block.cursor), voice.channels * sizeof(float));
+        if (block.cursor + 1 < block.info.num_samples) std::memcpy(next, Ngs2Atrac9Frame(voice, block, block.cursor + 1), voice.channels * sizeof(float));
+        else std::memcpy(next, current, voice.channels * sizeof(float));
+        return;
+    }
+    ReadPcm(voice, FrameAt(voice, block, block.cursor), current);
+    if (block.cursor + 1 < block.info.num_samples) ReadPcm(voice, FrameAt(voice, block, block.cursor + 1), next);
+    else if (block.info.num_repeats != 0) ReadPcm(voice, FrameAt(voice, block, 0), next);
+    else if (voice.blocks.size() > 1) ReadPcm(voice, FrameAt(voice, voice.blocks[1], 0), next);
+    else std::memcpy(next, current, voice.channels * sizeof(float));
 }
 
 static void FinishBlock(Ngs2Voice& voice) {
@@ -38,6 +47,10 @@ static void FinishBlock(Ngs2Voice& voice) {
         if (block.info.num_repeats != UINT32_MAX) block.info.num_repeats--;
         block.numRepeated++;
         block.cursor = 0;
+        if (voice.waveformType == SCE_NGS2_WAVEFORM_TYPE_ATRAC9) {
+            block.dataCursor = 0;
+            Ngs2RestartAtrac9(voice);
+        }
     }
     const Ngs2VoiceCallbackInfo info{
         voice.callbackData,
@@ -52,7 +65,7 @@ static void FinishBlock(Ngs2Voice& voice) {
         0,
     };
     if (!repeat) {
-        voice.waveformEnd = FrameAt(voice, block, block.info.num_samples);
+        voice.waveformEnd = voice.waveformType == SCE_NGS2_WAVEFORM_TYPE_ATRAC9 ? block.data + block.dataCursor : FrameAt(voice, block, block.info.num_samples);
         voice.blocks.pop_front();
     }
     if (voice.callback != nullptr && (voice.callbackFlags & info.flag) != 0) voice.callback(&info);
@@ -64,6 +77,7 @@ static void Advance(Ngs2Voice& voice, std::uint64_t frames) {
         const auto step = std::min<std::uint64_t>(frames, block.info.num_samples - block.cursor);
         block.cursor += static_cast<std::uint32_t>(step);
         voice.decodedSamples += step;
+        if (voice.waveformType != SCE_NGS2_WAVEFORM_TYPE_ATRAC9) voice.decodedBytes += step * voice.channels * sizeof(std::int16_t);
         frames -= step;
         if (block.cursor == block.info.num_samples) FinishBlock(voice);
     }
@@ -72,13 +86,13 @@ static void Advance(Ngs2Voice& voice, std::uint64_t frames) {
 static void ConsumeSamples(Ngs2Voice& voice, std::uint32_t grain, std::uint32_t systemRate) {
     const auto step = static_cast<std::uint64_t>(std::llround(voice.sampleRate * static_cast<double>(voice.pitch) / systemRate * PHASE_ONE));
     std::uint32_t written = 0;
+    float current[NGS2_MAX_CHANNELS];
+    float next[NGS2_MAX_CHANNELS];
     for (; written < grain && voice.state == Ngs2PlayState::Playing && !voice.blocks.empty(); written++) {
-        const auto& block = voice.blocks.front();
-        const auto* current = FrameAt(voice, block, block.cursor);
-        const auto* next = NextFrame(voice);
+        ReadFrames(voice, current, next);
         const auto fraction = static_cast<float>(static_cast<double>(voice.phase) / PHASE_ONE);
         for (std::uint32_t channel = 0; channel < voice.channels; channel++) {
-            voice.samples[channel * grain + written] = std::lerp(ReadSample(current, channel), ReadSample(next, channel), fraction) / 32768.0f;
+            voice.samples[channel * grain + written] = std::lerp(current[channel], next[channel], fraction);
         }
         voice.phase += step;
         Advance(voice, voice.phase >> 32);

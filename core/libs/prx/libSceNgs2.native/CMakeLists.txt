@@ -1,11 +1,16 @@
 add_library(libSceNgs2.native SHARED EXCLUDE_FROM_ALL
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/Atrac9.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Rack.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Render.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/System.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Unimplemented.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Voice.cpp
 )
-target_include_directories(libSceNgs2.native PRIVATE ${LIBS_INCLUDE_DIR})
+target_include_directories(libSceNgs2.native PRIVATE ${LIBS_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/3rdparty/LibAtrac9/C/src)
+target_link_libraries(libSceNgs2.native PRIVATE atrac9)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_options(libSceNgs2.native PRIVATE LINKER:--exclude-libs,ALL)
+endif()
 set_target_properties(libSceNgs2.native PROPERTIES
         CXX_EXTENSIONS OFF
         CXX_VISIBILITY_PRESET hidden
@@ -20,13 +25,16 @@ if(MINGW)
 endif()
 
 if(BUILD_TESTING)
-    add_test_executable(ngs2_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests/Ngs2Render.cpp)
-    target_include_directories(ngs2_tests PRIVATE ${LIBS_INCLUDE_DIR})
-    target_link_libraries(ngs2_tests PRIVATE libSceNgs2.native libkernel libc)
-    configure_windows_unwind(ngs2_tests)
-    add_test(NAME ngs2_render COMMAND ngs2_tests)
-    if(WIN32)
-        set_tests_properties(ngs2_render PROPERTIES ENVIRONMENT_MODIFICATION
-            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceNgs2.native>")
-    endif()
+    foreach(ngs2Test IN ITEMS Render Atrac9)
+        string(TOLOWER ${ngs2Test} testName)
+        add_test_executable(ngs2_${testName}_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests/Ngs2${ngs2Test}.cpp)
+        target_include_directories(ngs2_${testName}_tests PRIVATE ${LIBS_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/3rdparty/LibAtrac9/C/src)
+        target_link_libraries(ngs2_${testName}_tests PRIVATE libSceNgs2.native atrac9 libkernel libc)
+        configure_windows_unwind(ngs2_${testName}_tests)
+        add_test(NAME ngs2_${testName} COMMAND ngs2_${testName}_tests)
+        if(WIN32)
+            set_tests_properties(ngs2_${testName} PROPERTIES ENVIRONMENT_MODIFICATION
+                "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceNgs2.native>")
+        endif()
+    endforeach()
 endif()
