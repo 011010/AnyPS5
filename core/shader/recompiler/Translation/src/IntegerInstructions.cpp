@@ -601,6 +601,23 @@ bool TranslationContext::vPermB32(const RdnaInstruction& inst) {
     return true;
 }
 
+bool TranslationContext::vLerpU8(const RdnaInstruction& inst) {
+    const IrU32 lhs = readU32(sourceAt(inst, 0u));
+    const IrU32 rhs = readU32(sourceAt(inst, 1u));
+    const IrU32 rounding = readU32(sourceAt(inst, 2u));
+    IrU32 result(ir.Constant(0u));
+    for (std::uint32_t offset = 0u; offset < 32u; offset += 8u) {
+        const IrU32 lhsByte(ir.Emit(IrOpcode::BitFieldUExtract, IrType::U32, {&lhs.Value(), &ir.Constant(offset), &ir.Constant(8u)}));
+        const IrU32 rhsByte(ir.Emit(IrOpcode::BitFieldUExtract, IrType::U32, {&rhs.Value(), &ir.Constant(offset), &ir.Constant(8u)}));
+        const IrU32 roundUp(ir.Emit(IrOpcode::BitFieldUExtract, IrType::U32, {&rounding.Value(), &ir.Constant(offset), &ir.Constant(1u)}));
+        const IrU32 sum(ir.IAdd(ir.IAdd(lhsByte.Value(), rhsByte.Value()), roundUp.Value()));
+        const IrU32 average(ir.ShiftRightLogical(sum.Value(), ir.Constant(1u)));
+        result = IrU32(ir.BitwiseOr(result.Value(), ir.ShiftLeftLogical(average.Value(), ir.Constant(offset))));
+    }
+    writeOperand(inst.destination, &result.Value());
+    return true;
+}
+
 bool TranslationContext::vXadU32(const RdnaInstruction& inst) {
     const IrU32 lhs = readU32(sourceAt(inst, 0u));
     const IrU32 rhs = readU32(sourceAt(inst, 1u));
