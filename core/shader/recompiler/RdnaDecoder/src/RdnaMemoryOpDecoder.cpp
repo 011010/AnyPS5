@@ -400,6 +400,11 @@ RdnaInstruction DecodeRdnaSmem(std::uint32_t programCounter, std::span<const std
     if (const auto cacheOp = cacheControlOpcode(RdnaInstructionFamily::SMEM, opcode); cacheOp != RdnaOpcode::Invalid) {
         return cacheControlInstruction(RdnaInstructionFamily::SMEM, cacheOp, opcode, programCounter, code, wordIndex);
     }
+    if (opcode == 0x24u || opcode == 0x25u) {
+        auto instruction = cacheControlInstruction(RdnaInstructionFamily::SMEM, opcode == 0x24u ? RdnaOpcode::SMemtime : RdnaOpcode::SMemrealtime, opcode, programCounter, code, wordIndex);
+        instruction.destination = scalarDestination(sdst);
+        return instruction;
+    }
     const auto& info = lookupOpcode(smemOpcodes, opcode, "SMEM opcode is not supported");
 
     RdnaInstruction instruction{};

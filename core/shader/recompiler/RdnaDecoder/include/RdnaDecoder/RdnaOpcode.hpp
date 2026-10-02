@@ -602,6 +602,8 @@ enum class RdnaOpcode : std::uint16_t {
     SGl1Inv,
     SDcacheInv,
     SDcacheWb,
+    SMemtime,
+    SMemrealtime,
     BufferGl0Inv,
     BufferGl1Inv,
     Exp,

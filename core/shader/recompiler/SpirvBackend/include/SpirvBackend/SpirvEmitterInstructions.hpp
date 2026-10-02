@@ -80,6 +80,8 @@ std::uint32_t EmitGetAttribute(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitGetInterpolationParameter(SpirvValueEmitContext& ctx, const IrValue& inst);
 void EmitSetAttribute(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitGetShaderBase(SpirvValueEmitContext& ctx);
+std::uint32_t EmitShaderClock(SpirvValueEmitContext& ctx, const IrValue& inst);
+std::uint32_t EmitRealtimeClock(SpirvValueEmitContext& ctx, const IrValue& inst);
 void EmitLoadMemory(SpirvValueEmitContext& ctx, const IrValue& inst);
 void EmitStoreMemory(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitAtomic32(SpirvValueEmitContext& ctx, const IrValue& inst);
