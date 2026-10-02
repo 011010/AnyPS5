@@ -57,16 +57,6 @@ int APS5_VABI sceNpSessionSignalingTerminate(void) {
     return 0;
 }
 
-int32_t APS5_VABI sceNpSessionSignalingGetConnectionStatus(int32_t context_id, int32_t connection_id, int32_t* status, void* peer_address, uint16_t* peer_port) {
- (void)context_id;
- (void)connection_id;
- (void)status;
- (void)peer_address;
- (void)peer_port;
- NotImplemented_nid_no_patch(__func__);
- return 0;
-}
-
 int32_t APS5_VABI sceNpSessionSignalingGetLocalNetInfo(int32_t context_id, void* info) {
  (void)context_id;
  (void)info;
@@ -74,4 +64,15 @@ int32_t APS5_VABI sceNpSessionSignalingGetLocalNetInfo(int32_t context_id, void*
  return 0;
 }
 
+APS5_EXPORT("lbXTXRG5nyM", sceNpSessionSignalingUnknown00);
+int APS5_VABI sceNpSessionSignalingUnknown00(void) {
+    NotImplemented_nid_no_patch("lbXTXRG5nyM");
+    return 0;
+}
+
+APS5_EXPORT("+Q++Q49a9z8", sceNpSessionSignalingUnknown01);
+int APS5_VABI sceNpSessionSignalingUnknown01(void) {
+    NotImplemented_nid_no_patch("+Q++Q49a9z8");
+    return 0;
+}
 }
