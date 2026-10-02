@@ -350,9 +350,13 @@ bool TranslationContext::emitScalar(const RdnaInstruction& inst) {
     case RdnaOpcode::SSetprio:
     case RdnaOpcode::STrap:
     case RdnaOpcode::SClause:
+    case RdnaOpcode::SIcacheInv:
+    case RdnaOpcode::SIncperflevel:
+    case RdnaOpcode::SDecperflevel:
         emitControlNop();
         return true;
     case RdnaOpcode::SWaitcntDepctr:
+    case RdnaOpcode::SWaitIdle:
         emitWaitcnt();
         return true;
     case RdnaOpcode::SBarrier:
