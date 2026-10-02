@@ -589,7 +589,9 @@ static int setSaveDataMemory2(const SaveDataMemorySet2* set_param) {
     if (set_param->param != nullptr) {
         std::vector<char> pd(sizeof(SaveDataParam));
         std::memcpy(pd.data(), set_param->param, sizeof(SaveDataParam));
-        write_file_replace(mem_path(set_param->user_id, set_param->slot_id, "param"), pd);
+        if (!write_file_replace(mem_path(set_param->user_id, set_param->slot_id, "param"), pd)) {
+            return SAVE_DATA_ERROR_INTERNAL;
+        }
     }
     return SAVE_DATA_OK;
 }
