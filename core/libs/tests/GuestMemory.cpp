@@ -27,6 +27,8 @@ void* APS5_VABI mmap_nid_postfix(void*, std::size_t, int, int, int, std::int64_t
 int APS5_VABI munmap_nid_postfix(void*, std::size_t) noexcept;
 int* APS5_VABI __error_nid_postfix();
 int APS5_VABI sceKernelMapNamedFlexibleMemory(void**, std::size_t, int, int, const char*);
+int APS5_VABI sceKernelMapNamedFlexibleMemoryInternal(void**, std::size_t, int, int, const char*);
+int APS5_VABI sceKernelAvailableFlexibleMemorySize(std::size_t*);
 int APS5_VABI sceKernelMapFlexibleMemory(void**, std::size_t, int, int);
 int APS5_VABI sceKernelMunmap(void*, std::size_t);
 int APS5_VABI sceKernelMprotect(const void*, std::size_t, int);
@@ -76,6 +78,24 @@ static void CheckNamedAndHintedMappings() {
     Require(sceKernelMunmap(hinted, length) == 0);
 #endif
     Require(sceKernelMunmap(first, length) == 0);
+}
+
+static void CheckInternalNamedFlexibleMapping() {
+    constexpr std::size_t length = 0x10000;
+    std::size_t before = 0;
+    std::size_t available = 0;
+    Require(sceKernelAvailableFlexibleMemorySize(&before) == 0);
+    void* mapped = nullptr;
+    Require(sceKernelMapNamedFlexibleMemoryInternal(&mapped, length, 3, 0, "internal mapping") == 0 && mapped != nullptr);
+    Require(std::strcmp(NameAt(mapped), "internal mapping") == 0);
+    Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == before - length);
+    Require(sceKernelMunmap(mapped, length) == 0);
+    Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == before);
+    bool rejected = false;
+    void* unknown = nullptr;
+    try { sceKernelMapNamedFlexibleMemoryInternal(&unknown, length, 3, 0x8000, "internal mapping"); } catch (const std::exception&) { rejected = true; }
+    Require(rejected && unknown == nullptr);
+    Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == before);
 }
 
 static void CheckDirectMemoryFollowsPhysicalPages() {
@@ -452,6 +472,7 @@ static void CheckDirectMemoryWriteWatch() {
 
 int main() {
     CheckNamedAndHintedMappings();
+    CheckInternalNamedFlexibleMapping();
     CheckDirectMemoryFollowsPhysicalPages();
     CheckFixedVirtualReservation();
     CheckSharedDirectMemoryLifecycle();

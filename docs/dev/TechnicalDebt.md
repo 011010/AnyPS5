@@ -28,6 +28,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [V++UgBtQhn0](../../core/libs/prx/libSceAgc/Misc/src/PacketInfo.cpp) (libSceAgc) - unknown name
 - [gQkqkLttcpw](../../core/libs/prx/libSceAgc/Acb/src/Control.cpp) (libSceAgc) - unknown name, signature
 - [sceKernelInternalMemoryGetModuleSegmentInfo](../../core/libs/prx/libkernel/Module/src/Module.cpp) (libkernel) - unknown signature
+- [sceKernelMapNamedFlexibleMemoryInternal](../../core/libs/prx/libkernel/DirectMemory/Export.cpp) (libkernel) - flag 0x8000 unknown; only the sceKernelMapNamedFlexibleMemory flags are accepted
 - [sceLibcInternalBacktraceForGame](../../core/libs/prx/libc/src/HeapDiagnostics.cpp) (libSceLibcInternal, implemented in libc) - unknown signature
 - [sceLibcInternalHeapErrorReportForGame](../../core/libs/prx/libc/src/HeapDiagnostics.cpp) (libSceLibcInternal, implemented in libc) - unknown signature
 - [__progname](../../core/libs/prx/libkernel/System/src/Process.cpp) (libkernel) - unknown data export
