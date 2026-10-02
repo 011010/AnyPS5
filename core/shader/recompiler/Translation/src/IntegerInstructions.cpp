@@ -336,6 +336,31 @@ bool TranslationContext::vSadU32(const RdnaInstruction& inst) {
     return true;
 }
 
+bool TranslationContext::subwordSad(const RdnaInstruction& inst, std::uint32_t fieldBits, std::uint32_t sumShift, bool masked) {
+    const IrU32 lhs = readU32(sourceAt(inst, 0u));
+    const IrU32 rhs = readU32(sourceAt(inst, 1u));
+    IrU32 sum(ir.Constant(0u));
+    for (std::uint32_t offset = 0u; offset < 32u; offset += fieldBits) {
+        const IrU32 lhsField(ir.Emit(IrOpcode::BitFieldUExtract, IrType::U32, {&lhs.Value(), &ir.Constant(offset), &ir.Constant(fieldBits)}));
+        const IrU32 rhsField(ir.Emit(IrOpcode::BitFieldUExtract, IrType::U32, {&rhs.Value(), &ir.Constant(offset), &ir.Constant(fieldBits)}));
+        const IrU32 lo(ir.Emit(IrOpcode::UMin32, IrType::U32, {&lhsField.Value(), &rhsField.Value()}));
+        const IrU32 hi(ir.Emit(IrOpcode::UMax32, IrType::U32, {&lhsField.Value(), &rhsField.Value()}));
+        IrU32 difference(ir.ISub(hi.Value(), lo.Value()));
+        if (masked) {
+            const IrU1 reference(ir.INotEqual(rhsField.Value(), ir.Constant(0u)));
+            difference = IrU32(ir.Select(reference.Value(), difference.Value(), ir.Constant(0u)));
+        }
+        sum = IrU32(ir.IAdd(sum.Value(), difference.Value()));
+    }
+    if (sumShift != 0u) {
+        sum = IrU32(ir.ShiftLeftLogical(sum.Value(), ir.Constant(sumShift)));
+    }
+    const IrU32 addend = readU32(sourceAt(inst, 2u));
+    const IrU32 result(ir.IAdd(sum.Value(), addend.Value()));
+    writeOperand(inst.destination, &result.Value());
+    return true;
+}
+
 bool TranslationContext::vAdd3U32(const RdnaInstruction& inst) {
     const IrU32 lhs = readU32(sourceAt(inst, 0u));
     const IrU32 rhs = readU32(sourceAt(inst, 1u));
