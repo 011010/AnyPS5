@@ -373,6 +373,12 @@ constexpr std::array<OpcodeMeta, static_cast<std::size_t>(IrOpcode::Count)> Meta
     makeMeta("ImageAtomicAnd32", U32, ImageResource, ImageAddress, U32, U1),
     makeMeta("ImageAtomicOr32", U32, ImageResource, ImageAddress, U32, U1),
     makeMeta("ImageAtomicXor32", U32, ImageResource, ImageAddress, U32, U1),
+    makeMeta("ImageAtomicCmpSwap32", U32, ImageResource, ImageAddress, U32, U32, U1),
+    makeMeta("ImageAtomicISub32", U32, ImageResource, ImageAddress, U32, U1),
+    makeMeta("ImageAtomicSMin32", U32, ImageResource, ImageAddress, U32, U1),
+    makeMeta("ImageAtomicSMax32", U32, ImageResource, ImageAddress, U32, U1),
+    makeMeta("ImageAtomicInc32", U32, ImageResource, ImageAddress, U32, U1),
+    makeMeta("ImageAtomicDec32", U32, ImageResource, ImageAddress, U32, U1),
     makeMeta("GetAttribute", U32, U32, U32),
     makeMeta("GetInterpolationParameter", U32, U32, U32, U32),
     makeMeta("SetAttribute", Void, U32x4, U1),
@@ -574,6 +580,12 @@ ImageOpcodeInfo ImageOpcodeInfoOf(IrOpcode opcode) {
         case IrOpcode::ImageAtomicAnd32:
         case IrOpcode::ImageAtomicOr32:
         case IrOpcode::ImageAtomicXor32:
+        case IrOpcode::ImageAtomicCmpSwap32:
+        case IrOpcode::ImageAtomicISub32:
+        case IrOpcode::ImageAtomicSMin32:
+        case IrOpcode::ImageAtomicSMax32:
+        case IrOpcode::ImageAtomicInc32:
+        case IrOpcode::ImageAtomicDec32:
             return {ImageAccess::Atomic, ImageResourceClass::Storage, false};
         default:
             return {};

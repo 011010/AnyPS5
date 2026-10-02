@@ -507,6 +507,12 @@ void EmitDirectInstruction(SpirvValueEmitContext& ctx, const IrValue& inst) {
         case IrOpcode::ImageAtomicAnd32: return Invoke(EmitImageAtomicAnd32, ctx, inst);
         case IrOpcode::ImageAtomicOr32: return Invoke(EmitImageAtomicOr32, ctx, inst);
         case IrOpcode::ImageAtomicXor32: return Invoke(EmitImageAtomicXor32, ctx, inst);
+        case IrOpcode::ImageAtomicCmpSwap32: return Invoke(EmitImageAtomicCmpSwap32, ctx, inst);
+        case IrOpcode::ImageAtomicISub32: return Invoke(EmitImageAtomicISub32, ctx, inst);
+        case IrOpcode::ImageAtomicSMin32: return Invoke(EmitImageAtomicSMin32, ctx, inst);
+        case IrOpcode::ImageAtomicSMax32: return Invoke(EmitImageAtomicSMax32, ctx, inst);
+        case IrOpcode::ImageAtomicInc32: return Invoke(EmitImageAtomicInc32, ctx, inst);
+        case IrOpcode::ImageAtomicDec32: return Invoke(EmitImageAtomicDec32, ctx, inst);
         case IrOpcode::GetAttribute: return Invoke(EmitGetAttribute, ctx, inst);
         case IrOpcode::GetInterpolationParameter: return Invoke(EmitGetInterpolationParameter, ctx, inst);
         case IrOpcode::SetAttribute: return Invoke(EmitSetAttribute, ctx, inst);
