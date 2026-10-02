@@ -19,7 +19,7 @@ using AgcDriver::Graphics::Require;
 using ShaderRecompiler::ShaderStage;
 
 constexpr std::uint32_t Threads = 32;
-constexpr std::uint32_t Words = 16;
+constexpr std::uint32_t Words = 32;
 constexpr std::uint32_t ResultWord = 8;
 constexpr std::uint32_t Size = 16;
 constexpr std::uint32_t Levels = 5;
@@ -31,12 +31,15 @@ constexpr std::uint32_t MinLodCapability = 42;
 alignas(256) std::array<std::uint32_t, Threads * Words> Buffer{};
 alignas(256) std::array<std::uint8_t, 16384> Texels{};
 
-alignas(256) constexpr std::array<std::uint32_t, 37> Code{
-    0x34020086, 0xe0301000, 0x80000501, 0xe0301004, 0x80000601, 0xe0301008, 0x80000701, 0xe030100c,
+alignas(256) constexpr std::array<std::uint32_t, 61> Code{
+    0x34020087, 0xe0301000, 0x80000501, 0xe0301004, 0x80000601, 0xe0301008, 0x80000701, 0xe030100c,
     0x80000801, 0xe0301010, 0x80000901, 0xe0301014, 0x80000a01, 0xe0301018, 0x80000b01, 0xbf8c3f70,
     0xf08c0f08, 0x00610c05, 0xe0701020, 0x80000c01, 0xe0701024, 0x80000d01, 0xe0701028, 0x80000e01,
     0xe070102c, 0x80000f01, 0xf0840f08, 0x00610c09, 0xe0701030, 0x80000c01, 0xe0701034, 0x80000d01,
-    0xe0701038, 0x80000e01, 0xe070103c, 0x80000f01, 0xbf810000,
+    0xe0701038, 0x80000e01, 0xe070103c, 0x80000f01, 0x7e0802ff, 0x00000201, 0xf0cc0f08, 0x00610c04,
+    0xe0701040, 0x80000c01, 0xe0701044, 0x80000d01, 0xe0701048, 0x80000e01, 0xe070104c, 0x80000f01,
+    0x7e0802ff, 0x00003e3f, 0xf0cc0f08, 0x00610c04, 0xe0701050, 0x80000c01, 0xe0701054, 0x80000d01,
+    0xe0701058, 0x80000e01, 0xe070105c, 0x80000f01, 0xbf810000,
 };
 
 struct Sample {
@@ -133,14 +136,22 @@ void Run(AgcDriver::VulkanDevice& device) {
     device.WaitIdle();
 }
 
+std::uint32_t Wrap(std::uint32_t coordinate, std::int32_t offset, std::uint32_t size) {
+    const auto extent = static_cast<std::int32_t>(size);
+    return static_cast<std::uint32_t>(((static_cast<std::int32_t>(coordinate) + offset) % extent + extent) % extent);
+}
+
 void Check() {
-    constexpr std::array<const char*, 2> names{"image_sample_d_cl", "image_sample_cl"};
+    constexpr std::array<const char*, 4> names{"image_sample_d_cl", "image_sample_cl", "image_sample_d_cl_o (1, 2)", "image_sample_d_cl_o (-1, -2)"};
+    constexpr std::array<std::array<std::int32_t, 2>, 4> offsets{{{0, 0}, {0, 0}, {1, 2}, {-1, -2}}};
     for (std::uint32_t tid = 0; tid < Threads; ++tid) {
         const auto sample = SampleOf(tid);
-        const std::array<std::uint32_t, 2> levels{std::max(sample.level, sample.clamp), sample.clamp};
+        const std::uint32_t clamped = std::max(sample.level, sample.clamp);
+        const std::array<std::uint32_t, 4> levels{clamped, sample.clamp, clamped, clamped};
         for (std::uint32_t index = 0; index < levels.size(); ++index) {
             const std::uint32_t level = levels[index];
-            const std::array<std::uint32_t, 4> expected{level, sample.x >> level, sample.y >> level, 255u};
+            const std::uint32_t size = Size >> level;
+            const std::array<std::uint32_t, 4> expected{level, Wrap(sample.x >> level, offsets[index][0], size), Wrap(sample.y >> level, offsets[index][1], size), 255u};
             for (std::uint32_t component = 0; component < 4u; ++component) {
                 const float value = std::bit_cast<float>(Buffer[tid * Words + ResultWord + index * 4u + component]) * 255.0f;
                 Require(std::lround(value) == static_cast<long>(expected[component]), std::string(names[index]) + ": thread " + std::to_string(tid) + " component " + std::to_string(component) + " is " + std::to_string(value) + ", expected " + std::to_string(expected[component]));
