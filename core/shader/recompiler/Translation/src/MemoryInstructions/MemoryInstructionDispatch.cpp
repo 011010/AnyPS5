@@ -149,9 +149,42 @@ bool TranslationContext::emitMemory(const RdnaInstruction& inst) {
         return dsAtomic(inst, IrOpcode::SharedAtomicSwap32, true);
 
     case RdnaOpcode::DsMinF32:
-        return dsMinmaxF32(inst, IrOpcode::SharedAtomicFMin32);
+        return dsAtomic(inst, IrOpcode::SharedAtomicFMin32, false);
+    case RdnaOpcode::DsMinRtnF32:
+        return dsAtomic(inst, IrOpcode::SharedAtomicFMin32, true);
     case RdnaOpcode::DsMaxF32:
-        return dsMinmaxF32(inst, IrOpcode::SharedAtomicFMax32);
+        return dsAtomic(inst, IrOpcode::SharedAtomicFMax32, false);
+    case RdnaOpcode::DsMaxRtnF32:
+        return dsAtomic(inst, IrOpcode::SharedAtomicFMax32, true);
+    case RdnaOpcode::DsRsubU32:
+        return dsAtomic(inst, IrOpcode::SharedAtomicRsub32, false);
+    case RdnaOpcode::DsRsubRtnU32:
+        return dsAtomic(inst, IrOpcode::SharedAtomicRsub32, true);
+    case RdnaOpcode::DsIncU32:
+        return dsAtomic(inst, IrOpcode::SharedAtomicInc32, false);
+    case RdnaOpcode::DsDecU32:
+        return dsAtomic(inst, IrOpcode::SharedAtomicDec32, false);
+    case RdnaOpcode::DsAddF32:
+        return dsAtomic(inst, IrOpcode::SharedAtomicFAdd32, false);
+    case RdnaOpcode::DsAddRtnF32:
+        return dsAtomic(inst, IrOpcode::SharedAtomicFAdd32, true);
+    case RdnaOpcode::DsMskorB32:
+        return dsAtomic2(inst, IrOpcode::SharedAtomicMskor32, false);
+    case RdnaOpcode::DsMskorRtnB32:
+        return dsAtomic2(inst, IrOpcode::SharedAtomicMskor32, true);
+    case RdnaOpcode::DsCmpstB32:
+        return dsAtomic2(inst, IrOpcode::SharedAtomicCmpst32, false);
+    case RdnaOpcode::DsCmpstRtnB32:
+        return dsAtomic2(inst, IrOpcode::SharedAtomicCmpst32, true);
+    case RdnaOpcode::DsCmpstF32:
+        return dsAtomic2(inst, IrOpcode::SharedAtomicCmpstF32, false);
+    case RdnaOpcode::DsCmpstRtnF32:
+        return dsAtomic2(inst, IrOpcode::SharedAtomicCmpstF32, true);
+    case RdnaOpcode::DsWrapRtnB32:
+        return dsAtomic2(inst, IrOpcode::SharedAtomicWrap32, true);
+    case RdnaOpcode::DsNop:
+        emitControlNop();
+        return true;
     case RdnaOpcode::DsSwizzleB32:
         return dsSwizzleB32(inst);
     case RdnaOpcode::DsBpermuteB32:

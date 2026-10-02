@@ -103,7 +103,7 @@ private:
     bool dsRead2(const RdnaInstruction& inst);
     bool dsWrite(const RdnaInstruction& inst);
     bool dsWrite2(const RdnaInstruction& inst);
-    bool dsMinmaxF32(const RdnaInstruction& inst, IrOpcode opcode);
+    bool dsAtomic2(const RdnaInstruction& inst, IrOpcode opcode, bool returnsValue);
     bool dsAppendConsume(const RdnaInstruction& inst, IrOpcode opcode);
     bool dsAddtid(const RdnaInstruction& inst, bool write);
     bool dsSwizzleB32(const RdnaInstruction& inst);
