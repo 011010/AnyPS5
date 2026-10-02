@@ -151,6 +151,8 @@ bool IsVectorAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VSubF32:
         case RdnaOpcode::VMulF32:
         case RdnaOpcode::VMadF32:
+        case RdnaOpcode::VMadLegacyF32:
+        case RdnaOpcode::VMullitF32:
         case RdnaOpcode::VFmaF32:
         case RdnaOpcode::VAddI32:
         case RdnaOpcode::VSubI32:
