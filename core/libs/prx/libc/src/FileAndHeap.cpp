@@ -41,7 +41,12 @@ FileStream* APS5_VABI fopen_nid_postfix(const char* filename, const char* mode) 
     const auto abs_path = fpath.string();
     std::unique_ptr<std::FILE, decltype(&std::fclose)> handle(std::fopen(abs_path.c_str(), mode), std::fclose);
     if (!handle) {
-        const auto reason = std::strerror(errno);
+        const int error = errno;
+        if (error == ENOENT) {
+            errno = error;
+            return nullptr;
+        }
+        const auto reason = std::strerror(error);
         std::error_code ec;
         std::filesystem::path sibling;
         for (const auto& entry : std::filesystem::directory_iterator(fpath.parent_path(), ec)) {
