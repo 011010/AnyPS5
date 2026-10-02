@@ -8,6 +8,7 @@
 #include <bit>
 #include <limits>
 #include <set>
+#include <string>
 
 namespace Elfpatcher::Windows {
 
@@ -107,6 +108,12 @@ PeDirectory WindowsTlsBuilder::Build(const std::vector<std::uint8_t>& source, co
     const auto blockSize = CheckedRva((tls->MemorySize + alignment - 1) & ~(alignment - 1));
     const auto templateOffset = CheckedRva((64 + alignment - 1) & ~(alignment - 1));
     constexpr std::uint32_t threadControlBlockSize = 0x30;
+    for (const auto& access : accesses) {
+        if (access.StoreImmediate || access.Displacement == 0) continue;
+        const auto displacement = static_cast<std::int64_t>(std::bit_cast<std::int32_t>(access.Displacement));
+        if (displacement < -static_cast<std::int64_t>(blockSize) || displacement + 8 > threadControlBlockSize)
+            throw Domain::RelinkerException("Windows guest TLS load displacement " + std::to_string(displacement) + " is outside the thread TLS block", access.Rva);
+    }
     PeSection data{".gtls", nextRva, SectionRead | SectionWrite | 0x40u, std::vector<std::uint8_t>(templateOffset + blockSize + threadControlBlockSize)};
 
     const auto indexRva = nextRva + 40;

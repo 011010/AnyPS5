@@ -127,6 +127,17 @@ def displacement_cases():
                 yield name, image, 0x1240 + offset
 
 
+def displacement_bounds_cases():
+    for register in (0, 12):
+        for displacement in (0x30, 0x2c, -65, -0x80000000, 0x7fffffff):
+            image = make_image("register", "unwind", body=fs_load(register, displacement) + b"\xc3")
+            struct.pack_into("<IIQQQQQQ", image, 176, 7, 4, 0x800, 0x800, 0x800, 48, 48, 32)
+            if register == 12:
+                image[176:232], image[288:344] = image[288:344], image[176:232]
+            error = f"Windows guest TLS load displacement {displacement} is outside the thread TLS block"
+            yield f"displacement-bounds-{register}-{displacement}", image, error
+
+
 def make_image(transfer, metadata, extent=None, body=None):
     image = fixture()
     image.extend(b"\x90" * 0x1000)
@@ -191,7 +202,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="anyps5-tls-coverage-") as directory:
         work = Path(directory)
 
-        def convert(name, image, error=None, tls_address=0x1240):
+        def convert(name, image, error=None, tls_address=0x1240, displacement=0):
             source = work / (name + ".elf")
             output = source.with_suffix(".exe")
             source.write_bytes(image)
@@ -202,7 +213,13 @@ def main():
                 return
             assert result.returncode == 0, (name, result.stdout, result.stderr)
             pe = output.read_bytes()
-            assert pe_bytes_at(pe, 0x10000 + tls_address, 1) == b"\xe9", name
+            patched_address = 0x10000 + tls_address
+            patched = pe_bytes_at(pe, patched_address, 5)
+            assert patched[0] == 0xe9, name
+            if displacement != 0:
+                stub_address = patched_address + 5 + struct.unpack_from("<i", patched, 1)[0]
+                load = bytes.fromhex("48 8b 80") + struct.pack("<i", displacement)
+                assert load in pe_bytes_at(pe, stub_address, 64), name
             assert pe_bytes_at(pe, 0x11850, len(TLS_LOAD)) == TLS_LOAD, name
             if os.name == "nt":
                 executed = subprocess.run([str(output)], capture_output=True, timeout=30)
@@ -228,12 +245,17 @@ def main():
             else:
                 convert("load-register-" + str(register), image, tls_address=0x1240 + offset)
         for name, image, address in displacement_cases():
-            convert(name, image, tls_address=address)
+            displacement = struct.unpack_from("<i", image, address + 5)[0]
+            convert(name, image, tls_address=address, displacement=displacement)
+        for name, image, error in displacement_bounds_cases():
+            convert(name, image, error)
         rejected = {
             "rsp-displacement": fs_load(4, 40),
             "dword-load": bytes.fromhex("64 8b 04 25 28 00 00 00"),
             "register-address": bytes.fromhex("64 48 8b 00"),
             "gs-load": bytes.fromhex("65 48 8b 04 25 28 00 00 00"),
+            "rex-b-load": bytes.fromhex("64 49 8b 04 25 28 00 00 00"),
+            "rex-x-load": bytes.fromhex("64 4a 8b 04 25 28 00 00 00"),
             "compare": bytes.fromhex("64 48 3b 04 25 28 00 00 00"),
             "subtract": bytes.fromhex("64 48 2b 04 25 28 00 00 00"),
             "add": bytes.fromhex("64 48 03 04 25 28 00 00 00"),
