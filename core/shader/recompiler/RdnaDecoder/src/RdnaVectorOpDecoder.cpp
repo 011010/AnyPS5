@@ -363,6 +363,14 @@ constexpr VectorOpcodeInfo vop3Opcodes[] = {
     {0x16cu, RdnaOpcode::VMulHiI32},
     {0x2ffu, RdnaOpcode::VLshlrevB64},
     {0x300u, RdnaOpcode::VLshrrevB64},
+    {0x301u, RdnaOpcode::VAshrrevI64},
+    {0x305u, RdnaOpcode::VMulLoU16},
+    {0x340u, RdnaOpcode::VMadU16},
+    {0x35eu, RdnaOpcode::VMadI16},
+    {0x373u, RdnaOpcode::VMadU32U16},
+    {0x375u, RdnaOpcode::VMadI32I16},
+    {0x376u, RdnaOpcode::VSubNcI32},
+    {0x37fu, RdnaOpcode::VAddNcI32},
     {0x303u, RdnaOpcode::VAddNcU16},
     {0x304u, RdnaOpcode::VSubNcU16},
     {0x307u, RdnaOpcode::VLshrrevB16},
@@ -519,12 +527,18 @@ bool isNativeVop3F16TernaryOpcode(RdnaOpcode opcode) {
 }
 
 bool isNativeVop3I16TernaryOpcode(RdnaOpcode opcode) {
-    return opcode == RdnaOpcode::VMed3I16;
+    return opcode == RdnaOpcode::VMed3I16 || opcode == RdnaOpcode::VMadU16 || opcode == RdnaOpcode::VMadI16 ||
+        opcode == RdnaOpcode::VMadU32U16 || opcode == RdnaOpcode::VMadI32I16;
+}
+
+bool usesSignedSaturateClamp(RdnaOpcode opcode) {
+    return opcode == RdnaOpcode::VAddNcI32 || opcode == RdnaOpcode::VSubNcI32;
 }
 
 bool isNativeVop3B16BinaryOpcode(RdnaOpcode opcode) {
     switch (opcode) {
         case RdnaOpcode::VAddNcU16:
+        case RdnaOpcode::VMulLoU16:
         case RdnaOpcode::VSubNcU16:
         case RdnaOpcode::VMaxU16:
         case RdnaOpcode::VMaxI16:
@@ -1234,6 +1248,10 @@ std::uint32_t nativeVop3SourceCount(RdnaOpcode opcode) {
         case RdnaOpcode::VSubNcI16:
         case RdnaOpcode::VLshlrevB64:
         case RdnaOpcode::VLshrrevB64:
+        case RdnaOpcode::VAshrrevI64:
+        case RdnaOpcode::VAddNcI32:
+        case RdnaOpcode::VSubNcI32:
+        case RdnaOpcode::VMulLoU16:
         case RdnaOpcode::VLshlrevB16:
         case RdnaOpcode::VLshrrevB16:
         case RdnaOpcode::VAshrrevI16:
@@ -1323,10 +1341,13 @@ void applyNativeVop3TernaryModifiers(RdnaInstruction& instruction, std::uint32_t
 
 void applyNativeVop3I16TernarySelectors(RdnaInstruction& instruction, std::uint32_t opSel) {
     RdnaOperand* sources[] = {&instruction.source0, &instruction.source1, &instruction.source2};
-    for (std::uint32_t i = 0; i < 3u; ++i) {
+    const bool wideResult = instruction.op == RdnaOpcode::VMadU32U16 || instruction.op == RdnaOpcode::VMadI32I16;
+    for (std::uint32_t i = 0; i < (wideResult ? 2u : 3u); ++i) {
         sources[i]->opSel = ((opSel >> i) & 1u) != 0u;
     }
-    instruction.destination.sdwaSel = (opSel & 0x8u) != 0u ? 5u : 4u;
+    if (!wideResult) {
+        instruction.destination.sdwaSel = (opSel & 0x8u) != 0u ? 5u : 4u;
+    }
 }
 
 void applyNativeVop3B16BinaryModifiers(RdnaInstruction& instruction, std::uint32_t opSel) {
@@ -1406,7 +1427,7 @@ bool supportsNativeVop3ResultModifiers(RdnaOpcode opcode) {
 }
 
 bool supportsNativeVop3Clamp(RdnaOpcode opcode) {
-    return supportsNativeVop3ResultModifiers(opcode) || usesInexactClampControl(opcode);
+    return supportsNativeVop3ResultModifiers(opcode) || usesInexactClampControl(opcode) || usesSignedSaturateClamp(opcode);
 }
 
 void checkNativeVop3Modifiers(RdnaOpcode opcode, bool permlane, bool carryInOut, bool scalarDst, std::uint32_t abs, std::uint32_t opSel, std::uint32_t clamp, std::uint32_t omod, std::uint32_t neg) {
@@ -1436,6 +1457,12 @@ void checkNativeVop3Modifiers(RdnaOpcode opcode, bool permlane, bool carryInOut,
     }
     if (carryInOut || scalarDst) {
         if (clamp != 0u || omod != 0u || neg != 0u) {
+            throw std::invalid_argument("VOP3 source modifiers are not implemented");
+        }
+        return;
+    }
+    if (usesSignedSaturateClamp(opcode)) {
+        if (abs != 0u || opSel != 0u || omod != 0u || neg != 0u) {
             throw std::invalid_argument("VOP3 source modifiers are not implemented");
         }
         return;

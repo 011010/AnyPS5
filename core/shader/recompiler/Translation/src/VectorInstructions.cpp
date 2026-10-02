@@ -665,6 +665,22 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
         return simpleInteger(inst, IrOpcode::ShiftLeftLogical64, IrType::U64, true, false, false);
     case RdnaOpcode::VLshrrevB64:
         return simpleInteger(inst, IrOpcode::ShiftRightLogical64, IrType::U64, true, false, false);
+    case RdnaOpcode::VAshrrevI64:
+        return simpleInteger(inst, IrOpcode::ShiftRightArithmetic64, IrType::U64, true, false, false);
+    case RdnaOpcode::VAddNcI32:
+        return vAddSubNcI32(inst, false);
+    case RdnaOpcode::VSubNcI32:
+        return vAddSubNcI32(inst, true);
+    case RdnaOpcode::VMulLoU16:
+        return integer16Binary(inst, IrOpcode::IMul32, false);
+    case RdnaOpcode::VMadU16:
+        return integer16Mad(inst, false, false);
+    case RdnaOpcode::VMadI16:
+        return integer16Mad(inst, true, false);
+    case RdnaOpcode::VMadU32U16:
+        return integer16Mad(inst, false, true);
+    case RdnaOpcode::VMadI32I16:
+        return integer16Mad(inst, true, true);
     case RdnaOpcode::VXnorB32:
         return composedIntegerBinary(inst, IrOpcode::BitwiseXor32, false, true, false);
     case RdnaOpcode::VAndOrB32:
