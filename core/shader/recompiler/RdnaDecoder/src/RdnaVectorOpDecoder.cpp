@@ -372,6 +372,7 @@ constexpr VopcOpcodeInfo vopcOpcodes[] = {
 };
 
 constexpr VectorOpcodeInfo vop3Opcodes[] = {
+    {0x140u, RdnaOpcode::VMadLegacyF32},
     {0x141u, RdnaOpcode::VMadF32},
     {0x142u, RdnaOpcode::VMadI32I24},
     {0x143u, RdnaOpcode::VMadU32U24},
@@ -385,6 +386,7 @@ constexpr VectorOpcodeInfo vop3Opcodes[] = {
     {0x149u, RdnaOpcode::VBfeI32},
     {0x14au, RdnaOpcode::VBfiB32},
     {0x14eu, RdnaOpcode::VAlignbitB32},
+    {0x150u, RdnaOpcode::VMullitF32},
     {0x151u, RdnaOpcode::VMin3F32},
     {0x152u, RdnaOpcode::VMin3I32},
     {0x153u, RdnaOpcode::VMin3U32},

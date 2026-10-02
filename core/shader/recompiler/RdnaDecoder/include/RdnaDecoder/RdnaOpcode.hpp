@@ -50,6 +50,8 @@ enum class RdnaOpcode : std::uint16_t {
     VSubF32,
     VMulF32,
     VMadF32,
+    VMadLegacyF32,
+    VMullitF32,
     VFmaF32,
     VAddI32,
     VSubI32,
