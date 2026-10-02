@@ -165,6 +165,7 @@ std::uint32_t EmitTruncF32Value(SpirvEmitterState& state, std::uint32_t arg0);
 std::uint32_t EmitFNegateValue(SpirvEmitterState& state, std::uint32_t arg0);
 std::uint32_t EmitFAbsValue(SpirvEmitterState& state, std::uint32_t arg0);
 std::uint32_t EmitPackHalf2x16(SpirvEmitterState& state, std::uint32_t arg0);
+std::uint32_t EmitF32ToF16BitsRte(SpirvEmitterState& state, std::uint32_t value);
 std::uint32_t EmitPackSnorm2x16(SpirvEmitterState& state, std::uint32_t arg0);
 std::uint32_t EmitPackUnorm2x16(SpirvEmitterState& state, std::uint32_t arg0);
 std::uint32_t EmitFPFma32(SpirvEmitterState& state, std::uint32_t arg0, std::uint32_t arg1, std::uint32_t arg2);
