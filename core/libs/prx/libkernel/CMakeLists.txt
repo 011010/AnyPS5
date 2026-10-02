@@ -8,6 +8,7 @@ add_library(libkernel SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/File/src/Open.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/File/src/Stdio.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Semaphore/src/Semaphore.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/SyncOnAddress/src/SyncOnAddress.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/DirectMemory/Export.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/DirectMemory/DirectMemory.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/DirectMemory/PosixMemory.cpp
@@ -152,6 +153,16 @@ if(BUILD_TESTING)
     add_test(NAME guest_signals COMMAND guest_signal_tests)
     if(WIN32)
         set_tests_properties(guest_signals PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libkernel>")
+    endif()
+    add_test_executable(guest_sync_on_address_tests ${LIBS_INCLUDE_DIR}/tests/GuestSyncOnAddress.cpp)
+    target_include_directories(guest_sync_on_address_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(guest_sync_on_address_tests PRIVATE libkernel libc)
+    configure_windows_unwind(guest_sync_on_address_tests)
+    add_test(NAME guest_sync_on_address COMMAND guest_sync_on_address_tests)
+    set_tests_properties(guest_sync_on_address PROPERTIES TIMEOUT 20)
+    if(WIN32)
+        set_tests_properties(guest_sync_on_address PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libkernel>")
     endif()
     add_test_executable(guest_kernel_error_tests ${LIBS_INCLUDE_DIR}/tests/GuestKernelErrors.cpp)
