@@ -145,6 +145,156 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
     case RdnaOpcode::VCmpxNeU64:
         emitIntegerCompare(inst, IrOpcode::INotEqual64, IrType::U64, false, true);
         return true;
+    case RdnaOpcode::VCmpxFF32:
+        emitCompareConstant(inst, false, false, true);
+        return true;
+    case RdnaOpcode::VCmpxOF32:
+        emitFloatOrderedCompare(inst, true, false, true);
+        return true;
+    case RdnaOpcode::VCmpxUF32:
+        emitFloatOrderedCompare(inst, false, false, true);
+        return true;
+    case RdnaOpcode::VCmpxTruF32:
+        emitCompareConstant(inst, true, false, true);
+        return true;
+    case RdnaOpcode::VCmpxFI32:
+        emitCompareConstant(inst, false, false, true);
+        return true;
+    case RdnaOpcode::VCmpxTI32:
+        emitCompareConstant(inst, true, false, true);
+        return true;
+    case RdnaOpcode::VCmpxFU32:
+        emitCompareConstant(inst, false, false, true);
+        return true;
+    case RdnaOpcode::VCmpxTU32:
+        emitCompareConstant(inst, true, false, true);
+        return true;
+    case RdnaOpcode::VCmpFI64:
+        emitCompareConstant(inst, false, false, false);
+        return true;
+    case RdnaOpcode::VCmpLtI64:
+        emitInteger64Order(inst, true, false, false, false);
+        return true;
+    case RdnaOpcode::VCmpLeI64:
+        emitInteger64Order(inst, true, true, true, false);
+        return true;
+    case RdnaOpcode::VCmpGtI64:
+        emitInteger64Order(inst, true, true, false, false);
+        return true;
+    case RdnaOpcode::VCmpNeI64:
+        emitIntegerCompare(inst, IrOpcode::INotEqual64, IrType::U64, false, false);
+        return true;
+    case RdnaOpcode::VCmpGeI64:
+        emitInteger64Order(inst, true, false, true, false);
+        return true;
+    case RdnaOpcode::VCmpTI64:
+        emitCompareConstant(inst, true, false, false);
+        return true;
+    case RdnaOpcode::VCmpxFI64:
+        emitCompareConstant(inst, false, false, true);
+        return true;
+    case RdnaOpcode::VCmpxLtI64:
+        emitInteger64Order(inst, true, false, false, true);
+        return true;
+    case RdnaOpcode::VCmpxEqI64:
+        emitIntegerCompare(inst, IrOpcode::IEqual64, IrType::U64, false, true);
+        return true;
+    case RdnaOpcode::VCmpxLeI64:
+        emitInteger64Order(inst, true, true, true, true);
+        return true;
+    case RdnaOpcode::VCmpxGtI64:
+        emitInteger64Order(inst, true, true, false, true);
+        return true;
+    case RdnaOpcode::VCmpxGeI64:
+        emitInteger64Order(inst, true, false, true, true);
+        return true;
+    case RdnaOpcode::VCmpxTI64:
+        emitCompareConstant(inst, true, false, true);
+        return true;
+    case RdnaOpcode::VCmpFU64:
+        emitCompareConstant(inst, false, false, false);
+        return true;
+    case RdnaOpcode::VCmpLeU64:
+        emitInteger64Order(inst, false, true, true, false);
+        return true;
+    case RdnaOpcode::VCmpGeU64:
+        emitInteger64Order(inst, false, false, true, false);
+        return true;
+    case RdnaOpcode::VCmpTU64:
+        emitCompareConstant(inst, true, false, false);
+        return true;
+    case RdnaOpcode::VCmpxFU64:
+        emitCompareConstant(inst, false, false, true);
+        return true;
+    case RdnaOpcode::VCmpxLtU64:
+        emitInteger64Order(inst, false, false, false, true);
+        return true;
+    case RdnaOpcode::VCmpxEqU64:
+        emitIntegerCompare(inst, IrOpcode::IEqual64, IrType::U64, false, true);
+        return true;
+    case RdnaOpcode::VCmpxLeU64:
+        emitInteger64Order(inst, false, true, true, true);
+        return true;
+    case RdnaOpcode::VCmpxGtU64:
+        emitInteger64Order(inst, false, true, false, true);
+        return true;
+    case RdnaOpcode::VCmpxGeU64:
+        emitInteger64Order(inst, false, false, true, true);
+        return true;
+    case RdnaOpcode::VCmpxTU64:
+        emitCompareConstant(inst, true, false, true);
+        return true;
+    case RdnaOpcode::VCmpFF16:
+        emitCompareConstant(inst, false, false, false);
+        return true;
+    case RdnaOpcode::VCmpOF16:
+        emitFloatOrderedCompare(inst, true, true, false);
+        return true;
+    case RdnaOpcode::VCmpUF16:
+        emitFloatOrderedCompare(inst, false, true, false);
+        return true;
+    case RdnaOpcode::VCmpNgeF16:
+        emitFloatCompare(inst, IrOpcode::FPUnordLessThan32, true, false);
+        return true;
+    case RdnaOpcode::VCmpNlgF16:
+        emitFloatCompare(inst, IrOpcode::FPUnordEqual32, true, false);
+        return true;
+    case RdnaOpcode::VCmpNgtF16:
+        emitFloatCompare(inst, IrOpcode::FPUnordLessThanEqual32, true, false);
+        return true;
+    case RdnaOpcode::VCmpNleF16:
+        emitFloatCompare(inst, IrOpcode::FPUnordLessThan32, true, false, true);
+        return true;
+    case RdnaOpcode::VCmpNltF16:
+        emitFloatCompare(inst, IrOpcode::FPUnordGreaterThanEqual32, true, false);
+        return true;
+    case RdnaOpcode::VCmpTruF16:
+        emitCompareConstant(inst, true, false, false);
+        return true;
+    case RdnaOpcode::VCmpxFF16:
+        emitCompareConstant(inst, false, false, true);
+        return true;
+    case RdnaOpcode::VCmpxLgF16:
+        emitFloatCompare(inst, IrOpcode::FPOrdNotEqual32, true, true);
+        return true;
+    case RdnaOpcode::VCmpxOF16:
+        emitFloatOrderedCompare(inst, true, true, true);
+        return true;
+    case RdnaOpcode::VCmpxUF16:
+        emitFloatOrderedCompare(inst, false, true, true);
+        return true;
+    case RdnaOpcode::VCmpxNgeF16:
+        emitFloatCompare(inst, IrOpcode::FPUnordLessThan32, true, true);
+        return true;
+    case RdnaOpcode::VCmpxNlgF16:
+        emitFloatCompare(inst, IrOpcode::FPUnordEqual32, true, true);
+        return true;
+    case RdnaOpcode::VCmpxNleF16:
+        emitFloatCompare(inst, IrOpcode::FPUnordLessThan32, true, true, true);
+        return true;
+    case RdnaOpcode::VCmpxTruF16:
+        emitCompareConstant(inst, true, false, true);
+        return true;
     case RdnaOpcode::VCmpEqU16:
         emitInteger16Compare(inst, IrOpcode::IEqual32, false, false);
         return true;
@@ -335,10 +485,10 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
         emitFloatCompare(inst, IrOpcode::FPUnordGreaterThanEqual32, true, true);
         return true;
     case RdnaOpcode::VCmpOF32:
-        emitFloatOrderedCompare(inst, true);
+        emitFloatOrderedCompare(inst, true, false, false);
         return true;
     case RdnaOpcode::VCmpUF32:
-        emitFloatOrderedCompare(inst, false);
+        emitFloatOrderedCompare(inst, false, false, false);
         return true;
     case RdnaOpcode::VCmpClassF32:
         emitFloatClassCompare(inst, false);
@@ -574,6 +724,7 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
     case RdnaOpcode::VSubrevF32:
         return floatBinary(inst, IrOpcode::FPSub32, true);
     case RdnaOpcode::VMulF32:
+    case RdnaOpcode::VMullitF32:
         return floatBinary(inst, IrOpcode::FPMul32, false);
     case RdnaOpcode::VMinF32:
         return floatBinary(inst, IrOpcode::FPMin32, false);
@@ -586,6 +737,7 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
     case RdnaOpcode::VMadmkF32:
     case RdnaOpcode::VMadakF32:
     case RdnaOpcode::VMadF32:
+    case RdnaOpcode::VMadLegacyF32:
     case RdnaOpcode::VFmaF32:
         return floatTernary(inst, IrOpcode::FPFma32, false, true);
     case RdnaOpcode::VMin3F32:
@@ -665,6 +817,22 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
         return simpleInteger(inst, IrOpcode::ShiftLeftLogical64, IrType::U64, true, false, false);
     case RdnaOpcode::VLshrrevB64:
         return simpleInteger(inst, IrOpcode::ShiftRightLogical64, IrType::U64, true, false, false);
+    case RdnaOpcode::VAshrrevI64:
+        return simpleInteger(inst, IrOpcode::ShiftRightArithmetic64, IrType::U64, true, false, false);
+    case RdnaOpcode::VAddNcI32:
+        return vAddSubNcI32(inst, false);
+    case RdnaOpcode::VSubNcI32:
+        return vAddSubNcI32(inst, true);
+    case RdnaOpcode::VMulLoU16:
+        return integer16Binary(inst, IrOpcode::IMul32, false);
+    case RdnaOpcode::VMadU16:
+        return integer16Mad(inst, false, false);
+    case RdnaOpcode::VMadI16:
+        return integer16Mad(inst, true, false);
+    case RdnaOpcode::VMadU32U16:
+        return integer16Mad(inst, false, true);
+    case RdnaOpcode::VMadI32I16:
+        return integer16Mad(inst, true, true);
     case RdnaOpcode::VXnorB32:
         return composedIntegerBinary(inst, IrOpcode::BitwiseXor32, false, true, false);
     case RdnaOpcode::VAndOrB32:
@@ -693,6 +861,14 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
         return vMadU64U32(inst);
     case RdnaOpcode::VSadU32:
         return vSadU32(inst);
+    case RdnaOpcode::VSadU8:
+        return subwordSad(inst, 8u, 0u, false);
+    case RdnaOpcode::VSadHiU8:
+        return subwordSad(inst, 8u, 16u, false);
+    case RdnaOpcode::VSadU16:
+        return subwordSad(inst, 16u, 0u, false);
+    case RdnaOpcode::VMsadU8:
+        return subwordSad(inst, 8u, 0u, true);
     case RdnaOpcode::VAdd3U32:
         return vAdd3U32(inst);
     case RdnaOpcode::VBcntU32B32:
@@ -719,6 +895,8 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
         return vAddLshlU32(inst);
     case RdnaOpcode::VPermB32:
         return vPermB32(inst);
+    case RdnaOpcode::VLerpU8:
+        return vLerpU8(inst);
     case RdnaOpcode::VXadU32:
         return vXadU32(inst);
     case RdnaOpcode::VLshlOrB32:

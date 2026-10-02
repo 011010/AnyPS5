@@ -47,7 +47,7 @@ int main() {
     const int status = sceSaveDataSetSaveDataMemory2(&set);
     Require(Read(path) == original);
     Require(status == static_cast<int>(0x809F000Bu));
-    Require(std::filesystem::remove(temporary));
+    Require(!std::filesystem::exists(temporary));
     Require(sceSaveDataSetSaveDataMemory2(&set) == 0);
     const auto* bytes = reinterpret_cast<const char*>(&param);
     Require(Read(path) == std::vector<char>(bytes, bytes + sizeof(param)));

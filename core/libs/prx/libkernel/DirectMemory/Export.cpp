@@ -175,6 +175,10 @@ int32_t APS5_VABI sceKernelMapNamedFlexibleMemory(void** addr_in_out, size_t len
  return result;
 }
 
+int32_t APS5_VABI sceKernelMapNamedFlexibleMemoryInternal(void** addr_in_out, size_t len, int prot, int flags, const char* name) {
+ return sceKernelMapNamedFlexibleMemory(addr_in_out, len, prot, flags, name);
+}
+
 int APS5_VABI sceKernelMprotect(const void* addr, size_t len, int prot) {
  return DoMprotect(addr, len, prot);
 }
@@ -282,12 +286,8 @@ int APS5_VABI sceKernelCheckedReleaseDirectMemory(int64_t start, size_t len) {
 }
 
 int APS5_VABI sceKernelMtypeprotect(const void* addr, size_t len, int type, int prot) {
- (void)addr;
- (void)len;
  (void)type;
- (void)prot;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+ return DoMprotect(addr, len, prot);
 }
 
 int APS5_VABI sceKernelQueryMemoryProtection(void* addr, void** start, void** end, int* prot) {

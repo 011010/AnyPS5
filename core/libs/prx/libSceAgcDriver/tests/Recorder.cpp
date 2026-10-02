@@ -908,6 +908,200 @@ void misalignedSnapshotTests(const Device& device, Recorder& recorder) {
     recorder.Activate();
 }
 
+void drawSnapshotReuseTests(const Device& device, Recorder& recorder) {
+    const auto& context = device.GetContext();
+    constexpr std::size_t bytes = 65536;
+    void* block = context.hostImportAlignment != 0 ? AllocateWatched(bytes, 65536) : nullptr;
+    if (block == nullptr) {
+        std::cout << "host imports or write watching unavailable: draw snapshot reuse not tested\n";
+        return;
+    }
+    struct Release {
+        void* block;
+        ~Release() { ReleaseWatched(block, bytes); }
+    } release{block};
+    std::memset(block, 0x11, bytes);
+    const auto address = reinterpret_cast<std::uint64_t>(block);
+    {
+        GuestAllocations::Mutation mutation;
+        mutation.Add(block, bytes, true, true);
+    }
+    struct Unregister {
+        const Context& context;
+        void* block;
+        ~Unregister() {
+            {
+                GuestAllocations::Mutation mutation;
+                mutation.Remove(block);
+            }
+            HostImportFor(context, reinterpret_cast<std::uint64_t>(block), bytes);
+        }
+    } unregister{context, block};
+    if (HostImportFor(context, address, bytes) == nullptr) {
+        std::cout << "host import of the watched block refused: draw snapshot reuse not tested\n";
+        return;
+    }
+    const auto element = address + 4096;
+    constexpr std::size_t elementBytes = 1024;
+    ShaderRecompiler::RecompileResult program;
+    ShaderRecompiler::DescriptorBinding binding;
+    binding.kind = ShaderRecompiler::DescriptorKind::StorageBuffer;
+    binding.role = ShaderRecompiler::DescriptorRole::GuestBuffers;
+    binding.descriptorSet = 0;
+    binding.binding = 0;
+    binding.count = 1;
+    binding.guestDescriptor = {static_cast<std::uint32_t>(element), static_cast<std::uint32_t>(element >> 32u) & 0xffffu, elementBytes, 0x31000000u};
+    binding.bufferWritten = {false};
+    program.bindings.push_back(binding);
+    const CompiledShader compute{ShaderRecompiler::ShaderStage::Compute, &program, 0};
+    {
+        auto snapshotContext = context;
+        DescriptorCache cache(snapshotContext);
+        snapshotContext.descriptorCache = &cache;
+        Recorder snapshotRecorder(snapshotContext);
+        snapshotRecorder.Activate();
+        ShaderResources resources(snapshotContext, compute);
+        const auto snapshot = [&](std::byte expected) {
+            const auto bindings = resources.PrepareDrawBindings(snapshotRecorder);
+            Require(bindings != nullptr && bindings->snapshots.size() == 1, "read-only draw input was not snapshotted");
+            const auto buffer = bindings->snapshots[0].buffer;
+            const auto contents = buffer->Bytes();
+            Require(contents.size() == elementBytes && std::all_of(contents.begin(), contents.end(), [&](std::byte value) { return value == expected; }), "a draw snapshot does not hold the guest bytes of its draw");
+            return buffer;
+        };
+        const auto first = snapshot(std::byte{0x11});
+        Require(snapshot(std::byte{0x11}) == first, "an unchanged draw input was copied again");
+        std::memset(reinterpret_cast<void*>(element), 0x22, elementBytes);
+        const auto afterCpu = snapshot(std::byte{0x22});
+        Require(afterCpu != first, "a draw snapshot outlived a CPU store to its range");
+        Require(snapshot(std::byte{0x22}) == afterCpu, "the recopied draw input was not kept");
+        std::memset(reinterpret_cast<void*>(element), 0x33, elementBytes);
+        AgcDriver::GuestMemory::MarkWritten(element, 4);
+        const auto afterStore = snapshot(std::byte{0x33});
+        Require(afterStore != afterCpu, "a draw snapshot outlived a driver store to its range");
+        {
+            GuestAllocations::Mutation mutation;
+        }
+        Require(snapshot(std::byte{0x33}) != afterStore, "a draw snapshot outlived a registry mutation");
+        snapshotRecorder.Sync();
+    }
+    recorder.Activate();
+}
+
+void drawSnapshotEvictionTests(const Device& device) {
+    using namespace AgcDriver::GuestMemory;
+    constexpr std::size_t bytes = 65536;
+    void* block = WriteWatched() ? AllocateWatched(bytes, 65536) : nullptr;
+    if (block == nullptr) {
+        std::cout << "write watching unavailable: draw snapshot eviction not tested\n";
+        return;
+    }
+    struct Release {
+        void* block;
+        ~Release() { ReleaseWatched(block, bytes); }
+    } release{block};
+    const auto address = reinterpret_cast<std::uint64_t>(block);
+    Recorder cache(device.GetContext());
+    const auto buffer = std::make_shared<Buffer>(device.GetContext(), 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    const auto registry = GuestAllocations::GuestAllocationsGeneration_nid_postfix();
+    const auto generation = CollectWrites(address, 4096);
+    Require(generation != 0, "the watched block has no generation");
+    constexpr auto cap = Recorder::DrawSnapshotEntries;
+    cache.KeepDrawSnapshot(address, 16, generation, registry, buffer, Recorder::SnapshotUse::Vertex);
+    for (std::size_t size = 1; size <= cap; ++size) cache.KeepDrawSnapshot(address, size, generation, registry, buffer);
+    Require(cache.ReusableDrawSnapshot(address, 1) == buffer, "a kept snapshot is not reusable");
+    cache.KeepDrawSnapshot(address, cap + 1, generation, registry, buffer);
+    Require(cache.ReusableDrawSnapshot(address, 2) == nullptr, "the least recently used snapshot survived the cap");
+    Require(cache.ReusableDrawSnapshot(address, 1) == buffer && cache.ReusableDrawSnapshot(address, 3) == buffer && cache.ReusableDrawSnapshot(address, cap + 1) == buffer, "eviction dropped a more recently used snapshot");
+    cache.KeepDrawSnapshot(address, cap + 2, generation, registry, buffer);
+    Require(cache.ReusableDrawSnapshot(address, 4) == nullptr && cache.ReusableDrawSnapshot(address, 1) == buffer, "the second eviction did not take the next oldest");
+    Require(cache.ReusableDrawSnapshot(address, 16, Recorder::SnapshotUse::Vertex) == buffer, "storage snapshots evicted a vertex snapshot");
+    cache.KeepDrawSnapshot(address, 1, generation, registry, buffer);
+    Require(cache.ReusableDrawSnapshot(address, 1) == buffer && cache.ReusableDrawSnapshot(address, 5) == buffer, "replacing a kept snapshot evicted another");
+    cache.KeepDrawSnapshot(address + 8192, Recorder::DrawSnapshotBudget, generation, registry, buffer);
+    Require(cache.ReusableDrawSnapshot(address, 1) == nullptr && cache.ReusableDrawSnapshot(address, 5) == nullptr, "the byte budget did not evict the older snapshots");
+    cache.KeepDrawSnapshot(address, 16, generation, registry, buffer);
+    std::memset(block, 0x5a, 16);
+    CollectWrites(address, 16);
+    Require(cache.ReusableDrawSnapshot(address, 16) == nullptr && cache.ReusableDrawSnapshot(address, 16) == nullptr, "a snapshot outlived a CPU store");
+}
+
+void drawInputReuseTests(const Device& device, Recorder& recorder) {
+    using namespace AgcDriver::GuestMemory;
+    using Use = Recorder::SnapshotUse;
+    constexpr std::size_t bytes = 65536;
+    void* block = WriteWatched() ? AllocateWatched(bytes, 65536) : nullptr;
+    if (block == nullptr) {
+        std::cout << "write watching unavailable: draw input reuse not tested\n";
+        return;
+    }
+    struct Release {
+        void* block;
+        ~Release() { ReleaseWatched(block, bytes); }
+    } release{block};
+    const auto& context = device.GetContext();
+    auto* words = static_cast<std::uint32_t*>(block);
+    for (std::uint32_t i = 0; i < bytes / sizeof(std::uint32_t); ++i) words[i] = i * 3;
+    const auto address = reinterpret_cast<std::uint64_t>(block);
+    constexpr std::size_t size = 256;
+    const auto equalsGuest = [&](const DrawInputCopy& copy) {
+        const auto contents = copy.buffer->Bytes();
+        return contents.size() == size && std::memcmp(contents.data(), block, size) == 0;
+    };
+    const auto first = CopyDrawInput(context, &recorder, address, size, 4, Use::Index32);
+    Require(!first.reused && first.generation != 0 && equalsGuest(first), "the first draw input copy is wrong");
+    KeepDrawInput(&recorder, address, first, Use::Index32, 189);
+    const auto second = CopyDrawInput(context, &recorder, address, size, 4, Use::Index32);
+    Require(second.reused && second.buffer == first.buffer && second.derived == 189, "an unchanged draw input was copied again");
+    const auto vertex = CopyDrawInput(context, &recorder, address, size, 1, Use::Vertex);
+    const auto narrow = CopyDrawInput(context, &recorder, address, size, 2, Use::Index16);
+    Require(!vertex.reused && !narrow.reused && equalsGuest(vertex) && equalsGuest(narrow), "a draw input reused another use's copy");
+    KeepDrawInput(&recorder, address, vertex, Use::Vertex, 0);
+    Require(CopyDrawInput(context, &recorder, address, size, 1, Use::Vertex).buffer == vertex.buffer && CopyDrawInput(context, &recorder, address, size, 4, Use::Index32).buffer == first.buffer, "the uses' copies displaced each other");
+    Require(!CopyDrawInput(context, nullptr, address, size, 4, Use::Index32).reused, "a draw input was reused without a recorder");
+    words[5] = 0xdead;
+    const auto stored = CopyDrawInput(context, &recorder, address, size, 4, Use::Index32);
+    Require(!stored.reused && stored.buffer != first.buffer && equalsGuest(stored), "a draw input outlived a CPU store");
+    KeepDrawInput(&recorder, address, stored, Use::Index32, 0xdead);
+    Require(CopyDrawInput(context, &recorder, address, size, 4, Use::Index32).derived == 0xdead, "the new copy was not kept");
+    MarkWritten(address + 128, 4);
+    const auto marked = CopyDrawInput(context, &recorder, address, size, 4, Use::Index32);
+    Require(!marked.reused && equalsGuest(marked), "a draw input outlived a stamped GPU store");
+    KeepDrawInput(&recorder, address, marked, Use::Index32, 1);
+    Require(CopyDrawInput(context, &recorder, address, size, 4, Use::Index32).reused, "the copy after the GPU store was not kept");
+    alignas(64) static std::byte other[64];
+    {
+        GuestAllocations::Mutation mutation;
+        mutation.Add(other, sizeof(other), true, true);
+    }
+    {
+        GuestAllocations::Mutation mutation;
+        mutation.Remove(other);
+    }
+    Require(!CopyDrawInput(context, &recorder, address, size, 4, Use::Index32).reused, "a draw input outlived a registry mutation");
+    const auto pool = address + 8192;
+    const auto whole = CopyDrawInput(context, &recorder, pool, 12288, 1, Use::Vertex);
+    Require(!whole.reused && std::memcmp(whole.buffer->Bytes().data(), reinterpret_cast<const void*>(pool), 12288) == 0, "the vertex pool copy is wrong");
+    KeepDrawInput(&recorder, pool, whole, Use::Vertex, 0);
+    const auto prefix = CopyDrawInput(context, &recorder, pool, 4096, 1, Use::Vertex);
+    Require(prefix.reused && prefix.buffer == whole.buffer, "a shorter vertex read did not reuse the longer snapshot");
+    Require(!CopyDrawInput(context, &recorder, pool, 16384, 1, Use::Vertex).reused, "a longer vertex read reused a shorter snapshot");
+    Require(!CopyDrawInput(context, &recorder, pool + 4, 4096, 1, Use::Vertex).reused, "a vertex read at another address reused the snapshot");
+    Require(!CopyDrawInput(context, &recorder, pool, 4096, 4, Use::Index32).reused, "an index read reused a longer vertex snapshot");
+    const auto shorter = CopyDrawInput(context, &recorder, pool, 8192, 4, Use::Index32);
+    KeepDrawInput(&recorder, pool, shorter, Use::Index32, 3);
+    Require(!CopyDrawInput(context, &recorder, pool, 4096, 4, Use::Index32).reused, "an index read reused a longer index snapshot");
+    words[(8192 + 8192 + 16) / 4] = 0xbeef;
+    const auto prefixAfter = CopyDrawInput(context, &recorder, pool, 4096, 1, Use::Vertex);
+    Require(std::memcmp(prefixAfter.buffer->Bytes().data(), reinterpret_cast<const void*>(pool), 4096) == 0, "a shorter vertex read after a store got other bytes");
+    const auto after = CopyDrawInput(context, &recorder, pool, 12288, 1, Use::Vertex);
+    Require(!after.reused && std::memcmp(after.buffer->Bytes().data(), reinterpret_cast<const void*>(pool), 12288) == 0, "a vertex read over the store reused the old bytes");
+    KeepDrawInput(&recorder, pool, after, Use::Vertex, 0);
+    const auto small = CopyDrawInput(context, &recorder, pool, 4096, 1, Use::Vertex);
+    Require(small.reused && small.buffer == after.buffer, "the new vertex snapshot does not serve shorter reads");
+    recorder.Sync();
+}
+
 // Unit shadows (UnitShadow.hpp) over a host import of write-watched arena memory: a retile piece's
 // slab destination and its seeds, freshness from the tracker (a publish never stamps, a CPU write
 // makes the unit stale), the scopes, the slab boundary, and the retire publish. With
@@ -1963,6 +2157,117 @@ void firstLayerViewTests(const Device& device, Recorder& recorder) {
     expectRed(program.Red(flatTexture.View(), flatTexture.Layout(), 0.0f), 0x20 / 255.0f, "a 2D texture over the surface does not read its first layer");
 }
 
+void keysFillTests(const Device& device, Recorder& recorder) {
+    const auto& base = device.GetContext();
+    if (base.hostImportAlignment == 0) {
+        std::cout << "host imports unavailable: DCC key fills not tested\n";
+        return;
+    }
+    constexpr std::uint32_t side = 256;
+    constexpr std::size_t surfaceBytes = side * side * 4;
+    constexpr std::size_t keyCount = surfaceBytes / 256;
+    constexpr std::size_t bytes = surfaceBytes + 65536;
+#ifdef _WIN32
+    void* block = VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+#else
+    void* block = std::aligned_alloc(65536, bytes);
+#endif
+    Require(block != nullptr, "cannot allocate the key fill block");
+    auto* texels = static_cast<std::uint8_t*>(block);
+    auto* keys = texels + surfaceBytes;
+    std::memset(texels, 0x55, surfaceBytes);
+    std::memset(keys, 0x00, keyCount);
+    const auto address = reinterpret_cast<std::uint64_t>(block);
+    const auto keysAddress = address + surfaceBytes;
+    {
+        GuestAllocations::Mutation mutation;
+        mutation.Add(block, bytes, true, true);
+    }
+    struct Unregister {
+        const Context& context;
+        void* block;
+        std::uint64_t address;
+        ~Unregister() {
+            {
+                GuestAllocations::Mutation mutation;
+                mutation.Remove(block);
+            }
+            HostImportFor(context, address, bytes);
+        }
+    } unregister{base, block, address};
+    if (HostImportFor(base, address, bytes) == nullptr) {
+        std::cout << "host import of the key fill block refused: DCC key fills not tested\n";
+        return;
+    }
+    TextureDetiler detiler(base);
+    auto context = base;
+    context.detiler = &detiler;
+    GuestTextureResource resource{};
+    resource.baseAddress = address;
+    resource.width = side;
+    resource.height = side;
+    resource.mipCount = 1;
+    resource.tileMode = TextureTileMode::kR64KBX;
+    resource.dimension = TextureDimension::k2D;
+    resource.format = 56;
+    resource.dstSelX = 4;
+    resource.dstSelY = 5;
+    resource.dstSelZ = 6;
+    resource.dstSelW = 7;
+    resource.dccAddress = keysAddress;
+    Require(DescribeSurface(resource).guestBytes == surfaceBytes, "the key fill surface has an unexpected size");
+    {
+        auto image = std::make_shared<StorageTexture>(context, detiler, resource, 0);
+        const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        const auto draw = [&](VkClearColorValue value) {
+            const auto commands = recorder.Commands();
+            recorder.Keep(image);
+            RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+            context.Function<PFN_vkCmdClearColorImage>("vkCmdClearColorImage")(commands, image->Image(), VK_IMAGE_LAYOUT_GENERAL, &value, 1, &range);
+            RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT);
+            image->MarkDirty();
+        };
+        const auto holds = [&](std::array<std::uint8_t, 4> texel) {
+            Buffer readback(context, surfaceBytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+            const auto commands = recorder.Commands();
+            RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+            VkBufferImageCopy copy{};
+            copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            copy.imageExtent = {side, side, 1};
+            context.Function<PFN_vkCmdCopyImageToBuffer>("vkCmdCopyImageToBuffer")(commands, image->Image(), VK_IMAGE_LAYOUT_GENERAL, readback.Handle(), 1, &copy);
+            RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_HOST_READ_BIT);
+            recorder.Submit();
+            device.WaitQueue();
+            recorder.Sync();
+            const auto pixels = readback.Bytes();
+            for (std::size_t i = 0; i < pixels.size(); ++i) {
+                if (std::to_integer<std::uint8_t>(pixels[i]) != texel[i % 4]) return false;
+            }
+            return true;
+        };
+        Require(holds({0, 0, 0, 0}), "a surface under 0000 keys was not cleared");
+        draw({{1.0f, 0.0f, 0.0f, 1.0f}});
+        Require(StorageTexture::NoteKeysFill(keysAddress, keyCount, 0x00) == 1, "a 0000 key fill did not cover the surface");
+        Require(image->FilledKeys() == DccKeys::Clear0000, "a key fill over pending results was not recorded");
+        image->Refresh();
+        Require(holds({0, 0, 0, 0}), "a key fill did not clear the results made before it at the next refresh");
+        Require(image->FilledKeys() == DccKeys::Uncompressed, "the image cleared by a refresh still holds the fill");
+        draw({{0.0f, 0.0f, 1.0f, 1.0f}});
+        Require(StorageTexture::NoteKeysFill(keysAddress, keyCount, 0x00) == 1, "a second 0000 key fill did not cover the surface");
+#ifdef _WIN32
+        _putenv_s("APS5_KEYS_FILL_CLEAR", "1");
+#else
+        setenv("APS5_KEYS_FILL_CLEAR", "1", 1);
+#endif
+        Require(StorageTexture::ClearByKeysFill(keysAddress, keyCount, 0x00) == 1, "a 0000 key fill did not clear the surface at once");
+        Require(holds({0, 0, 0, 0}), "a key fill cleared at once left results made before it");
+        draw({{0.0f, 1.0f, 0.0f, 1.0f}});
+        Require(image->FilledKeys() == DccKeys::Uncompressed, "results drawn after a key fill cleared at once are held under the fill's code");
+        Require(holds({0, 255, 0, 255}), "results drawn after a key fill cleared at once were lost");
+    }
+    recorder.Sync();
+}
+
 int main() {
     try {
         Device device;
@@ -1980,8 +2285,12 @@ int main() {
         keyProofTests(device, recorder);
         resourceReadTests(device, recorder);
         misalignedSnapshotTests(device, recorder);
+        drawSnapshotReuseTests(device, recorder);
+        drawSnapshotEvictionTests(device);
+        drawInputReuseTests(device, recorder);
         storeRunTests(device, recorder);
         movedMetadataTests(device, recorder);
+        keysFillTests(device, recorder);
         unitShadowTests(device, recorder);
         storageRefreshTests(device, recorder, false);
         storageRefreshTests(device, recorder, true);

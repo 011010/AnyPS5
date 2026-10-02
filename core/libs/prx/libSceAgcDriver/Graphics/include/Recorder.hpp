@@ -10,6 +10,7 @@
 #include <deque>
 #include <mutex>
 #include <functional>
+#include <list>
 #include <map>
 #include <memory>
 #include <optional>
@@ -19,6 +20,8 @@
 #include <vector>
 
 namespace AgcDriver::Graphics {
+
+class Buffer;
 
 // Accumulates GPU work across guest commands so the CPU does not wait for each one. Dispatches and the
 // copies that feed them record into one open batch; Submit sends it to the queue without waiting and
@@ -91,6 +94,13 @@ public:
     // neither the mutex nor the recorder nor a particular thread. ~Recorder joins the release
     // thread and waits for every release in progress before the device goes.
     void Keep(std::shared_ptr<void> object);
+    enum class SnapshotUse : std::uint8_t { Storage, Vertex, Index16, Index32 };
+    static constexpr std::size_t DrawSnapshotBudget = std::size_t{256} << 20u;
+    static constexpr std::size_t DrawSnapshotEntries = 1024;
+    static constexpr std::size_t DrawInputBudget = std::size_t{1024} << 20u;
+    static constexpr std::size_t DrawInputEntries = 16384;
+    std::shared_ptr<Buffer> ReusableDrawSnapshot(std::uint64_t address, std::size_t bytes, SnapshotUse use = SnapshotUse::Storage, std::uint32_t* derived = nullptr);
+    void KeepDrawSnapshot(std::uint64_t address, std::size_t bytes, std::uint64_t generation, std::uint64_t registryGeneration, std::shared_ptr<Buffer> buffer, SnapshotUse use = SnapshotUse::Storage, std::uint32_t derived = 0);
     void OnComplete(std::function<void()> action);
     void NotePendingWrite(std::uint64_t address, std::size_t bytes);
     // Notes several [begin, end) ranges and publishes the snapshot once (a dispatch writes many buffers).
@@ -687,6 +697,21 @@ private:
     std::array<Completed, CompletedRingSize> completed;
     std::uint64_t newestSubmitted = 0;
     std::chrono::steady_clock::time_point newestSubmittedAt{};
+    using DrawSnapshotKey = std::tuple<std::uint64_t, SnapshotUse, std::size_t>;
+    struct DrawSnapshot {
+        std::uint64_t generation;
+        std::uint64_t registryGeneration;
+        std::list<DrawSnapshotKey>::iterator recent;
+        std::shared_ptr<Buffer> buffer;
+        std::uint32_t derived;
+    };
+    struct DrawSnapshotPool {
+        std::list<DrawSnapshotKey> recency;
+        std::size_t bytes = 0;
+    };
+    std::map<DrawSnapshotKey, DrawSnapshot> drawSnapshots;
+    std::array<DrawSnapshotPool, 2> drawSnapshotPools;
+    void eraseDrawSnapshot(std::map<DrawSnapshotKey, DrawSnapshot>::iterator entry);
 };
 
 }

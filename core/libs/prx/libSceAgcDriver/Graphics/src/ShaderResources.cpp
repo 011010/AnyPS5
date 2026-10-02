@@ -2411,6 +2411,7 @@ std::shared_ptr<Texture> ShaderResources::fastTexture(const ImageRecord& record)
     if (keys != record.entryKeys) return nullptr;
     if (record.source != nullptr) {
         if (!StorageImageCached(context, record.source.get()) || !GuestMemory::UnchangedSince(address, bytes, record.source->Generation())) return nullptr;
+        if (record.resource.dccAddress != 0 && IsDccClear(record.source->FilledKeys())) return nullptr;
         // Under fast-clear keys the view holds only while its image's results are still pending over
         // the surface; flushed, the clear the image cannot see makes the lookup take a snapshot.
         if (keys != DccKeys::Uncompressed && StorageTexture::FindPending(address, record.guestBytes) != record.source) return nullptr;
@@ -2573,8 +2574,14 @@ std::shared_ptr<ShaderResources::DrawBindings> ShaderResources::PrepareDrawBindi
         if (!direct || recorder.PendingWriteOverlaps(item.address, item.size)) continue;
         const auto begin = item.address - item.adjustment;
         const auto bytes = item.size + item.adjustment;
-        auto buffer = std::make_shared<Buffer>(context, bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
-        std::memcpy(buffer->Bytes().data(), reinterpret_cast<const void*>(begin), bytes);
+        const auto registryGeneration = GuestAllocations::GuestAllocationsGeneration_nid_postfix();
+        const auto generation = GuestMemory::CollectWrites(begin, bytes);
+        auto buffer = recorder.ReusableDrawSnapshot(begin, bytes);
+        if (buffer == nullptr) {
+            buffer = std::make_shared<Buffer>(context, bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+            std::memcpy(buffer->Bytes().data(), reinterpret_cast<const void*>(begin), bytes);
+            recorder.KeepDrawSnapshot(begin, bytes, generation, registryGeneration, buffer);
+        }
         selected.push_back(index);
         result->snapshots.push_back({begin, std::move(buffer)});
         CaptureTrace::Log("draw-snapshot batch=%llu address=%llx bytes=%zu", static_cast<unsigned long long>(recorder.Submissions() + 1), static_cast<unsigned long long>(begin), bytes);

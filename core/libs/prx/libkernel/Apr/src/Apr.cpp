@@ -2,6 +2,7 @@
 #include <cstddef>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
+#include "prx/libc/include/GuestArena.hpp"
 #include "prx/libkernel/Apr/include/AprCommandBuffer.hpp"
 #include "prx/libkernel/File/include/NativeStat.hpp"
 #include "prx/libkernel/Equeue/Equeue.hpp"
@@ -121,6 +122,23 @@ AprFile _file(std::uint32_t id) {
     return g_files[id];
 }
 
+constexpr std::uint32_t INVALID_FILE_ID = 0xFFFFFFFFu;
+constexpr int SCE_KERNEL_ERROR_ENOENT = static_cast<int>(0x80020002);
+
+int _resolveForEach(const char* prefix, const char** paths, uint32_t count, uint32_t* ids, uint64_t* sizes, int* results) {
+    if (!paths || !ids) return _fail(GUEST_EINVAL);
+    for (uint32_t index = 0; index < count; ++index) {
+        const std::string path = prefix ? (paths[index] ? std::string(prefix) + paths[index] : std::string()) : (paths[index] ? std::string(paths[index]) : std::string());
+        const bool resolved = !path.empty() && _resolve(path.c_str(), &ids[index], sizes ? &sizes[index] : nullptr);
+        if (!resolved) {
+            ids[index] = INVALID_FILE_ID;
+            if (sizes) sizes[index] = 0;
+        }
+        if (results) results[index] = resolved ? 0 : SCE_KERNEL_ERROR_ENOENT;
+    }
+    return 0;
+}
+
 void _readFile(const Apr::ReadFileCommand& command) {
     const auto file = _file(command.fileId);
     static const bool trace = std::getenv("APS5_TRACE_APR") != nullptr;
@@ -128,8 +146,12 @@ void _readFile(const Apr::ReadFileCommand& command) {
     std::ifstream stream(file.path, std::ios::binary);
     if (!stream) throw std::runtime_error("APR: cannot open " + file.path.string());
     stream.seekg(static_cast<std::streamoff>(command.offset));
+    const GuestArena::HostWrite destination(reinterpret_cast<void*>(command.destination), command.size);
+    if (!destination.Open()) throw std::runtime_error("APR: the read destination of " + file.path.string() + " is not writable guest memory");
     stream.read(reinterpret_cast<char*>(command.destination), static_cast<std::streamsize>(command.size));
     if (stream.bad()) throw std::runtime_error("APR: read failed for " + file.path.string());
+    const auto read = static_cast<std::uint64_t>(stream.gcount());
+    if (read != command.size) throw std::runtime_error("APR: read of " + file.path.string() + " at offset " + std::to_string(command.offset) + " returned " + std::to_string(read) + " of " + std::to_string(command.size) + " bytes");
 }
 
 void _writeAddress(const Apr::WriteAddressCommand& command) {
@@ -306,6 +328,25 @@ int APS5_VABI sceKernelAprSubmitCommandBufferAndGetResult(const Apr::CommandBuff
 int APS5_VABI sceKernelAprWaitCommandBuffer(uint32_t id) {
     (void)id;
     return 0;
+}
+
+int APS5_VABI sceKernelAprResolveFilepathsToIdsForEach(const char** paths, uint32_t count, uint32_t* ids, int* results) {
+    return _resolveForEach(nullptr, paths, count, ids, nullptr, results);
+}
+
+int APS5_VABI sceKernelAprResolveFilepathsToIdsAndFileSizesForEach(const char** paths, uint32_t count, uint32_t* ids, uint64_t* sizes, int* results) {
+    if (!sizes) return _fail(GUEST_EINVAL);
+    return _resolveForEach(nullptr, paths, count, ids, sizes, results);
+}
+
+int APS5_VABI sceKernelAprResolveFilepathsWithPrefixToIdsForEach(const char* prefix, const char** paths, uint32_t count, uint32_t* ids, int* results) {
+    if (!prefix) return _fail(GUEST_EINVAL);
+    return _resolveForEach(prefix, paths, count, ids, nullptr, results);
+}
+
+int APS5_VABI sceKernelAprResolveFilepathsWithPrefixToIdsAndFileSizesForEach(const char* prefix, const char** paths, uint32_t count, uint32_t* ids, uint64_t* sizes, int* results) {
+    if (!prefix || !sizes) return _fail(GUEST_EINVAL);
+    return _resolveForEach(prefix, paths, count, ids, sizes, results);
 }
 
 }
