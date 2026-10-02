@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -27,6 +28,21 @@ struct Ngs2Block {
     Ngs2WaveformBlock info;
     std::uint32_t cursor = 0;
     std::uint32_t numRepeated = 0;
+    std::size_t dataCursor = 0;
+};
+
+struct Ngs2Atrac9DecoderDeleter {
+    void operator()(void* handle) const;
+};
+
+struct Ngs2Atrac9 {
+    std::unique_ptr<void, Ngs2Atrac9DecoderDeleter> decoder;
+    std::uint8_t config[4] = {};
+    std::uint32_t frameSamples = 0;
+    std::uint32_t framesInSuperframe = 0;
+    std::uint32_t superframeBytes = 0;
+    std::vector<float> window;
+    std::uint32_t windowStart = 0;
 };
 
 struct Ngs2Voice;
@@ -43,11 +59,14 @@ struct Ngs2Voice {
     std::uint32_t stateFlags = 0;
     std::uint32_t channels = 0;
     std::uint32_t sampleRate = 0;
+    std::uint32_t waveformType = 0;
+    Ngs2Atrac9 atrac9;
     float pitch = 1.0f;
     std::uint64_t phase = 0;
     std::deque<Ngs2Block> blocks;
     bool acceptsBlocks = true;
     std::uint64_t decodedSamples = 0;
+    std::uint64_t decodedBytes = 0;
     const std::uint8_t* waveformEnd = nullptr;
     Ngs2VoiceCallbackHandler callback = nullptr;
     std::uintptr_t callbackData = 0;
@@ -91,6 +110,10 @@ Ngs2Voice* Ngs2FindVoice(Ngs2Handle handle);
 void* Ngs2Place(const Ngs2ContextBufferInfo* bufferInfo, std::size_t size, std::size_t alignment);
 int Ngs2DestroyRack(Ngs2Rack& rack, Ngs2ContextBufferInfo* outBufferInfo);
 int Ngs2ReleaseBuffer(const Ngs2BufferAllocator& allocator, Ngs2ContextBufferInfo bufferInfo, Ngs2ContextBufferInfo* outBufferInfo);
+void Ngs2SetupAtrac9(Ngs2Voice& voice, const Ngs2WaveformFormat& format);
+std::size_t Ngs2Atrac9BlockBytes(const Ngs2Voice& voice, const Ngs2WaveformBlock& block);
+void Ngs2RestartAtrac9(Ngs2Voice& voice);
+const float* Ngs2Atrac9Frame(Ngs2Voice& voice, Ngs2Block& block, std::uint32_t frame);
 void Ngs2RenderSystem(Ngs2System& system, const Ngs2RenderBufferInfo* bufferInfo, std::uint32_t numBufferInfo);
 
 #endif
