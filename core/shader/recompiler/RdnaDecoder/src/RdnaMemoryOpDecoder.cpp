@@ -397,6 +397,11 @@ RdnaInstruction DecodeRdnaSmem(std::uint32_t programCounter, std::span<const std
     const auto sdst = (word0 >> 6u) & 0x7Fu;
     const auto sbase = word0 & 0x3Fu;
     const auto soffsetCode = (word1 >> 25u) & 0x7Fu;
+    if (opcode == 0x2au) {
+        auto instruction = cacheControlInstruction(RdnaInstructionFamily::SMEM, RdnaOpcode::SGetWaveidInWorkgroup, opcode, programCounter, code, wordIndex);
+        instruction.destination = scalarDestination(sdst);
+        return instruction;
+    }
     if (const auto cacheOp = cacheControlOpcode(RdnaInstructionFamily::SMEM, opcode); cacheOp != RdnaOpcode::Invalid) {
         return cacheControlInstruction(RdnaInstructionFamily::SMEM, cacheOp, opcode, programCounter, code, wordIndex);
     }
