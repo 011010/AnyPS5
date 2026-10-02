@@ -19,6 +19,8 @@ cmake --build build --parallel
 cmake --build build --target libs --parallel
 ```
 
+[Relinker usage and runtime layout](../user/USAGE.md).
+
 ## CMake flags
 
 Project switches accept `ON` or `OFF`:
