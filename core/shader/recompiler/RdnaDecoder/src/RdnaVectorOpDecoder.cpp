@@ -56,6 +56,7 @@ constexpr Vop2OpcodeInfo vop2Opcodes[] = {
     {0x0au, RdnaOpcode::VMulHiI32I24, Vop2SdwaProfile::IntegerFullDestination},
     {0x0bu, RdnaOpcode::VMulU32U24, Vop2SdwaProfile::IntegerFullDestination},
     {0x0cu, RdnaOpcode::VMulHiU32U24, Vop2SdwaProfile::IntegerFullDestination},
+    {0x0du, RdnaOpcode::VDot4cI32I8},
     {0x0fu, RdnaOpcode::VMinF32},
     {0x10u, RdnaOpcode::VMaxF32},
     {0x11u, RdnaOpcode::VMinI32},
@@ -481,6 +482,12 @@ constexpr VectorOpcodeInfo vop3pOpcodes[] = {
     {0x10u, RdnaOpcode::VPkMulF16},
     {0x11u, RdnaOpcode::VPkMinF16},
     {0x12u, RdnaOpcode::VPkMaxF16},
+    {0x14u, RdnaOpcode::VDot2I32I16},
+    {0x15u, RdnaOpcode::VDot2U32U16},
+    {0x16u, RdnaOpcode::VDot4I32I8},
+    {0x17u, RdnaOpcode::VDot4U32U8},
+    {0x18u, RdnaOpcode::VDot8I32I4},
+    {0x19u, RdnaOpcode::VDot8U32U4},
     {0x20u, RdnaOpcode::VFmaF32},
     {0x21u, RdnaOpcode::VMadMixloF16},
     {0x22u, RdnaOpcode::VMadMixhiF16},
@@ -510,7 +517,7 @@ bool isVop2LiteralMadOpcode(std::uint32_t opcode) {
 }
 
 bool isUnsupportedVop3EncodedVop2Alias(std::uint32_t opcode) {
-    return isVop2LiteralMadOpcode(opcode) || opcode == 0x02u;
+    return isVop2LiteralMadOpcode(opcode) || opcode == 0x02u || opcode == 0x0du;
 }
 
 bool isVop3EncodedVopc(std::uint32_t opcode) {
@@ -1421,6 +1428,34 @@ void applyVop3pSourceModifiers(RdnaInstruction& instruction, std::uint32_t opSel
     }
 }
 
+bool isVop3pIntegerDot2(RdnaOpcode opcode) {
+    return opcode == RdnaOpcode::VDot2I32I16 || opcode == RdnaOpcode::VDot2U32U16;
+}
+
+bool isVop3pIntegerDot(RdnaOpcode opcode) {
+    switch (opcode) {
+        case RdnaOpcode::VDot2I32I16:
+        case RdnaOpcode::VDot2U32U16:
+        case RdnaOpcode::VDot4I32I8:
+        case RdnaOpcode::VDot4U32U8:
+        case RdnaOpcode::VDot8I32I4:
+        case RdnaOpcode::VDot8U32U4: return true;
+        default: return false;
+    }
+}
+
+void applyVop3pIntegerDotModifiers(RdnaInstruction& instruction, std::uint32_t opSel, std::uint32_t opSelHi, std::uint32_t neg, std::uint32_t negHi) {
+    const std::uint32_t packedSources = isVop3pIntegerDot2(instruction.op) ? 0x3u : 0u;
+    if (neg != 0u || negHi != 0u || (opSel & ~packedSources) != 0u || (opSelHi | packedSources) != 0x7u) {
+        throw std::invalid_argument("VOP3P integer dot source modifiers are not implemented");
+    }
+    RdnaOperand* sources[] = {&instruction.source0, &instruction.source1};
+    for (std::uint32_t i = 0; i < 2u; ++i) {
+        sources[i]->opSel = ((opSel >> i) & 1u) != 0u;
+        sources[i]->opSelHi = ((opSelHi >> i) & 1u) != 0u;
+    }
+}
+
 void applyVop3pMixAbsModifiers(RdnaInstruction& instruction) {
     RdnaOperand* sources[] = {&instruction.source0, &instruction.source1, &instruction.source2};
     for (auto* source : sources) {
@@ -1903,7 +1938,11 @@ RdnaInstruction DecodeRdnaVop3p(std::uint32_t programCounter, std::span<const st
     } else if (clamp != 0u) {
         throw std::invalid_argument("VOP3P integer clamp is not implemented");
     }
-    applyVop3pSourceModifiers(instruction, opSel, opSelHi, neg, negHi);
+    if (isVop3pIntegerDot(instruction.op)) {
+        applyVop3pIntegerDotModifiers(instruction, opSel, opSelHi, neg, negHi);
+    } else {
+        applyVop3pSourceModifiers(instruction, opSel, opSelHi, neg, negHi);
+    }
     if (instruction.op == RdnaOpcode::VMadMixloF16) {
         applyVop3pMixAbsModifiers(instruction);
         instruction.destination.sdwaSel = 4;

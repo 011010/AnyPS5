@@ -199,6 +199,7 @@ private:
     bool vPermB32(const RdnaInstruction& inst);
     bool vXadU32(const RdnaInstruction& inst);
     bool vLshlOrB32(const RdnaInstruction& inst);
+    bool integerDot(const RdnaInstruction& inst, std::uint32_t elementBits, bool sign, bool accumulator);
     bool vCndmaskB32(const RdnaInstruction& inst);
     bool packB16(const RdnaInstruction& inst, bool high0, bool high1);
     void sSubvectorLoop(const RdnaInstruction& inst, bool begin);
