@@ -32,6 +32,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceLibcInternalBacktraceForGame](../../core/libs/prx/libc/src/HeapDiagnostics.cpp) (libSceLibcInternal, implemented in libc) - unknown signature
 - [sceLibcInternalHeapErrorReportForGame](../../core/libs/prx/libc/src/HeapDiagnostics.cpp) (libSceLibcInternal, implemented in libc) - unknown signature
 - [__progname](../../core/libs/prx/libkernel/System/src/Process.cpp) (libkernel) - unknown data export
+- [pthread_barrierattr_setpshared](../../core/libs/prx/libkernel/Pthread/Posix/Barrier.cpp) (libkernel) - PTHREAD_PROCESS_SHARED throws: FreeBSD 9.0 libthr rejects it with EINVAL and 11.0 accepts it, and which one the console follows is unknown
 - [sceSslClose](../../core/libs/prx/libSceSsl/Export.cpp) (libSceSsl) - unknown signature
 - [sceSslGetSerialNumber](../../core/libs/prx/libSceSsl/Export.cpp) (libSceSsl) - unknown signature
 - [X+4jdIS75P0](../../core/libs/prx/libSceAudioIn/Export.cpp) (libSceAudioIn) - unknown name, signature
