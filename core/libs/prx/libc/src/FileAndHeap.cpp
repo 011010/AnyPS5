@@ -131,7 +131,9 @@ std::int64_t APS5_VABI ftell_nid_postfix(FileStream* stream) { return ftello_nid
 
 int APS5_VABI fgetpos_nid_postfix(FileStream* stream, std::int64_t* position) {
     if (!position) throw std::invalid_argument("fgetpos: null position");
-    *position = ftello_nid_postfix(stream);
+    const auto result = ftello_nid_postfix(stream);
+    if (result == -1) return -1;
+    *position = result;
     return 0;
 }
 

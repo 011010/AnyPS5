@@ -41,6 +41,15 @@ target_include_directories(libc PRIVATE
 )
 
 if(BUILD_TESTING)
+    add_test_executable(file_position_tests ${LIBS_INCLUDE_DIR}/tests/FilePosition.cpp)
+    target_include_directories(file_position_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(file_position_tests PRIVATE libc)
+    configure_windows_unwind(file_position_tests)
+    add_test(NAME file_position COMMAND file_position_tests)
+    if(WIN32)
+        set_tests_properties(file_position PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
     add_test_executable(guest_character_tests ${LIBS_INCLUDE_DIR}/tests/GuestCharacter.cpp)
     target_include_directories(guest_character_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(guest_character_tests PRIVATE libc)
