@@ -288,6 +288,9 @@ void testMemory() {
     check(data[0] == 11 && data[1] == 12, "WRITE_DATA increment failed");
     execute(state, makePacket(0x37, {0x10100, low(data.data()), high(data.data()), 21, 22}));
     check(data[0] == 22 && data[1] == 12, "WRITE_DATA fixed destination failed");
+    execute(state, makePacket(0x37, {0x40000100, low(data.data()), high(data.data()), 41, 42}));
+    check(data[0] == 41 && data[1] == 42, "WRITE_DATA from the PFP failed");
+    expectFailure([&] { AgcDriver::Pm4::Validate(makePacket(0x37, {0x80000100, low(data.data()), high(data.data()), 51}), 0); }, "engine");
     execute(state, makePacket(0x81, {4, 31, 32}));
     execute(state, makePacket(0x83, {4, 2, low(data.data()), high(data.data())}));
     check(data[0] == 31 && data[1] == 32, "constant RAM round trip failed");
