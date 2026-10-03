@@ -240,8 +240,8 @@ void matcherSubstitutions() {
     require(!match({0x0F, 0x38, 0xC9, 0xCA}), "SHA-1 instruction was matched");
     const auto stub = match(kInsertqHighSite);
     require(stub && stub->Lowering == Codegen::Amd64OnlyLowering::Trampoline && stub->StubBody == kInsertqHighBody && stub->ReturnBranchOffset == 15 && stub->InstructionName == "INSERTQ", "INSERTQ was not lowered through a stub");
-    const auto shiftInPlace = match({0x66, 0x0F, 0x78, 0xC3, 0x18, 0x28});
-    require(shiftInPlace && shiftInPlace->Lowering == Codegen::Amd64OnlyLowering::InPlace && shiftInPlace->ReplacementBytes == Bytes{0x66, 0x0F, 0x73, 0xD3, 0x28, 0x90}, "Top-aligned EXTRQ was not lowered in place");
+    const auto topAligned = match({0x66, 0x0F, 0x78, 0xC3, 0x18, 0x28});
+    require(topAligned && topAligned->Lowering == Codegen::Amd64OnlyLowering::Trampoline && topAligned->InstructionName == "EXTRQ", "Top-aligned EXTRQ was not lowered through a stub");
 }
 
 void goldenBodies() {
@@ -264,11 +264,12 @@ void goldenBodies() {
         require(sequence.has_value() && *sequence == expected, "In-place lowering differs from the golden encoding");
     };
     inPlace({0xF2, 0x0F, 0x78, 0xC8, 0x00, 0x00}, {0xF3, 0x0F, 0x7E, 0xC8, 0x66, 0x90});
-    inPlace({0x66, 0x0F, 0x78, 0xC3, 0x18, 0x28}, {0x66, 0x0F, 0x73, 0xD3, 0x28, 0x90});
-    inPlace({0x66, 0x0F, 0x78, 0xC3, 0x08, 0x00}, {0x66, 0x0F, 0x38, 0x32, 0xDB, 0x90});
-    inPlace({0xF2, 0x0F, 0x78, 0xDB, 0x08, 0x00}, {0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00});
-    inPlace({0xF2, 0x0F, 0x78, 0xC8, 0x20, 0x00}, {0x66, 0x0F, 0x3A, 0x0E, 0xC8, 0x03});
-    inPlace({0xF2, 0x45, 0x0F, 0x78, 0xC8, 0x10, 0x00}, {0x66, 0x45, 0x0F, 0x3A, 0x0E, 0xC8, 0x01});
+    inPlace({0xF2, 0x0F, 0x78, 0xDB, 0x08, 0x00}, {0xF3, 0x0F, 0x7E, 0xDB, 0x66, 0x90});
+    inPlace({0x66, 0x0F, 0x78, 0xC3, 0x00, 0x00}, {0xF3, 0x0F, 0x7E, 0xDB, 0x66, 0x90});
+    for (const auto& site : {Bytes{0x66, 0x0F, 0x78, 0xC3, 0x18, 0x28}, Bytes{0x66, 0x0F, 0x78, 0xC3, 0x08, 0x00}, Bytes{0xF2, 0x0F, 0x78, 0xC8, 0x20, 0x00}, Bytes{0xF2, 0x45, 0x0F, 0x78, 0xC8, 0x10, 0x00}}) {
+        const auto operands = Codegen::DecodeSse4a(site.data(), site.size());
+        require(!lowering.LowerInPlace(operands, site.size()).has_value(), "SSE4a site was lowered in place without zeroing dst[127:64]");
+    }
     const Bytes clzeroSite = {0x0F, 0x01, 0xFC};
     const auto clzero = Codegen::ClzeroLowering{}.LowerOutOfLine(Codegen::DecodeClzero(clzeroSite.data(), clzeroSite.size()));
     require(clzero.Bytes == kClzeroBody && clzero.ReturnBranchOffset == 69, "CLZERO stub differs from the golden encoding");
@@ -592,12 +593,14 @@ std::array<std::uint64_t, 2> sha256Reference(const std::uint8_t opcode, const st
 std::array<std::uint64_t, 2> runRegisterFormStub(const Bytes& site, const std::uint64_t (&destination)[2], const std::uint64_t (&source)[2]) {
     const auto matcher = Codegen::MakeAmd64OnlyInstructionMatcher();
     const auto match = matcher->Match(site.data(), site.size());
-    require(match && match->Lowering == Codegen::Amd64OnlyLowering::Trampoline, "Register form stub was not produced");
-    auto body = match->StubBody;
+    require(match && match->Lowering != Codegen::Amd64OnlyLowering::Unsupported, "Register form stub was not produced");
+    auto body = match->Lowering == Codegen::Amd64OnlyLowering::InPlace ? match->ReplacementBytes : match->StubBody;
     const auto ret = body.size();
     body.push_back(0xC3);
-    const auto displacement = static_cast<std::int32_t>(ret - (match->ReturnBranchOffset + 5));
-    std::memcpy(body.data() + match->ReturnBranchOffset + 1, &displacement, sizeof(displacement));
+    if (match->Lowering == Codegen::Amd64OnlyLowering::Trampoline) {
+        const auto displacement = static_cast<std::int32_t>(ret - (match->ReturnBranchOffset + 5));
+        std::memcpy(body.data() + match->ReturnBranchOffset + 1, &displacement, sizeof(displacement));
+    }
     void* code = mmap(nullptr, 4096, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     require(code != MAP_FAILED, "cannot map executable memory for the stub");
     std::memcpy(code, body.data(), body.size());
@@ -632,11 +635,25 @@ void registerFormExecution() {
     const std::uint64_t destination = 0x0f1e2d3c4b5a6978ull;
     for (const auto [length, index] : {std::pair{8u, 4u}, {0u, 0u}, {40u, 20u}, {63u, 1u}, {1u, 63u}, {16u, 48u}, {1u, 0u}, {32u, 32u}}) {
         const auto control = static_cast<std::uint64_t>(length) | (static_cast<std::uint64_t>(index) << 8) | 0xffffc000ull;
-        require(runRegisterFormStub(extrqDistinct, {value, 0x1122334455667788ull}, {control, 0})[0] == extrqReference(value, control), "EXTRQ register form stub computed the wrong field");
-        require(runRegisterFormStub(extrqSame, {control, 0}, {control, 0})[0] == extrqReference(control, control), "EXTRQ register form stub with equal operands computed the wrong field");
+        require(runRegisterFormStub(extrqDistinct, {value, 0x1122334455667788ull}, {control, 0}) == std::array<std::uint64_t, 2>{extrqReference(value, control), 0}, "EXTRQ register form stub computed the wrong field");
+        require(runRegisterFormStub(extrqSame, {control, 0x1122334455667788ull}, {control, 0x1122334455667788ull}) == std::array<std::uint64_t, 2>{extrqReference(control, control), 0}, "EXTRQ register form stub with equal operands computed the wrong field");
         const auto insertqControl = control | 0xC0ull;
         require(runRegisterFormStub(insertqDistinct, {destination, 0x1122334455667788ull}, {value, insertqControl})[0] == insertqReference(destination, value, insertqControl), "INSERTQ register form stub computed the wrong field");
         require(runRegisterFormStub(insertqSame, {value, insertqControl}, {value, insertqControl})[0] == insertqReference(value, value, insertqControl), "INSERTQ register form stub with equal operands computed the wrong field");
+    }
+}
+
+void immediateFormExecution() {
+    const std::uint64_t value = 0x9e3779b97f4a7c15ull;
+    const std::uint64_t destination = 0x0f1e2d3c4b5a6978ull;
+    const std::uint64_t high = 0x1122334455667788ull;
+    for (const auto [length, index] : {std::pair{0u, 0u}, {24u, 40u}, {8u, 0u}, {16u, 0u}, {32u, 0u}, {8u, 40u}, {5u, 3u}, {63u, 1u}, {1u, 63u}}) {
+        const auto control = static_cast<std::uint64_t>(length) | (static_cast<std::uint64_t>(index) << 8);
+        const auto length8 = static_cast<std::uint8_t>(length);
+        const auto index8 = static_cast<std::uint8_t>(index);
+        require(runRegisterFormStub({0x66, 0x0F, 0x78, 0xC2, length8, index8}, {value, high}, {0, 0}) == std::array<std::uint64_t, 2>{extrqReference(value, control), 0}, "EXTRQ immediate form computed the wrong result");
+        require(runRegisterFormStub({0xF2, 0x0F, 0x78, 0xD5, length8, index8}, {destination, high}, {value, high}) == std::array<std::uint64_t, 2>{insertqReference(destination, value, control), 0}, "INSERTQ immediate form computed the wrong result");
+        require(runRegisterFormStub({0xF2, 0x0F, 0x78, 0xD2, length8, index8}, {value, high}, {value, high}) == std::array<std::uint64_t, 2>{insertqReference(value, value, control), 0}, "INSERTQ immediate form with equal operands computed the wrong result");
     }
 }
 
@@ -767,6 +784,7 @@ void clzeroExecution() {
 void registerFormExecution() {}
 void sha256Execution() {}
 void clzeroExecution() {}
+void immediateFormExecution() {}
 #endif
 
 void scannerZeroTail() {
@@ -786,6 +804,7 @@ int main() {
         matcherSubstitutions();
         goldenBodies();
         registerFormExecution();
+        immediateFormExecution();
         sha256Execution();
         clzeroExecution();
         converterSegment();
