@@ -566,6 +566,12 @@ std::uint32_t ImageAtomicOpcode(IrOpcode opcode) {
             return spv::OpAtomicOr;
         case IrOpcode::ImageAtomicXor32:
             return spv::OpAtomicXor;
+        case IrOpcode::ImageAtomicISub32:
+            return spv::OpAtomicISub;
+        case IrOpcode::ImageAtomicSMin32:
+            return spv::OpAtomicSMin;
+        case IrOpcode::ImageAtomicSMax32:
+            return spv::OpAtomicSMax;
         default:
             throw std::runtime_error("opcode is not an image atomic");
     }
@@ -638,13 +644,23 @@ void EmitAtomicOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     if (access.slot != 0) {
         ctx.Fail(access.inst, "atomics through a bindless image table are unsupported");
     }
-    const auto atomicOpcode = ImageAtomicOpcode(access.inst.Opcode());
-    ctx.Define(access.inst, EmitValueOrZeroIfCondition(state, ctx.Arg(access.inst, 3), [&]() {
+    const auto opcode = access.inst.Opcode();
+    const auto value = ctx.Arg(access.inst, 2);
+    ctx.Define(access.inst, EmitValueOrZeroIfCondition(state, ctx.Arg(access.inst, access.inst.ArgumentCount() - 1u), [&]() {
         const auto pointer = state.module.AllocateId();
         const auto pointerType = TypePointer(state, spv::StorageClassImage, TypeU32(state));
         state.module.AddFunction(spv::OpImageTexelPointer, pointerType, pointer, StorageImageDescriptorPointer(state, access.mem.resource), CoordU32(ctx, access), ConstantU32(state, 0));
+        if (opcode == IrOpcode::ImageAtomicInc32 || opcode == IrOpcode::ImageAtomicDec32) {
+            return AtomicUpdate(state, pointer, ResourceKind::Image, [&](std::uint32_t current) {
+                return opcode == IrOpcode::ImageAtomicInc32 ? AtomicIncrement(state, current, value) : AtomicDecrement(state, current, value);
+            });
+        }
         const auto old = state.module.AllocateId();
-        state.module.AddFunction(atomicOpcode, TypeU32(state), old, pointer, ConstantU32(state, spv::ScopeDevice), ConstantU32(state, spv::MemorySemanticsMaskNone), ctx.Arg(access.inst, 2));
+        if (opcode == IrOpcode::ImageAtomicCmpSwap32) {
+            state.module.AddFunction(spv::OpAtomicCompareExchange, TypeU32(state), old, pointer, ConstantU32(state, spv::ScopeDevice), ConstantU32(state, spv::MemorySemanticsMaskNone), ConstantU32(state, spv::MemorySemanticsMaskNone), value, ctx.Arg(access.inst, 3));
+        } else {
+            state.module.AddFunction(ImageAtomicOpcode(opcode), TypeU32(state), old, pointer, ConstantU32(state, spv::ScopeDevice), ConstantU32(state, spv::MemorySemanticsMaskNone), value);
+        }
         EmitDeviceAtomicMemoryBarrier(state);
         return old;
     }));
@@ -917,6 +933,12 @@ void EmitImage(SpirvValueEmitContext& ctx, const IrValue& inst) {
         case IrOpcode::ImageAtomicAnd32:
         case IrOpcode::ImageAtomicOr32:
         case IrOpcode::ImageAtomicXor32:
+        case IrOpcode::ImageAtomicCmpSwap32:
+        case IrOpcode::ImageAtomicISub32:
+        case IrOpcode::ImageAtomicSMin32:
+        case IrOpcode::ImageAtomicSMax32:
+        case IrOpcode::ImageAtomicInc32:
+        case IrOpcode::ImageAtomicDec32:
             EmitAtomicOp(ctx, access);
             return;
         default:
@@ -985,6 +1007,30 @@ void EmitImageAtomicOr32(SpirvValueEmitContext& ctx, const IrValue& inst) {
 }
 
 void EmitImageAtomicXor32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicCmpSwap32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicISub32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicSMin32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicSMax32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicInc32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicDec32(SpirvValueEmitContext& ctx, const IrValue& inst) {
     EmitImage(ctx, inst);
 }
 

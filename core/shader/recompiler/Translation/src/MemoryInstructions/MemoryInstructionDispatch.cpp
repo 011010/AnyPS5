@@ -309,6 +309,18 @@ bool TranslationContext::emitMemory(const RdnaInstruction& inst) {
         return imageAtomic(inst, IrOpcode::ImageAtomicOr32);
     case RdnaOpcode::ImageAtomicXor:
         return imageAtomic(inst, IrOpcode::ImageAtomicXor32);
+    case RdnaOpcode::ImageAtomicCmpswap:
+        return imageAtomic(inst, IrOpcode::ImageAtomicCmpSwap32);
+    case RdnaOpcode::ImageAtomicSub:
+        return imageAtomic(inst, IrOpcode::ImageAtomicISub32);
+    case RdnaOpcode::ImageAtomicSmin:
+        return imageAtomic(inst, IrOpcode::ImageAtomicSMin32);
+    case RdnaOpcode::ImageAtomicSmax:
+        return imageAtomic(inst, IrOpcode::ImageAtomicSMax32);
+    case RdnaOpcode::ImageAtomicInc:
+        return imageAtomic(inst, IrOpcode::ImageAtomicInc32);
+    case RdnaOpcode::ImageAtomicDec:
+        return imageAtomic(inst, IrOpcode::ImageAtomicDec32);
     case RdnaOpcode::ImageLoad:
     case RdnaOpcode::ImageLoadMip:
         return imageLoad(inst);

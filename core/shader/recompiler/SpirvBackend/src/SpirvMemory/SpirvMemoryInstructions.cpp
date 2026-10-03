@@ -816,20 +816,6 @@ std::uint32_t EmitAtomicUpdate(SpirvValueEmitContext& ctx, const IrValue& inst, 
     });
 }
 
-std::uint32_t AtomicIncrement(SpirvEmitterState& state, std::uint32_t old, std::uint32_t limit) {
-    const auto wrap = Binary(state, spv::OpUGreaterThanEqual, TypeBool(state), old, limit);
-    const auto next = Binary(state, spv::OpIAdd, TypeU32(state), old, ConstantU32(state, 1u));
-    return Select(state, TypeU32(state), wrap, ConstantU32(state, 0u), next);
-}
-
-std::uint32_t AtomicDecrement(SpirvEmitterState& state, std::uint32_t old, std::uint32_t limit) {
-    const auto zero = Binary(state, spv::OpIEqual, TypeBool(state), old, ConstantU32(state, 0u));
-    const auto above = Binary(state, spv::OpUGreaterThan, TypeBool(state), old, limit);
-    const auto wrap = Binary(state, spv::OpLogicalOr, TypeBool(state), zero, above);
-    const auto next = Binary(state, spv::OpISub, TypeU32(state), old, ConstantU32(state, 1u));
-    return Select(state, TypeU32(state), wrap, limit, next);
-}
-
 // Buffer atomics whose operand is the identity element (add, sub, or, xor of 0) leave memory
 // unchanged. Tile-classification kernels issue one such atomic per bin per wave with a mostly zero
 // count, and every atomic on a host-imported range is a serialized PCIe round trip (Demon's Souls
@@ -1014,6 +1000,20 @@ std::uint32_t AppendConsume(SpirvValueEmitContext& ctx, const IrValue& inst, boo
     return result;
 }
 
+}
+
+std::uint32_t AtomicIncrement(SpirvEmitterState& state, std::uint32_t old, std::uint32_t limit) {
+    const auto wrap = Binary(state, spv::OpUGreaterThanEqual, TypeBool(state), old, limit);
+    const auto next = Binary(state, spv::OpIAdd, TypeU32(state), old, ConstantU32(state, 1u));
+    return Select(state, TypeU32(state), wrap, ConstantU32(state, 0u), next);
+}
+
+std::uint32_t AtomicDecrement(SpirvEmitterState& state, std::uint32_t old, std::uint32_t limit) {
+    const auto zero = Binary(state, spv::OpIEqual, TypeBool(state), old, ConstantU32(state, 0u));
+    const auto above = Binary(state, spv::OpUGreaterThan, TypeBool(state), old, limit);
+    const auto wrap = Binary(state, spv::OpLogicalOr, TypeBool(state), zero, above);
+    const auto next = Binary(state, spv::OpISub, TypeU32(state), old, ConstantU32(state, 1u));
+    return Select(state, TypeU32(state), wrap, limit, next);
 }
 
 std::uint32_t EmitReadConst(SpirvValueEmitContext& ctx, const IrValue& inst) {
