@@ -8,6 +8,18 @@ void TranslateVectorInstruction(IrBuilder& builder, const RdnaInstruction& instr
     throw std::runtime_error("TranslateVectorInstruction not implemented");
 }
 
+namespace {
+
+bool roundsProductSeparately(const RdnaInstruction& inst) {
+    if (inst.op == RdnaOpcode::VMadF32) {
+        return true;
+    }
+    const std::uint32_t vop2 = inst.family == RdnaInstructionFamily::VOP3 ? inst.opcodeId - 0x100u : inst.opcodeId;
+    return vop2 == 0x1fu || vop2 == 0x20u || vop2 == 0x21u;
+}
+
+}
+
 bool TranslationContext::emitVector(const RdnaInstruction& inst) {
     switch (inst.op) {
     case RdnaOpcode::VNop:
@@ -490,6 +502,32 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
     case RdnaOpcode::VCmpUF32:
         emitFloatOrderedCompare(inst, false, false, false);
         return true;
+    case RdnaOpcode::VCmpClassF16:
+        emitFloat16ClassCompare(inst, false);
+        return true;
+    case RdnaOpcode::VCmpxClassF16:
+        emitFloat16ClassCompare(inst, true);
+        return true;
+    case RdnaOpcode::VLdexpF16:
+        return vLdexpF16(inst);
+    case RdnaOpcode::VFrexpMantF16:
+        return vFrexpF16(inst, false);
+    case RdnaOpcode::VFrexpExpI16F16:
+        return vFrexpF16(inst, true);
+    case RdnaOpcode::VCvtNormI16F16:
+        return vCvtNormF16(inst, true);
+    case RdnaOpcode::VCvtNormU16F16:
+        return vCvtNormF16(inst, false);
+    case RdnaOpcode::VCvtPknormI16F16:
+        return vCvtPknormF16(inst, true);
+    case RdnaOpcode::VCvtPknormU16F16:
+        return vCvtPknormF16(inst, false);
+    case RdnaOpcode::VSatPkU8I16:
+        return vSatPkU8I16(inst);
+    case RdnaOpcode::VMulLegacyF32:
+        return vMulLegacyF32(inst, false);
+    case RdnaOpcode::VMacLegacyF32:
+        return vMulLegacyF32(inst, true);
     case RdnaOpcode::VCmpClassF32:
         emitFloatClassCompare(inst, false);
         return true;
@@ -733,13 +771,13 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
     case RdnaOpcode::VLdexpF32:
         return floatBinary(inst, IrOpcode::FPLdexp, false);
     case RdnaOpcode::VMacF32:
-        return floatTernary(inst, IrOpcode::FPFma32, true, true);
+        return floatTernary(inst, roundsProductSeparately(inst) ? IrOpcode::FPMad32 : IrOpcode::FPFma32, true, true);
     case RdnaOpcode::VMadmkF32:
     case RdnaOpcode::VMadakF32:
     case RdnaOpcode::VMadF32:
     case RdnaOpcode::VMadLegacyF32:
     case RdnaOpcode::VFmaF32:
-        return floatTernary(inst, IrOpcode::FPFma32, false, true);
+        return floatTernary(inst, roundsProductSeparately(inst) ? IrOpcode::FPMad32 : IrOpcode::FPFma32, false, true);
     case RdnaOpcode::VMin3F32:
         return floatTernary(inst, IrOpcode::FPMinTri32, false, false);
     case RdnaOpcode::VMax3F32:

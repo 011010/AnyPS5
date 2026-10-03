@@ -146,6 +146,15 @@ private:
     bool floatBinary(const RdnaInstruction& inst, IrOpcode opcode, bool reverse);
     bool floatTernary(const RdnaInstruction& inst, IrOpcode opcode, bool accumulator, bool mix);
     bool vFrexpMantF32(const RdnaInstruction& inst);
+    IrU32 readF16Bits(const RdnaOperand& operand);
+    IrU32 normF16(IrU32 bits, bool signedValue);
+    bool vLdexpF16(const RdnaInstruction& inst);
+    bool vFrexpF16(const RdnaInstruction& inst, bool exponent);
+    bool vCvtNormF16(const RdnaInstruction& inst, bool signedValue);
+    bool vCvtPknormF16(const RdnaInstruction& inst, bool signedValue);
+    bool vSatPkU8I16(const RdnaInstruction& inst);
+    bool vMulLegacyF32(const RdnaInstruction& inst, bool accumulate);
+    void emitFloat16ClassCompare(const RdnaInstruction& inst, bool cmpx);
     bool vDot2cF32F16(const RdnaInstruction& inst);
     bool vCubeidF32(const RdnaInstruction& inst);
     bool vCubescF32(const RdnaInstruction& inst);

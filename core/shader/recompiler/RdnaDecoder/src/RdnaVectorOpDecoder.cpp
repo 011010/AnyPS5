@@ -98,6 +98,9 @@ constexpr Vop2OpcodeInfo vop2Opcodes[] = {
     {0x39u, RdnaOpcode::VMaxF16, Vop2SdwaProfile::Float16},
     {0x3au, RdnaOpcode::VMinF16, Vop2SdwaProfile::Float16},
     {0x3cu, RdnaOpcode::VPkFmacF16},
+    {0x06u, RdnaOpcode::VMacLegacyF32},
+    {0x07u, RdnaOpcode::VMulLegacyF32},
+    {0x3bu, RdnaOpcode::VLdexpF16},
 };
 
 constexpr VectorOpcodeInfo vop1Opcodes[] = {
@@ -155,6 +158,11 @@ constexpr VectorOpcodeInfo vop1Opcodes[] = {
     {0x5fu, RdnaOpcode::VFractF16},
     {0x60u, RdnaOpcode::VSinF16},
     {0x61u, RdnaOpcode::VCosF16},
+    {0x59u, RdnaOpcode::VFrexpMantF16},
+    {0x5au, RdnaOpcode::VFrexpExpI16F16},
+    {0x62u, RdnaOpcode::VSatPkU8I16},
+    {0x63u, RdnaOpcode::VCvtNormI16F16},
+    {0x64u, RdnaOpcode::VCvtNormU16F16},
 };
 
 constexpr VectorOpcodeInfo vop3EncodedVop1Opcodes[] = {
@@ -212,6 +220,11 @@ constexpr VectorOpcodeInfo vop3EncodedVop1Opcodes[] = {
     {0x5fu, RdnaOpcode::VFractF16},
     {0x60u, RdnaOpcode::VSinF16},
     {0x61u, RdnaOpcode::VCosF16},
+    {0x59u, RdnaOpcode::VFrexpMantF16},
+    {0x5au, RdnaOpcode::VFrexpExpI16F16},
+    {0x62u, RdnaOpcode::VSatPkU8I16},
+    {0x63u, RdnaOpcode::VCvtNormI16F16},
+    {0x64u, RdnaOpcode::VCvtNormU16F16},
 };
 
 constexpr VopcOpcodeInfo vopcOpcodes[] = {
@@ -252,6 +265,7 @@ constexpr VopcOpcodeInfo vopcOpcodes[] = {
     {0x86u, RdnaOpcode::VCmpGeI32},
     {0x87u, RdnaOpcode::VCmpTI32},
     {0x88u, RdnaOpcode::VCmpClassF32},
+    {0x8fu, RdnaOpcode::VCmpClassF16},
     {0x89u, RdnaOpcode::VCmpLtI16},
     {0x8au, RdnaOpcode::VCmpEqI16},
     {0x8bu, RdnaOpcode::VCmpLeI16},
@@ -265,6 +279,7 @@ constexpr VopcOpcodeInfo vopcOpcodes[] = {
     {0x95u, RdnaOpcode::VCmpxNeI32},
     {0x96u, RdnaOpcode::VCmpxGeI32},
     {0x98u, RdnaOpcode::VCmpxClassF32},
+    {0x9fu, RdnaOpcode::VCmpxClassF16},
     {0x99u, RdnaOpcode::VCmpxLtI16},
     {0x9au, RdnaOpcode::VCmpxEqI16},
     {0x9bu, RdnaOpcode::VCmpxLeI16},
@@ -450,6 +465,8 @@ constexpr VectorOpcodeInfo vop3Opcodes[] = {
     {0x360u, RdnaOpcode::VReadlaneB32},
     {0x361u, RdnaOpcode::VWritelaneB32},
     {0x362u, RdnaOpcode::VLdexpF32},
+    {0x312u, RdnaOpcode::VCvtPknormI16F16},
+    {0x313u, RdnaOpcode::VCvtPknormU16F16},
     {0x363u, RdnaOpcode::VBfmB32},
     {0x364u, RdnaOpcode::VBcntU32B32},
     {0x365u, RdnaOpcode::VMbcntLoU32B32},
@@ -612,6 +629,10 @@ bool isNativeVop3B16BinaryOpcode(RdnaOpcode opcode) {
 
 bool isVop1FloatSourceOpcode(RdnaOpcode opcode) {
     switch (opcode) {
+        case RdnaOpcode::VFrexpMantF16:
+        case RdnaOpcode::VFrexpExpI16F16:
+        case RdnaOpcode::VCvtNormI16F16:
+        case RdnaOpcode::VCvtNormU16F16:
         case RdnaOpcode::VMovB32:
         case RdnaOpcode::VCvtF32F16:
         case RdnaOpcode::VCvtU32F32:
@@ -762,7 +783,9 @@ bool isVopcFloatCompareOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VCmpxNleF16:
         case RdnaOpcode::VCmpxTruF16:
         case RdnaOpcode::VCmpClassF32:
-        case RdnaOpcode::VCmpxClassF32: return true;
+        case RdnaOpcode::VCmpxClassF32:
+        case RdnaOpcode::VCmpClassF16:
+        case RdnaOpcode::VCmpxClassF16: return true;
         default: return false;
     }
 }
@@ -1242,6 +1265,7 @@ bool isVopcCompareExec(RdnaOpcode opcode) {
         case RdnaOpcode::VCmpxNeI32:
         case RdnaOpcode::VCmpxGeI32:
         case RdnaOpcode::VCmpxClassF32:
+        case RdnaOpcode::VCmpxClassF16:
         case RdnaOpcode::VCmpxLtU32:
         case RdnaOpcode::VCmpxEqU32:
         case RdnaOpcode::VCmpxLeU32:
@@ -1393,6 +1417,8 @@ std::uint32_t nativeVop3SourceCount(RdnaOpcode opcode) {
         case RdnaOpcode::VBcntU32B32:
         case RdnaOpcode::VCvtPknormI16F32:
         case RdnaOpcode::VCvtPknormU16F32:
+        case RdnaOpcode::VCvtPknormI16F16:
+        case RdnaOpcode::VCvtPknormU16F16:
         case RdnaOpcode::VCvtPkU16U32:
         case RdnaOpcode::VCvtPkI16I32: return 2;
         default: return 3;
@@ -1496,6 +1522,8 @@ bool supportsNativeVop3SourceModifiers(RdnaOpcode opcode) {
         return true;
     }
     switch (opcode) {
+        case RdnaOpcode::VMulLegacyF32:
+        case RdnaOpcode::VMacLegacyF32:
         case RdnaOpcode::VCndmaskB32:
         case RdnaOpcode::VAddF32:
         case RdnaOpcode::VSubF32:
