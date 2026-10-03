@@ -1739,6 +1739,7 @@ int main() {
         RunGuestAllocationTests();
         RunUnmappedGapTests();
         RunColorTargetLayoutTests();
+        RunLiveStackAccessTests();
         RunTextureFormatTests();
         RunTextureTilingTests();
         RunGuestTextureResourceTests();
