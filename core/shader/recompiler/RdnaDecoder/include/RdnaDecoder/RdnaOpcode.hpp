@@ -261,6 +261,8 @@ enum class RdnaOpcode : std::uint16_t {
     SCmpEqU64,
     SCmpLgU64,
     VNop,
+    VPipeflush,
+    VClrexcp,
     VMovrelsB32,
     VPermlane16B32,
     VPermlanex16B32,

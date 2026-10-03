@@ -120,6 +120,7 @@ constexpr VectorOpcodeInfo vop1Opcodes[] = {
     {0x12u, RdnaOpcode::VCvtF32Ubyte1},
     {0x13u, RdnaOpcode::VCvtF32Ubyte2},
     {0x14u, RdnaOpcode::VCvtF32Ubyte3},
+    {0x1bu, RdnaOpcode::VPipeflush},
     {0x2au, RdnaOpcode::VRcpF32},
     {0x20u, RdnaOpcode::VFractF32},
     {0x21u, RdnaOpcode::VTruncF32},
@@ -140,6 +141,7 @@ constexpr VectorOpcodeInfo vop1Opcodes[] = {
     {0x3bu, RdnaOpcode::VFfbhI32},
     {0x3fu, RdnaOpcode::VFrexpExpI32F32},
     {0x40u, RdnaOpcode::VFrexpMantF32},
+    {0x41u, RdnaOpcode::VClrexcp},
     {0x42u, RdnaOpcode::VMovreldB32},
     {0x43u, RdnaOpcode::VMovrelsB32},
     {0x50u, RdnaOpcode::VCvtF16U16},
@@ -182,6 +184,7 @@ constexpr VectorOpcodeInfo vop3EncodedVop1Opcodes[] = {
     {0x12u, RdnaOpcode::VCvtF32Ubyte1},
     {0x13u, RdnaOpcode::VCvtF32Ubyte2},
     {0x14u, RdnaOpcode::VCvtF32Ubyte3},
+    {0x1bu, RdnaOpcode::VPipeflush},
     {0x2au, RdnaOpcode::VRcpF32},
     {0x20u, RdnaOpcode::VFractF32},
     {0x21u, RdnaOpcode::VTruncF32},
@@ -202,6 +205,7 @@ constexpr VectorOpcodeInfo vop3EncodedVop1Opcodes[] = {
     {0x3bu, RdnaOpcode::VFfbhI32},
     {0x3fu, RdnaOpcode::VFrexpExpI32F32},
     {0x40u, RdnaOpcode::VFrexpMantF32},
+    {0x41u, RdnaOpcode::VClrexcp},
     {0x42u, RdnaOpcode::VMovreldB32},
     {0x43u, RdnaOpcode::VMovrelsB32},
     {0x50u, RdnaOpcode::VCvtF16U16},
@@ -611,6 +615,10 @@ RdnaOpcode lookupVintrpOpcode(std::uint32_t opcode) {
         case 0x02u: return RdnaOpcode::VInterpMovF32;
         default: throw std::invalid_argument("VINTRP opcode is not implemented");
     }
+}
+
+bool isVop1WithoutOperands(RdnaOpcode opcode) {
+    return opcode == RdnaOpcode::VNop || opcode == RdnaOpcode::VPipeflush || opcode == RdnaOpcode::VClrexcp;
 }
 
 bool usesScalarDestination(RdnaOpcode opcode) {
@@ -1801,7 +1809,7 @@ RdnaInstruction DecodeRdnaVop1(std::uint32_t programCounter, std::span<const std
     instruction.op = lookupVectorOpcode(vop1Opcodes, opcode, "VOP1 opcode is not implemented");
     SetRdnaRawWords(instruction, code, wordIndex, 1);
 
-    if (instruction.op == RdnaOpcode::VNop) {
+    if (isVop1WithoutOperands(instruction.op)) {
         instruction.destination.kind = RdnaOperandKind::Null;
         instruction.sourceCount = 0;
         return instruction;
@@ -1929,6 +1937,11 @@ RdnaInstruction DecodeRdnaVop3(std::uint32_t programCounter, std::span<const std
 
     checkNativeVop3Modifiers(instruction.op, permlane, vop3bUsesSdst, scalarDst, abs, opSel, clamp, omod, neg);
 
+    if (isVop1WithoutOperands(instruction.op)) {
+        instruction.destination.kind = RdnaOperandKind::Null;
+        instruction.sourceCount = 0;
+        return instruction;
+    }
     if (compareExec) {
         instruction.destination.kind = RdnaOperandKind::ExecLo;
     } else if (scalarDst) {
