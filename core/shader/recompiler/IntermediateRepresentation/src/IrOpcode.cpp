@@ -343,8 +343,8 @@ constexpr std::array<OpcodeMeta, static_cast<std::size_t>(IrOpcode::Count)> Meta
     makeMeta("WriteSharedU32x2", Void, U32, U32, U32, U1),
     makeMeta("WriteSharedU32x3", Void, U32, U32, U32, U32, U1),
     makeMeta("WriteSharedU32x4", Void, U32, U32, U32, U32, U32, U1),
-    makeMeta("SharedAtomicFMin32", Void, U32, U32, U32, U1),
-    makeMeta("SharedAtomicFMax32", Void, U32, U32, U32, U1),
+    makeMeta("SharedAtomicFMin32", U32, U32, U32, U1),
+    makeMeta("SharedAtomicFMax32", U32, U32, U32, U1),
     makeMeta("SharedAtomicSwap32", U32, U32, U32, U1),
     makeMeta("SharedAtomicIAdd32", U32, U32, U32, U1),
     makeMeta("SharedAtomicISub32", U32, U32, U32, U1),
@@ -357,6 +357,12 @@ constexpr std::array<OpcodeMeta, static_cast<std::size_t>(IrOpcode::Count)> Meta
     makeMeta("SharedAtomicAnd32", U32, U32, U32, U1),
     makeMeta("SharedAtomicOr32", U32, U32, U32, U1),
     makeMeta("SharedAtomicXor32", U32, U32, U32, U1),
+    makeMeta("SharedAtomicRsub32", U32, U32, U32, U1),
+    makeMeta("SharedAtomicFAdd32", U32, U32, U32, U1),
+    makeMeta("SharedAtomicCmpst32", U32, U32, U32, U32, U1),
+    makeMeta("SharedAtomicCmpstF32", U32, U32, U32, U32, U1),
+    makeMeta("SharedAtomicMskor32", U32, U32, U32, U32, U1),
+    makeMeta("SharedAtomicWrap32", U32, U32, U32, U32, U1),
     makeMeta("DataAppend", U32, U32, U1, U32, U32),
     makeMeta("DataConsume", U32, U32, U1, U32, U32),
     makeMeta("SwizzleU32", U32, U32, U32, U1),
@@ -501,6 +507,12 @@ SharedAccess SharedAccessOf(IrOpcode opcode) {
         case IrOpcode::SharedAtomicAnd32:
         case IrOpcode::SharedAtomicOr32:
         case IrOpcode::SharedAtomicXor32:
+        case IrOpcode::SharedAtomicRsub32:
+        case IrOpcode::SharedAtomicFAdd32:
+        case IrOpcode::SharedAtomicCmpst32:
+        case IrOpcode::SharedAtomicCmpstF32:
+        case IrOpcode::SharedAtomicMskor32:
+        case IrOpcode::SharedAtomicWrap32:
             return SharedAccess::Atomic;
         case IrOpcode::DataAppend:
             return SharedAccess::Append;

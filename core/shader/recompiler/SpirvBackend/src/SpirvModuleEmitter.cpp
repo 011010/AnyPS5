@@ -886,7 +886,7 @@ void EmitProgram(SpirvEmitterState& state) {
     DefineGetBdaPointer(state);
     for (const IrBlock* block : program.BlockOrder()) {
         const bool needsScratch = std::any_of(block->Instructions().begin(), block->Instructions().end(), [](const IrValue* inst) {
-            return inst->Opcode() == IrOpcode::SwizzleU32 || inst->Opcode() == IrOpcode::SharedAtomicFMin32 || inst->Opcode() == IrOpcode::SharedAtomicFMax32;
+            return inst->Opcode() == IrOpcode::SwizzleU32;
         });
         if (needsScratch) {
             ctx.scratchU32Variable = state.module.AllocateId();
