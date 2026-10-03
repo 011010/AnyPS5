@@ -211,6 +211,24 @@ target_link_libraries(agc_shader_memory_tests PRIVATE shader_recompiler_agc_driv
 set_target_properties(agc_shader_memory_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(agc_shader_memory_tests)
 
+add_test_executable(agc_write_tracking_tests EXCLUDE_FROM_ALL
+        tests/WriteTracking.cpp
+        Execution/src/GuestMemory.cpp
+)
+target_include_directories(agc_write_tracking_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_write_tracking_tests PRIVATE shader_recompiler_agc_driver libc)
+set_target_properties(agc_write_tracking_tests PROPERTIES CXX_EXTENSIONS OFF)
+configure_windows_unwind(agc_write_tracking_tests)
+if(BUILD_TESTING)
+    set_target_properties(agc_write_tracking_tests PROPERTIES EXCLUDE_FROM_ALL OFF)
+    add_test(NAME agc_write_tracking COMMAND agc_write_tracking_tests)
+    set_tests_properties(agc_write_tracking PROPERTIES SKIP_RETURN_CODE 77)
+    if(WIN32)
+        set_tests_properties(agc_write_tracking PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
+
 add_test_executable(agc_structurizer_tests EXCLUDE_FROM_ALL tests/Structurizer.cpp)
 target_link_libraries(agc_structurizer_tests PRIVATE shader_recompiler_agc_driver libc)
 set_target_properties(agc_structurizer_tests PROPERTIES CXX_EXTENSIONS OFF)
