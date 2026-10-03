@@ -1701,6 +1701,7 @@ int main() {
         Require(mock.live == 0, "BDA resources leaked Vulkan objects");
         RunGuestAllocationTests();
         RunColorTargetLayoutTests();
+        RunLiveStackAccessTests();
         RunTextureFormatTests();
         RunTextureTilingTests();
         RunGuestTextureResourceTests();

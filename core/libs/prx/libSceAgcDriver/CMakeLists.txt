@@ -163,6 +163,9 @@ target_link_libraries(libSceAgcDriver PRIVATE
 
 set_target_properties(libSceAgcDriver PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(libSceAgcDriver)
+if(WIN32)
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/GuestMemory.cpp PROPERTIES COMPILE_DEFINITIONS _WIN32_WINNT=0x0602)
+endif()
 
 foreach(runtimeLinkFlag IN ITEMS -static-libgcc -static-libstdc++ -static)
     string(REPLACE "${runtimeLinkFlag}" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
@@ -313,6 +316,7 @@ add_test_executable(agc_driver_graphics_tests EXCLUDE_FROM_ALL
         tests/ColorTargetLayout.cpp
         tests/BdaResources.cpp
         tests/GuestAllocations.cpp
+        tests/LiveStack.cpp
         tests/TextureFormat.cpp
         tests/TextureTiling.cpp
         tests/GuestTextureResource.cpp
