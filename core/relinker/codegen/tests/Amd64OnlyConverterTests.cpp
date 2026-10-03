@@ -29,6 +29,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace {
 
@@ -136,6 +137,25 @@ void decoderLengths() {
     const Bytes lastRex = {0x41, 0x48, 0x8B, 0x00, 0x90};
     const auto last = decoder.DecodeInstruction(lastRex.data(), lastRex.size());
     require(last.Length == 4 && last.OpcodeOffset == 2 && last.RexPrefix == 0x48, "The REX before the opcode was not the one kept");
+}
+
+const std::vector<Bytes> kRipRelativeVectorLoads = {
+    {0xC5, 0xF9, 0x6F, 0x05, 0x10, 0x00, 0x00, 0x00},
+    {0xC4, 0xE2, 0x79, 0x00, 0x05, 0x10, 0x00, 0x00, 0x00},
+    {0x62, 0xF1, 0xFD, 0x08, 0x6F, 0x05, 0x10, 0x00, 0x00, 0x00},
+    {0x66, 0x0F, 0x38, 0x00, 0x05, 0x10, 0x00, 0x00, 0x00},
+    {0x66, 0x0F, 0x3A, 0x0F, 0x05, 0x10, 0x00, 0x00, 0x00, 0x08}};
+const std::vector<Bytes> kRegisterVectorOperations = {
+    {0xC5, 0xF9, 0x6F, 0xC1}, {0x66, 0x0F, 0x38, 0x00, 0xC1}, {0xC5, 0xF8, 0x77}, {0xC4, 0xE2, 0x79, 0x00, 0x00}};
+
+void decoderRipRelative() {
+    const Codegen::X64InstructionDecoder decoder;
+    for (const auto& instruction : kRipRelativeVectorLoads) {
+        const auto info = decoder.DecodeInstruction(instruction.data(), instruction.size());
+        require(info.Length == instruction.size() && info.HasRipRelativeDisp && read<std::int32_t>(instruction, info.RipRelativeDispOffset) == 0x10, "VEX, EVEX or three-byte RIP-relative operand was not reported");
+    }
+    for (const auto& instruction : kRegisterVectorOperations)
+        require(!decoder.DecodeInstruction(instruction.data(), instruction.size()).HasRipRelativeDisp, "Vector instruction without a RIP-relative operand was reported as RIP-relative");
 }
 
 void sse4aOperands() {
@@ -332,6 +352,27 @@ void converterSegment() {
     require(shortSite.Offset == 0x20F && shortSite.Length == 5 && shortSite.OriginalBytes == shortOriginal, "Short EXTRQ site did not absorb the following instruction");
     require(shortSite.Body[shortSite.ReturnBranchOffset - 1] == 0x90 && shortSite.Body[shortSite.ReturnBranchOffset] == 0xE9, "Absorbed instruction does not run before the return jump");
     requireFailure([&] { (void)converter->Convert(file, {segmentHeader(0x200)}); }, "Segment exceeding the file was accepted");
+}
+
+void converterRipRelativeFollower() {
+    const auto converter = Codegen::MakeAmd64OnlyConverter();
+    const auto withFollower = [](const Bytes& following) {
+        Bytes file(0x300, 0xCC);
+        Bytes text = {0x66, 0x0F, 0x79, 0xCA};
+        text.insert(text.end(), following.begin(), following.end());
+        text.push_back(0xC3);
+        std::copy(text.begin(), text.end(), file.begin() + 0x200);
+        return std::pair{file, segmentHeader(text.size())};
+    };
+    for (const auto& following : kRipRelativeVectorLoads) {
+        const auto [file, header] = withFollower(following);
+        require(failureOffset([&] { (void)converter->Convert(file, {header}); }, "RIP-relative vector load was moved into an EXTRQ stub") == 0x204, "RIP-relative follower failure does not carry its file offset");
+    }
+    for (const auto& following : kRegisterVectorOperations) {
+        const auto [file, header] = withFollower(following);
+        const auto result = converter->Convert(file, {header});
+        require(result.Trampolines.size() == 1 && result.Trampolines[0].Length == 4 + following.size(), "Vector instruction without a RIP-relative operand was not moved into the EXTRQ stub");
+    }
 }
 
 void converterSha256() {
@@ -780,6 +821,7 @@ void scannerZeroTail() {
 int main() {
     try {
         decoderLengths();
+        decoderRipRelative();
         sse4aOperands();
         sha256Operands();
         clzeroOperands();
@@ -789,6 +831,7 @@ int main() {
         sha256Execution();
         clzeroExecution();
         converterSegment();
+        converterRipRelativeFollower();
         converterSha256();
         converterMonitorWait();
         converterClzero();
