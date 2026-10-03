@@ -199,7 +199,7 @@ void logLookup(const LookupRecord& record) {
 std::shared_ptr<StorageTexture> cachedStorageTexture(const Context& context, std::span<const std::uint32_t> words, const GuestTextureResource& resource, std::uint32_t mip, std::uint64_t guestBytes = 0);
 
 bool MetadataMoved(const StorageTexture& image, const GuestTextureResource& resource) {
-    return resource.dccAddress != 0 && image.Descriptor().dccAddress != resource.dccAddress;
+    return resource.dccAddress != 0 && image.Descriptor().dccAddress != resource.dccAddress && !image.ServesKeysAt(resource.dccAddress);
 }
 
 // Whether a sampled texture over `resource` can be a view of the surface's cached storage image
@@ -377,7 +377,7 @@ std::shared_ptr<Texture> cachedTexture(const Context& context, std::span<const s
             // The view follows the storage image, whatever the GPU wrote to it since; guest memory
             // written meanwhile is taken in by refreshing the image. A fast clear the image cannot
             // see (keys, and no pending results to prefer) ends the view: a snapshot holds the clear.
-            if ((source == nullptr || source == it->source) && (source != nullptr || *keys == DccKeys::Uncompressed)) {
+            if ((source == nullptr || source == it->source) && (source != nullptr || *keys == DccKeys::Uncompressed) && StorageImageServesKeys(*it->source, resource.dccAddress)) {
                 if (!GuestMemory::UnchangedSince(address, bytes, it->source->Generation())) it->source->Refresh();
                 it->keys = *keys;
                 touchTexture(cache, it);
@@ -629,6 +629,12 @@ bool StorageImagesCached(const Context& context, std::span<const StorageTexture*
 
 std::shared_ptr<StorageTexture> CachedStorageSurface(const Context& context, const GuestTextureResource& resource) {
     return cachedStorageTexture(context, {}, resource, 0);
+}
+
+bool StorageImageServesKeys(const StorageTexture& image, std::uint64_t dccAddress) {
+    GuestTextureResource resource{};
+    resource.dccAddress = dccAddress;
+    return !MetadataMoved(image, resource);
 }
 
 namespace {
@@ -1373,6 +1379,7 @@ bool ShaderResources::fastRevalidate(std::uint64_t serialBefore, std::span<const
             const auto sourceKeys = own.dccAddress != 0 ? ProvedClearKeys(own, source->GuestBytes(), source->KeyProof()) : DccKeys::Uncompressed;
             if (sourceKeys != source->UploadedKeys()) return fail(FastFail::Keys);
             const auto keys = surface.resource.dccAddress == 0 ? DccKeys::Uncompressed : SameKeySurface(source, surface.resource, surface.bytes) ? sourceKeys : ProvedClearKeys(surface.resource, surface.bytes, textures[i]->KeyProof());
+            if (surface.resource.dccAddress != 0 && surface.resource.dccAddress != own.dccAddress && (keys != DccKeys::Uncompressed || !StorageImageServesKeys(*source, surface.resource.dccAddress))) return fail(FastFail::Keys);
             scannedKeys[i] = keys;
             // A view of a fast-cleared surface stays one only while its image still has results
             // pending over it (cachedTexture's hit rule), unless the image's own descriptor names
@@ -1399,6 +1406,7 @@ bool ShaderResources::fastRevalidate(std::uint64_t serialBefore, std::span<const
         }
     }
     for (std::size_t i = 0; i < storageTextures.size(); ++i) {
+        if (storageTextures[i] != nullptr && (i >= storageKeys.size() || !StorageImageServesKeys(*storageTextures[i], storageKeys[i]))) return fail(FastFail::StorageKeys);
         if (i != 0 && storageTextures[i] == storageTextures[i - 1]) continue;
         const auto* image = storageTextures[i].get();
         if (image == nullptr) return fail(FastFail::NoRecord);
@@ -1473,6 +1481,7 @@ bool ShaderResources::fastRevalidateEach() {
         surface.collected = GuestMemory::CollectWrites(address, bytes);
         if (surface.collected == 0) return false;
         if (PendingStorageOverlaps(address, bytes, surface.source)) return false;
+        if (surface.source != nullptr && surface.resource.dccAddress != 0 && surface.resource.dccAddress != surface.source->Descriptor().dccAddress) return false;
         if (surface.source != nullptr) {
             // The view follows the image: it needs the image current with guest memory, as the
             // lookup's Refresh would make it.
@@ -1487,6 +1496,7 @@ bool ShaderResources::fastRevalidateEach() {
         if (surface.source != nullptr && surface.keys != DccKeys::Uncompressed && StorageTexture::FindPending(address, surface.bytes).get() != surface.source) return false;
     }
     for (std::size_t i = 0; i < storageTextures.size(); ++i) {
+        if (storageTextures[i] != nullptr && (i >= storageKeys.size() || (storageKeys[i] != 0 && storageKeys[i] != storageTextures[i]->Descriptor().dccAddress))) return false;
         // Consecutive elements of one mip chain share the image (see addStorageImageBinding).
         if (i != 0 && storageTextures[i] == storageTextures[i - 1]) continue;
         const auto* image = storageTextures[i].get();
@@ -1530,6 +1540,7 @@ ShaderResources::OwnRefreshFallback ShaderResources::refreshOwnObjects(std::span
         const auto& source = textures[i]->SharedStorageSource();
         if (source == nullptr || source.get() != surface.source) return OwnRefreshFallback::Snapshot;
         if (!source->Cached()) return OwnRefreshFallback::Uncached;
+        if (!StorageImageServesKeys(*source, surface.resource.dccAddress)) return OwnRefreshFallback::Keys;
         const auto address = surface.resource.baseAddress;
         const auto bytes = static_cast<std::size_t>(surface.bytes);
         const bool imported = SampledFromStorageEligible(context, surface.resource, surface.bytes);
@@ -1557,6 +1568,7 @@ ShaderResources::OwnRefreshFallback ShaderResources::refreshOwnObjects(std::span
     const auto refreshStorage = [&](std::size_t i) {
         auto& image = storageTextures[i];
         if (image == nullptr || !image->Cached()) return OwnRefreshFallback::Uncached;
+        if (i >= storageKeys.size() || !StorageImageServesKeys(*image, storageKeys[i])) return OwnRefreshFallback::Keys;
         countOwnRefresh(true);
         image->Refresh();
         return OwnRefreshFallback::Count;
@@ -2479,6 +2491,7 @@ void ShaderResources::resolveImageBinding(const ShaderRecompiler::DescriptorBind
         if (sameAsPrevious && StorageDedupeEnabled()) storageTextures.push_back(storageTextures.back());
         else storageTextures.push_back(cachedStorageTexture(context, words, resource, mip, guestBytes));
         storageMips.push_back(mip);
+        storageKeys.push_back(resource.dccAddress);
         storageFirstLayer.push_back(firstLayer);
         // Images the shader only reads have nothing to store back.
         storageWritten.push_back(element >= binding.imageWritten.size() || binding.imageWritten[element]);
