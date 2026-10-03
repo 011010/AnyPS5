@@ -17,7 +17,12 @@ bool TranslationContext::emitMemory(const RdnaInstruction& inst) {
     case RdnaOpcode::BufferGl1Inv:
         emitControlNop();
         return true;
-
+    case RdnaOpcode::SMemtime:
+        writeU32Pair(inst.destination, extractU64(IrU64(ir.Emit(IrOpcode::ShaderClock, IrType::U64, {}))));
+        return true;
+    case RdnaOpcode::SMemrealtime:
+        writeU32Pair(inst.destination, extractU64(IrU64(ir.Emit(IrOpcode::RealtimeClock, IrType::U64, {}))));
+        return true;
     case RdnaOpcode::SLoadDword:
     case RdnaOpcode::SLoadDwordx2:
     case RdnaOpcode::SLoadDwordx4:
