@@ -7,6 +7,7 @@
 #include "prx/libSceAgcDriver/Eq/include/Event.hpp"
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 
 namespace AgcDriver::DriverDetail {
 
@@ -128,6 +129,21 @@ bool Driver::preparePacketMemory(const Submission& submission, QueueState& queue
                     drained = false;
                 }
                 Graphics::Recorder::CloseLabelGroup(GuestMemory::TrackerGeneration());
+            }
+        }
+        if (drained && opcode == 0x50) {
+            const auto copy = Pm4::DecodeMemoryCopy(packet);
+            if (copy.has_value() && copy->bytes > gpuStoreLimit && GuestMemory::Accessible(reinterpret_cast<const void*>(copy->source), copy->bytes) && GuestMemory::Accessible(reinterpret_cast<const void*>(copy->destination), copy->bytes, true)) {
+                GuestMemory::TagGpuLockSite(GuestMemory::GpuLockSite::Copy);
+                std::lock_guard gpuLock(GuestMemory::GpuMutex());
+                if (const auto localDevice = device.Load()) {
+                    recordDeferredLabels(localDevice.get(), submission.queue);
+                    const auto outcome = localDevice->CopyBuffer(copy->destination, copy->source, copy->bytes, 0, std::numeric_limits<std::size_t>::max(), 0, 0, submission.queue, [](std::span<const std::byte>, std::uint64_t) {});
+                    if (outcome.path == 1 || outcome.path == 3) {
+                        wroteOnGpu = true;
+                        drained = false;
+                    }
+                }
             }
         }
         if (drained) ++storesDrained;
