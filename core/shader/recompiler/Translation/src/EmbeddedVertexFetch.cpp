@@ -160,6 +160,7 @@ std::uint32_t decodedDstSize(const RdnaInstruction& inst) {
 std::uint32_t embeddedFetchDstSize(const RdnaInstruction& inst) {
     switch (inst.op) {
     case RdnaOpcode::VMadU64U32:
+    case RdnaOpcode::VMadI64I32:
     case RdnaOpcode::VQsadPkU16U8:
     case RdnaOpcode::VMqsadPkU16U8:
         return 2u;
