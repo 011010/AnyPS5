@@ -192,6 +192,9 @@ private:
     bool vMbcntU32B32(const RdnaInstruction& inst, bool low);
     bool sBitreplicateB64B32(const RdnaInstruction& inst);
     bool sQuadmask(const RdnaInstruction& inst, bool wide);
+    bool sMovrel(const RdnaInstruction& inst);
+    IrU32 readRelativeScalar(std::uint32_t base, IrValue& offset);
+    void writeRelativeScalar(std::uint32_t base, IrValue& offset, IrU32 value);
     bool bfmB32(const RdnaInstruction& inst);
     IrU32 rightMask32(IrU32 count);
     IrU64 rightMask64(IrU32 count);
