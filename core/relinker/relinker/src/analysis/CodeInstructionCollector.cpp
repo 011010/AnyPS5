@@ -4,6 +4,8 @@
 #include <codegen/x86/X64InstructionDecoder.hpp>
 #include <codegen/CodegenException.hpp>
 #include <io/BufferUtils.hpp>
+#include <algorithm>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <string>
@@ -248,15 +250,33 @@ std::set<Domain::VirtualAddress> CodeInstructionCollector::Collect(const std::ve
             }
             bool spanHasFsPrefix = false;
             for (const auto& header : headers) {
-                if (header.Type != 1 || (header.Flags & 1) == 0 || previousEnd < header.MappedAddress || previousEnd - header.MappedAddress >= header.FileSize) continue;
-                const auto base = header.Offset + previousEnd - header.MappedAddress;
-                for (auto probe = base; probe < base + (spanEnd - previousEnd) && probe < bytes.size(); ++probe) {
+                if (header.Type != 1 || (header.Flags & 1) == 0 || address < header.MappedAddress || address - header.MappedAddress >= header.FileSize) continue;
+                const auto base = header.Offset + address - header.MappedAddress;
+                for (auto probe = base; probe < base + (spanEnd - address) && probe < bytes.size(); ++probe) {
                     if (bytes[probe] == 0x64) {
                         spanHasFsPrefix = true;
                         break;
                     }
                 }
                 break;
+            }
+            if (!spanHasFsPrefix) {
+                const auto previous = instructions.lower_bound(address);
+                if (previous != instructions.begin()) {
+                    const auto previousStart = *std::prev(previous);
+                    for (const auto& header : headers) {
+                        if (header.Type != 1 || (header.Flags & 1) == 0 || previousStart < header.MappedAddress || previousStart - header.MappedAddress >= header.FileSize) continue;
+                        const auto base = header.Offset + previousStart - header.MappedAddress;
+                        const auto prefixEnd = std::min<std::uint64_t>({base + 4, base + (previousEnd - previousStart), bytes.size()});
+                        for (auto probe = base; probe < prefixEnd; ++probe) {
+                            if (bytes[probe] == 0x64) {
+                                spanHasFsPrefix = true;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
             }
             if (spanHasFsPrefix) throw Domain::RelinkerException("Code analysis: overlapping instruction boundaries", address);
             previousEnd = spanEnd;
