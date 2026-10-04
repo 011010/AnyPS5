@@ -12,6 +12,7 @@ extern "C" {
 int APS5_VABI sceAudioInOpen(int, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t);
 int APS5_VABI sceAudioInInput(int, void*);
 int APS5_VABI sceAudioInGetSilentState(int);
+int APS5_VABI sceAudioInClose(int);
 }
 
 static void Require(bool value) { if (!value) std::abort(); }
@@ -38,6 +39,7 @@ void TestValidation() {
     Require(sceAudioInOpen(user, 0, 0, 512, 48000, 2) == invalidSize);
     Require(sceAudioInOpen(user, 0, 0, 256, 44100, 2) == invalidFreq);
     Require(sceAudioInOpen(user, 0, 0, 256, 48000, 3) == invalidParam);
+    Require(sceAudioInOpen(user, 0, 0, 256, 48000, 0) == invalidParam);
 }
 
 void TestCapture() {
@@ -61,6 +63,7 @@ void TestCapture() {
     Require(captured == recorded);
     Require(sceAudioInInput(handle, block.data()) == 256);
     for (std::size_t i = 0; i < 256 * 2; ++i) Require(block[i] == 0);
+    Require(sceAudioInClose(handle) == 0);
     std::filesystem::remove(path);
 }
 
@@ -84,6 +87,10 @@ void TestNoDevice() {
     Require(sceAudioInInput(handle, nullptr) == 0);
     for (int port = 1; port < 8; ++port) Require(sceAudioInOpen(user, 1, 0, 128, 48000, 1) > 0);
     Require(sceAudioInOpen(user, 1, 0, 128, 48000, 1) == portFull);
+    Require(sceAudioInClose(handle) == 0);
+    Require(sceAudioInClose(handle) == invalidHandle);
+    Require(sceAudioInInput(handle, buffer.data()) == invalidHandle);
+    Require(sceAudioInOpen(user, 1, 0, 128, 48000, 0x11) == handle);
 }
 
 }
