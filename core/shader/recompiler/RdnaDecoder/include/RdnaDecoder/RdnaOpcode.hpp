@@ -794,6 +794,7 @@ enum class RdnaOpcode : std::uint16_t {
     SSendmsg,
     SSetregB32,
     SSleep,
+    SWakeup,
     STrap,
     STtracedata,
     SInstPrefetch,
