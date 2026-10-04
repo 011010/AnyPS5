@@ -890,6 +890,20 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
         return floatTernary(inst, IrOpcode::FPMedTri32, false, false);
     case RdnaOpcode::VDot2cF32F16:
         return vDot2cF32F16(inst);
+    case RdnaOpcode::VDot4cI32I8:
+        return integerDot(inst, 8u, true, true);
+    case RdnaOpcode::VDot2I32I16:
+        return integerDot(inst, 16u, true, false);
+    case RdnaOpcode::VDot2U32U16:
+        return integerDot(inst, 16u, false, false);
+    case RdnaOpcode::VDot4I32I8:
+        return integerDot(inst, 8u, true, false);
+    case RdnaOpcode::VDot4U32U8:
+        return integerDot(inst, 8u, false, false);
+    case RdnaOpcode::VDot8I32I4:
+        return integerDot(inst, 4u, true, false);
+    case RdnaOpcode::VDot8U32U4:
+        return integerDot(inst, 4u, false, false);
     case RdnaOpcode::VCubeidF32:
         return vCubeidF32(inst);
     case RdnaOpcode::VCubescF32:

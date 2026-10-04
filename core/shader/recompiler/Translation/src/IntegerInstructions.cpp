@@ -725,6 +725,28 @@ bool TranslationContext::vLshlOrB32(const RdnaInstruction& inst) {
     return true;
 }
 
+bool TranslationContext::integerDot(const RdnaInstruction& inst, std::uint32_t elementBits, bool sign, bool accumulator) {
+    IrU32 result = readU32(accumulator ? accumulatorOperand(inst) : sourceAt(inst, 2u));
+    if (elementBits == 16u) {
+        for (const bool highLane : {false, true}) {
+            const IrU32 lhs = readU16LaneAsU32(sourceAt(inst, 0u), highLane, sign);
+            const IrU32 rhs = readU16LaneAsU32(sourceAt(inst, 1u), highLane, sign);
+            result = IrU32(ir.IAdd(result.Value(), ir.IMul(lhs.Value(), rhs.Value())));
+        }
+    } else {
+        const IrOpcode extractOpcode = sign ? IrOpcode::BitFieldSExtract : IrOpcode::BitFieldUExtract;
+        const IrU32 lhsSource = readU32(sourceAt(inst, 0u));
+        const IrU32 rhsSource = readU32(sourceAt(inst, 1u));
+        for (std::uint32_t offset = 0u; offset < 32u; offset += elementBits) {
+            const IrU32 lhs(ir.Emit(extractOpcode, IrType::U32, {&lhsSource.Value(), &ir.Constant(offset), &ir.Constant(elementBits)}));
+            const IrU32 rhs(ir.Emit(extractOpcode, IrType::U32, {&rhsSource.Value(), &ir.Constant(offset), &ir.Constant(elementBits)}));
+            result = IrU32(ir.IAdd(result.Value(), ir.IMul(lhs.Value(), rhs.Value())));
+        }
+    }
+    writeOperand(inst.destination, &result.Value());
+    return true;
+}
+
 bool TranslationContext::vCndmaskB32(const RdnaInstruction& inst) {
     RdnaOperand defaultMask{};
     defaultMask.kind = RdnaOperandKind::VccLo;
