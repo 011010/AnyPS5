@@ -409,12 +409,13 @@ int APS5_VABI sceAmprMeasureCommandSizeWaitOnCounter_04_00() {
 }
 
 std::uint64_t APS5_VABI sceAmprMeasureCommandSizeWriteAddressFromCounterPair_04_00(volatile std::uint64_t* address, std::uint8_t counter) {
-    if (!ValidWriteAddress(address) || (counter & 0x81u) != 0u) return MeasureInvalid;
+    if (!ValidWriteAddress(address) || (counter & 1u) != 0u) return MeasureInvalid;
     return sizeof(Apr::WriteAddressFromCounterCommand);
 }
 
 std::uint64_t APS5_VABI sceAmprMeasureCommandSizeWriteAddressFromCounter_04_00(volatile std::uint64_t* address, std::uint8_t counter) {
-    if (!ValidWriteAddress(address) || !ValidCounter(counter)) return MeasureInvalid;
+    (void)counter;
+    if (!ValidWriteAddress(address)) return MeasureInvalid;
     return sizeof(Apr::WriteAddressFromCounterCommand);
 }
 
