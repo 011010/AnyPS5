@@ -832,6 +832,7 @@ enum class RdnaOpcode : std::uint16_t {
     FlatAtomicFmaxX2,
     FlatAtomicIncX2,
     FlatAtomicDecX2,
+    GlobalStoreDwordAddtid,
     DsAddU32,
     DsAddRtnU32,
     DsSubU32,

@@ -197,7 +197,9 @@ bool TranslationContext::emitMemory(const RdnaInstruction& inst) {
     case RdnaOpcode::FlatLoadDwordx4:
         return flatLoad(inst);
     case RdnaOpcode::GlobalLoadDwordAddtid:
-        return globalLoadAddtid(inst);
+        return globalAddtid(inst, false);
+    case RdnaOpcode::GlobalStoreDwordAddtid:
+        return globalAddtid(inst, true);
     case RdnaOpcode::FlatStoreByte:
     case RdnaOpcode::FlatStoreShort:
     case RdnaOpcode::FlatStoreByteD16Hi:
