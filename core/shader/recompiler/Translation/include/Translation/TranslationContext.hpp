@@ -179,7 +179,8 @@ private:
     bool integer16Ternary(const RdnaInstruction& inst, IrOpcode opcode, bool sign);
     bool vMed3I16(const RdnaInstruction& inst);
     bool packedInteger16Shift(const RdnaInstruction& inst, IrOpcode opcode, bool arithmetic);
-    bool packedInteger16Binary(const RdnaInstruction& inst, IrOpcode opcode);
+    bool packedInteger16Binary(const RdnaInstruction& inst, IrOpcode opcode, bool sign);
+    IrU32 saturateInteger16(const RdnaOperand& destination, IrU32 value, bool sign);
     bool packedInteger16Mad(const RdnaInstruction& inst, bool sign);
     bool packedInteger16MinMax(const RdnaInstruction& inst, IrOpcode opcode, bool sign);
     bool sU64Mask(const RdnaInstruction& inst, IrOpcode logicalOpcode, IrOpcode bitOpcode, bool negateRhs, bool negateResult, bool unary);
