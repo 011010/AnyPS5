@@ -159,6 +159,10 @@ std::uint32_t componentWidth(std::uint32_t flags, std::uint32_t component) {
     return 16;
 }
 
+bool isBiasComponent(std::uint32_t flags, std::uint32_t component) {
+    return (flags & RdnaImageSampleFlagBias) != 0u && component == ((flags & RdnaImageSampleFlagOffset) != 0u ? 1u : 0u);
+}
+
 RdnaImageDimension decodeDimension(std::uint32_t dimension) {
     switch (dimension) {
         case 0: return RdnaImageDimension::Dim1D;
@@ -238,7 +242,7 @@ RdnaImageAddressComponent GetRdnaImageAddressComponentLayout(std::uint32_t flags
         if (index == component) {
             return {offset, width};
         }
-        offset += width;
+        offset += isBiasComponent(flags, index) ? 32u : width;
     }
     throw std::runtime_error("invalid image address component");
 }
