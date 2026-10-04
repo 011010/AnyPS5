@@ -276,29 +276,32 @@ int APS5_VABI sceVideoOutAdjustColor(int handle, const VideoOutColorSettings* se
     LibcAwaitExit_nid_postfix();
 }
 
-APS5_EXPORT("T4ucGB8CsnM", sceVideoOutVrrPeg);
-APS5_EXPORT("5tRaBjtdTzY", sceVideoOutVrrPeg);
-int APS5_VABI sceVideoOutVrrPeg(std::uint64_t a0, std::uint64_t a1, std::uint64_t a2, std::uint64_t a3) try {
-    (void)a0;
-    (void)a1;
-    (void)a2;
-    (void)a3;
+APS5_EXPORT("T4ucGB8CsnM", sceVideoOutVrrUnpegFromFixedRate);
+int APS5_VABI sceVideoOutVrrUnpegFromFixedRate() try {
     NotImplemented_nid_no_patch(__func__);
     return 0;
 } catch (const ProcessShutdown&) {
     LibcAwaitExit_nid_postfix();
 }
 
-APS5_EXPORT("kP2L8t3j-aM", sceVideoOutVrrStatusUnknown00);
-int APS5_VABI sceVideoOutVrrStatusUnknown00() try {
+APS5_EXPORT("5tRaBjtdTzY", sceVideoOutVrrPegToFixedRate);
+int APS5_VABI sceVideoOutVrrPegToFixedRate() try {
     NotImplemented_nid_no_patch(__func__);
     return 0;
 } catch (const ProcessShutdown&) {
     LibcAwaitExit_nid_postfix();
 }
 
-APS5_EXPORT("LibwuIonIBw", sceVideoOutVrrStatusUnknown01);
-int APS5_VABI sceVideoOutVrrStatusUnknown01() try {
+APS5_EXPORT("kP2L8t3j-aM", sceVideoOutUnknown00);
+int APS5_VABI sceVideoOutUnknown00() try {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+} catch (const ProcessShutdown&) {
+    LibcAwaitExit_nid_postfix();
+}
+
+APS5_EXPORT("LibwuIonIBw", sceVideoOutUnknown01);
+int APS5_VABI sceVideoOutUnknown01() try {
     NotImplemented_nid_no_patch(__func__);
     return 0;
 } catch (const ProcessShutdown&) {
