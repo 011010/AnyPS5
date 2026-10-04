@@ -111,7 +111,7 @@ void CheckRefused(AgcDriver::VulkanDevice& device, std::uint32_t word0, const st
     } catch (const std::exception& error) {
         refusal = error.what();
     }
-    Require(refusal.find("v_dot2_f32_f16 accumulator op_sel and neg_hi are not implemented") != std::string::npos, what + " was not refused");
+    Require(refusal.find("v_dot2_f32_f16 accumulator op_sel, op_sel_hi and neg_hi are not implemented") != std::string::npos, what + " was not refused");
 }
 
 float Dot(float aLow, float aHigh, float bLow, float bHigh, float c) {
@@ -152,6 +152,7 @@ int main() {
         Check();
         CheckRefused(*device, 0xcc13600au, "op_sel on the accumulator");
         CheckRefused(*device, 0xcc13440au, "neg_hi on the accumulator");
+        CheckRefused(*device, 0xcc13000au, "op_sel_hi cleared on the accumulator");
         std::puts("v_dot2_f32_f16 tests passed");
         return 0;
     } catch (const std::exception& error) {
