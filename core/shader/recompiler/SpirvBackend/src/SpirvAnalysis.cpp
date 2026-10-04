@@ -113,6 +113,9 @@ SpirvRequirements AnalyzeProgramRequirements(const IrProgram& program) {
                 }
             }
             const auto sharedAccess = SharedAccessOf(inst->Opcode());
+            if (sharedAccess == SharedAccess::Atomic && inst->Type() == IrType::U64) {
+                requirements.sharedInt64Atomics = true;
+            }
             if (sharedAccess != SharedAccess::None) {
                 const auto index = inst->Flags<MemoryFlags>().index;
                 if (index >= program.Resources().memoryInfo.size()) {
@@ -124,6 +127,8 @@ SpirvRequirements AnalyzeProgramRequirements(const IrProgram& program) {
                 }
                 if (program.Resources().stage != IrShaderStage::Compute && program.Resources().stage != IrShaderStage::Mesh && kind == ResourceKind::Lds) {
                     requirements.functionLds = true;
+                } else if (sharedAccess == SharedAccess::Atomic && inst->Type() == IrType::U64 && kind == ResourceKind::Lds) {
+                    requirements.ldsLock = true;
                 }
                 if (sharedAccess == SharedAccess::Append || sharedAccess == SharedAccess::Consume) {
                     requirements.subgroupBallot = true;

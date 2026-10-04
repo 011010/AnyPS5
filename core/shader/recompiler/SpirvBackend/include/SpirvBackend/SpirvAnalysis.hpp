@@ -16,9 +16,11 @@ struct SpirvRequirements {
     bool computeDerivatives = false;
     bool imageGatherExtended = false;
     bool functionLds = false;
+    bool ldsLock = false;
     bool functionScratch = false;
     bool pixelValidMask = false;
     bool bufferInt64Atomics = false;
+    bool sharedInt64Atomics = false;
     bool float64 = false;
     bool coherentBuffers = false;
     std::vector<std::uint32_t> capabilities;

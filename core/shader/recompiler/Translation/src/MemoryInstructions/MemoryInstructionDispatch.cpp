@@ -276,6 +276,76 @@ bool TranslationContext::emitMemory(const RdnaInstruction& inst) {
         return dsAtomic2(inst, IrOpcode::SharedAtomicCmpstF32, true);
     case RdnaOpcode::DsWrapRtnB32:
         return dsAtomic2(inst, IrOpcode::SharedAtomicWrap32, true);
+    case RdnaOpcode::DsAddU64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicIAdd64, false);
+    case RdnaOpcode::DsAddRtnU64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicIAdd64, true);
+    case RdnaOpcode::DsSubU64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicISub64, false);
+    case RdnaOpcode::DsSubRtnU64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicISub64, true);
+    case RdnaOpcode::DsRsubU64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicRsub64, false);
+    case RdnaOpcode::DsRsubRtnU64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicRsub64, true);
+    case RdnaOpcode::DsIncU64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicInc64, false);
+    case RdnaOpcode::DsIncRtnU64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicInc64, true);
+    case RdnaOpcode::DsDecU64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicDec64, false);
+    case RdnaOpcode::DsDecRtnU64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicDec64, true);
+    case RdnaOpcode::DsMinI64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicSMin64, false);
+    case RdnaOpcode::DsMinRtnI64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicSMin64, true);
+    case RdnaOpcode::DsMaxI64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicSMax64, false);
+    case RdnaOpcode::DsMaxRtnI64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicSMax64, true);
+    case RdnaOpcode::DsMinU64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicUMin64, false);
+    case RdnaOpcode::DsMinRtnU64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicUMin64, true);
+    case RdnaOpcode::DsMaxU64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicUMax64, false);
+    case RdnaOpcode::DsMaxRtnU64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicUMax64, true);
+    case RdnaOpcode::DsAndB64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicAnd64, false);
+    case RdnaOpcode::DsAndRtnB64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicAnd64, true);
+    case RdnaOpcode::DsOrB64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicOr64, false);
+    case RdnaOpcode::DsOrRtnB64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicOr64, true);
+    case RdnaOpcode::DsXorB64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicXor64, false);
+    case RdnaOpcode::DsXorRtnB64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicXor64, true);
+    case RdnaOpcode::DsMskorB64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicMskor64, false);
+    case RdnaOpcode::DsMskorRtnB64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicMskor64, true);
+    case RdnaOpcode::DsCmpstB64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicCmpst64, false);
+    case RdnaOpcode::DsCmpstRtnB64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicCmpst64, true);
+    case RdnaOpcode::DsCmpstF64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicCmpstF64, false);
+    case RdnaOpcode::DsCmpstRtnF64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicCmpstF64, true);
+    case RdnaOpcode::DsMinF64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicFMin64, false);
+    case RdnaOpcode::DsMinRtnF64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicFMin64, true);
+    case RdnaOpcode::DsMaxF64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicFMax64, false);
+    case RdnaOpcode::DsMaxRtnF64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicFMax64, true);
+    case RdnaOpcode::DsWrxchgRtnB64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicSwap64, true);
     case RdnaOpcode::DsNop:
         emitControlNop();
         return true;

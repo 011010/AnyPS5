@@ -41,7 +41,7 @@ namespace {
         if (ShaderWorkgroupInput(state) == nullptr) {
             FailEmit("function LDS was not prepared before function emission");
         }
-        state.ldsVariable = state.module.DefineGlobalVariable(TypeU32ArrayPointer(state, spv::StorageClassWorkgroup, LdsDwordCount(state)), spv::StorageClassWorkgroup);
+        state.ldsVariable = state.module.DefineGlobalVariable(TypeU32ArrayPointer(state, spv::StorageClassWorkgroup, LdsDwordCount(state) + (state.requirements.ldsLock ? 1u : 0u)), spv::StorageClassWorkgroup);
         state.module.AddName(state.ldsVariable, "lds_dwords");
     }
 
@@ -97,6 +97,16 @@ void EmitMemoryOffsets(SpirvEmitterState& state) {
 std::uint32_t LdsDwordCount(const SpirvEmitterState& state) {
     const auto* workgroup = ShaderWorkgroupInput(state);
     return workgroup != nullptr ? workgroup->ldsSizeDwords : FunctionLdsDwords;
+}
+
+std::uint32_t EmitLdsLockPointer(SpirvEmitterState& state) {
+    if (!state.requirements.ldsLock) {
+        FailEmit("LDS lock was not requested by the program analysis");
+    }
+    EnsureLdsStorage(state);
+    const auto pointer = state.module.AllocateId();
+    state.module.AddFunction(spv::OpAccessChain, TypeU32ElementPointer(state, spv::StorageClassWorkgroup), pointer, state.ldsVariable, ConstantU32(state, LdsDwordCount(state)));
+    return pointer;
 }
 
 MemoryResourceAccess PrepareStorageBufferResourceAccess(SpirvEmitterState& state, const MemoryInfo& mem, std::uint32_t variable, std::uint32_t pointerType) {
