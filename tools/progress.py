@@ -43,6 +43,7 @@ OPCODE_VARIANTS = {
     "STtracedata": ("S_TTRACEDATA_IMM",),
     "SCbranchCdbg": ("S_CBRANCH_CDBGSYS", "S_CBRANCH_CDBGUSER", "S_CBRANCH_CDBGSYS_OR_USER", "S_CBRANCH_CDBGSYS_AND_USER"),
     "VAddI32": ("V_ADD_CO_U32",),
+    "VSubI32": ("V_SUB_CO_U32",),
     "VSubrevI32": ("V_SUBREV_CO_U32",),
     "VMacF32": ("V_FMAC_F32",),
     "VMadmkF32": ("V_FMAMK_F32",),
