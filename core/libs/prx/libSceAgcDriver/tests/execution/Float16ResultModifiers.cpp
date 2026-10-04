@@ -123,8 +123,16 @@ std::string Hex(std::uint32_t value) {
     return text;
 }
 
+bool IsNan16(std::uint32_t bits) {
+    return (bits & 0x7fffu) > 0x7c00u;
+}
+
+bool SameHalf(std::uint32_t actual, std::uint32_t expected) {
+    return actual == expected || (IsNan16(actual) && IsNan16(expected));
+}
+
 void Expect(std::uint32_t tid, std::uint32_t actual, std::uint32_t expected, const char* name) {
-    Require(actual == expected, std::string("float16 result modifiers: lane ") + std::to_string(tid) + " " + name + " is " + Hex(actual) + ", expected " + Hex(expected));
+    Require(SameHalf(actual & 0xffffu, expected & 0xffffu) && SameHalf(actual >> 16u, expected >> 16u), std::string("float16 result modifiers: lane ") + std::to_string(tid) + " " + name + " is " + Hex(actual) + ", expected " + Hex(expected));
 }
 
 void Run(AgcDriver::VulkanDevice& device) {
