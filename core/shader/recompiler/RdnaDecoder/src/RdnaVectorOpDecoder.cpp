@@ -694,8 +694,14 @@ bool isNativeVop3F16TernaryOpcode(RdnaOpcode opcode) {
 }
 
 bool isNativeVop3I16TernaryOpcode(RdnaOpcode opcode) {
-    return opcode == RdnaOpcode::VMed3I16 || opcode == RdnaOpcode::VMadU16 || opcode == RdnaOpcode::VMadI16 ||
-        opcode == RdnaOpcode::VMadU32U16 || opcode == RdnaOpcode::VMadI32I16;
+    return opcode == RdnaOpcode::VMed3I16 || opcode == RdnaOpcode::VMed3U16 || opcode == RdnaOpcode::VMax3I16 ||
+        opcode == RdnaOpcode::VMax3U16 || opcode == RdnaOpcode::VMin3I16 || opcode == RdnaOpcode::VMin3U16 ||
+        opcode == RdnaOpcode::VMadU16 || opcode == RdnaOpcode::VMadI16 || opcode == RdnaOpcode::VMadU32U16 ||
+        opcode == RdnaOpcode::VMadI32I16;
+}
+
+bool isNativeVop3AlignOpcode(RdnaOpcode opcode) {
+    return opcode == RdnaOpcode::VAlignbitB32 || opcode == RdnaOpcode::VAlignbyteB32;
 }
 
 bool usesSignedSaturateClamp(RdnaOpcode opcode) {
@@ -1709,6 +1715,16 @@ void applyNativeVop3I16TernarySelectors(RdnaInstruction& instruction, std::uint3
     }
 }
 
+void applyNativeVop3AlignSelectors(RdnaInstruction& instruction, std::uint32_t opSel) {
+    if ((opSel & 0x3u) != 0u) {
+        instruction.source2.sdwaSel = opSel & 0x3u;
+    }
+    if ((opSel & 0x8u) != 0u) {
+        instruction.destination.sdwaSel = 5u;
+        instruction.destination.sdwaDstUnused = 0u;
+    }
+}
+
 void applyNativeVop3B16BinaryModifiers(RdnaInstruction& instruction, std::uint32_t opSel) {
     instruction.source0.opSel = (opSel & 0x1u) != 0u;
     instruction.source1.opSel = (opSel & 0x2u) != 0u;
@@ -1817,6 +1833,12 @@ void checkNativeVop3Modifiers(RdnaOpcode opcode, bool permlane, bool carryInOut,
         return;
     }
     if (isNativeVop3I16TernaryOpcode(opcode)) {
+        if (abs != 0u || clamp != 0u || omod != 0u || neg != 0u) {
+            throw std::invalid_argument("VOP3 source modifiers are not implemented");
+        }
+        return;
+    }
+    if (isNativeVop3AlignOpcode(opcode)) {
         if (abs != 0u || clamp != 0u || omod != 0u || neg != 0u) {
             throw std::invalid_argument("VOP3 source modifiers are not implemented");
         }
@@ -2136,6 +2158,8 @@ RdnaInstruction DecodeRdnaVop3(std::uint32_t programCounter, std::span<const std
         applyNativeVop3TernaryModifiers(instruction, opSel, abs, neg);
     } else if (isNativeVop3I16TernaryOpcode(instruction.op)) {
         applyNativeVop3I16TernarySelectors(instruction, opSel);
+    } else if (isNativeVop3AlignOpcode(instruction.op)) {
+        applyNativeVop3AlignSelectors(instruction, opSel);
     } else if (isNativeVop3B16BinaryOpcode(instruction.op)) {
         applyNativeVop3B16BinaryModifiers(instruction, opSel);
     } else if (instruction.op == RdnaOpcode::VPackB32F16) {
