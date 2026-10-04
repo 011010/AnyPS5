@@ -72,6 +72,7 @@ configure_windows_unwind(libSceAgc)
 add_test_executable(agc_register_command_tests EXCLUDE_FROM_ALL
         tests/RegisterCommands.cpp
         Command/src/Packet.cpp
+        Cb/src/Registers.cpp
         DcbState/src/Registers.cpp
         Patch/src/IndirectRegisters.cpp
 )
