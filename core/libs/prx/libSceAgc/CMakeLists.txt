@@ -87,6 +87,24 @@ if(BUILD_TESTING)
     endif()
 endif()
 
+add_test_executable(agc_branch_patch_tests EXCLUDE_FROM_ALL
+        tests/BranchPatch.cpp
+        Command/src/Packet.cpp
+        Cb/src/Branch.cpp
+        Patch/src/Branch.cpp
+)
+target_include_directories(agc_branch_patch_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_branch_patch_tests PRIVATE libc)
+configure_windows_unwind(agc_branch_patch_tests)
+if(BUILD_TESTING)
+    set_target_properties(agc_branch_patch_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME agc_branch_patch_tests COMMAND agc_branch_patch_tests)
+    if(WIN32)
+        set_tests_properties(agc_branch_patch_tests PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
+
 add_test_executable(agc_shader_fusion_tests EXCLUDE_FROM_ALL tests/ShaderFusion.cpp)
 target_include_directories(agc_shader_fusion_tests PRIVATE ${LIBS_INCLUDE_DIR})
 target_link_libraries(agc_shader_fusion_tests PRIVATE libSceAgc libc)
