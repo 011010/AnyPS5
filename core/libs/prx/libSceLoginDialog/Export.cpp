@@ -16,8 +16,7 @@ constexpr int COMMON_DIALOG_ERROR_ALREADY_INITIALIZED = static_cast<int>(0x80B80
 constexpr int COMMON_DIALOG_ERROR_NOT_FINISHED = static_cast<int>(0x80B80005u);
 constexpr int COMMON_DIALOG_ERROR_BUSY = static_cast<int>(0x80B80007u);
 constexpr int COMMON_DIALOG_ERROR_ARG_NULL = static_cast<int>(0x80B8000Du);
-
-constexpr std::size_t LOGIN_DIALOG_RESULT_SIZE = 8;
+constexpr int COMMON_DIALOG_RESULT_USER_CANCELED = 1;
 
 std::atomic<int> g_status{COMMON_DIALOG_STATUS_NONE};
 
@@ -53,7 +52,8 @@ int APS5_VABI sceLoginDialogGetResult(void* result) {
  if (status == COMMON_DIALOG_STATUS_NONE) return COMMON_DIALOG_ERROR_NOT_INITIALIZED;
  if (result == nullptr) return COMMON_DIALOG_ERROR_ARG_NULL;
  if (status != COMMON_DIALOG_STATUS_FINISHED) return COMMON_DIALOG_ERROR_NOT_FINISHED;
- std::memset(result, 0, LOGIN_DIALOG_RESULT_SIZE);
+ const std::int32_t canceled = COMMON_DIALOG_RESULT_USER_CANCELED;
+ std::memcpy(result, &canceled, sizeof(canceled));
  return 0;
 }
 
