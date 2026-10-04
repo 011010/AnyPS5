@@ -27,6 +27,15 @@ struct SpirvDeferredPhi {
 };
 
 class SpirvModule {
+private:
+    template<typename TOperand>
+    static constexpr bool wordSized = (std::is_integral_v<TOperand> || std::is_enum_v<TOperand>) && sizeof(TOperand) <= sizeof(std::uint32_t);
+
+    template<typename TOperand>
+    static std::uint32_t narrowWord(TOperand operand) {
+        return static_cast<std::uint32_t>(operand);
+    }
+
 public:
     explicit SpirvModule(std::uint32_t version = 0x00010300u);
     [[nodiscard]] std::uint32_t AllocateId();
@@ -129,14 +138,6 @@ public:
 private:
     static constexpr std::size_t DeclarationCacheSize = 512;
     static constexpr std::size_t MaxCachedDeclarationWords = 4;
-
-    template<typename TOperand>
-    static constexpr bool wordSized = (std::is_integral_v<TOperand> || std::is_enum_v<TOperand>) && sizeof(TOperand) <= sizeof(std::uint32_t);
-
-    template<typename TOperand>
-    static std::uint32_t narrowWord(TOperand operand) {
-        return static_cast<std::uint32_t>(operand);
-    }
 
     struct DeclarationSlot {
         std::array<std::uint32_t, MaxCachedDeclarationWords> words = {};
