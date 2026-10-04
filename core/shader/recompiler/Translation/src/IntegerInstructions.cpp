@@ -589,15 +589,21 @@ bool TranslationContext::sBfmB64(const RdnaInstruction& inst) {
     return true;
 }
 
+IrU32 TranslationContext::extractBits32(IrU32 source, IrU32 offset, IrU32 rawCount, bool sign) {
+    const IrU32 count(ir.Emit(IrOpcode::UMin32, IrType::U32, {&rawCount.Value(), &ir.Constant(32u)}));
+    const IrU32 discard(ir.BitwiseAnd(ir.ISub(ir.Constant(32u), count.Value()), ir.Constant(31u)));
+    const IrU32 shifted(sign ? ir.ShiftRightArithmetic(source.Value(), offset.Value()) : ir.ShiftRightLogical(source.Value(), offset.Value()));
+    const IrU32 aligned(ir.ShiftLeftLogical(shifted.Value(), discard.Value()));
+    const IrU32 field(sign ? ir.ShiftRightArithmetic(aligned.Value(), discard.Value()) : ir.ShiftRightLogical(aligned.Value(), discard.Value()));
+    return IrU32(ir.Select(ir.INotEqual(count.Value(), ir.Constant(0u)), field.Value(), ir.Constant(0u)));
+}
+
 bool TranslationContext::sBfeU32(const RdnaInstruction& inst, bool sign) {
     const IrU32 source = readU32(sourceAt(inst, 0u));
     const IrU32 field = readU32(sourceAt(inst, 1u));
     const IrU32 offset(ir.Emit(IrOpcode::BitFieldUExtract, IrType::U32, {&field.Value(), &ir.Constant(0u), &ir.Constant(5u)}));
     const IrU32 rawCount(ir.Emit(IrOpcode::BitFieldUExtract, IrType::U32, {&field.Value(), &ir.Constant(16u), &ir.Constant(7u)}));
-    const IrU32 available(ir.ISub(ir.Constant(32u), offset.Value()));
-    const IrU32 count(ir.Emit(IrOpcode::UMin32, IrType::U32, {&rawCount.Value(), &available.Value()}));
-    const IrOpcode opcode = sign ? IrOpcode::BitFieldSExtract : IrOpcode::BitFieldUExtract;
-    const IrU32 result(ir.Emit(opcode, IrType::U32, {&source.Value(), &offset.Value(), &count.Value()}));
+    const IrU32 result = extractBits32(source, offset, rawCount, sign);
     writeOperand(inst.destination, &result.Value());
     ir.SetScc(ir.INotEqual(result.Value(), ir.Constant(0u)));
     return true;

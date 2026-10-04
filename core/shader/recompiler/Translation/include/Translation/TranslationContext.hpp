@@ -211,6 +211,7 @@ private:
     bool bfmB32(const RdnaInstruction& inst);
     IrU32 rightMask32(IrU32 count);
     IrU64 rightMask64(IrU32 count);
+    IrU32 extractBits32(IrU32 source, IrU32 offset, IrU32 rawCount, bool sign);
     bool sBfmB64(const RdnaInstruction& inst);
     bool sBfeU32(const RdnaInstruction& inst, bool sign);
     bool sBfeU64(const RdnaInstruction& inst);
