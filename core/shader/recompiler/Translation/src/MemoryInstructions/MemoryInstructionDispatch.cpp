@@ -255,6 +255,22 @@ bool TranslationContext::emitMemory(const RdnaInstruction& inst) {
         return flatAtomic(inst, IrOpcode::AddressAtomicOr64);
     case RdnaOpcode::FlatAtomicXorX2:
         return flatAtomic(inst, IrOpcode::AddressAtomicXor64);
+    case RdnaOpcode::FlatAtomicFcmpswap:
+        return flatAtomic(inst, IrOpcode::AddressAtomicFCmpSwap32);
+    case RdnaOpcode::FlatAtomicFmin:
+        return flatAtomic(inst, IrOpcode::AddressAtomicFMin32);
+    case RdnaOpcode::FlatAtomicFmax:
+        return flatAtomic(inst, IrOpcode::AddressAtomicFMax32);
+    case RdnaOpcode::FlatAtomicFcmpswapX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicFCmpSwap64);
+    case RdnaOpcode::FlatAtomicFminX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicFMin64);
+    case RdnaOpcode::FlatAtomicFmaxX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicFMax64);
+    case RdnaOpcode::FlatAtomicIncX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicInc64);
+    case RdnaOpcode::FlatAtomicDecX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicDec64);
 
     case RdnaOpcode::DsAddU32:
         return dsAtomic(inst, IrOpcode::SharedAtomicIAdd32, false);
