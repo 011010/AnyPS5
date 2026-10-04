@@ -110,6 +110,7 @@ private:
     bool dsAtomic2(const RdnaInstruction& inst, IrOpcode opcode, bool returnsValue);
     bool dsAppendConsume(const RdnaInstruction& inst, IrOpcode opcode);
     bool dsAddtid(const RdnaInstruction& inst, bool write);
+    bool globalLoadAddtid(const RdnaInstruction& inst);
     bool dsSwizzleB32(const RdnaInstruction& inst);
     bool dsBpermuteB32(const RdnaInstruction& inst);
     bool dsPermuteB32(const RdnaInstruction& inst);
