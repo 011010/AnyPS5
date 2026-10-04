@@ -4,7 +4,6 @@
 #include "prx/libc/include/General.hpp"
 #include "prx/libkernel/Apr/include/AprCommandBuffer.hpp"
 #include <cstring>
-#include <stdexcept>
 
 static constexpr int SCE_AMPR_ERROR_BUFFER_FULL = 0x8002001C;
 static constexpr int SCE_KERNEL_ERROR_EINVAL = 0x80020016;
@@ -26,6 +25,10 @@ static int AppendCommand(Apr::CommandBufferObject* buffer, Apr::Opcode opcode, T
 
 static bool ValidCounter(std::uint32_t counter) {
     return counter < 128u;
+}
+
+static bool ValidWriteAddress(volatile std::uint64_t* address) {
+    return address && (reinterpret_cast<std::uintptr_t>(address) & 7u) == 0u;
 }
 
 static bool ValidWait(std::uint32_t compare, std::uint32_t flush) {
@@ -58,7 +61,7 @@ static int AppendMarker(Apr::CommandBufferObject* buffer, Apr::Opcode opcode, co
 extern "C" {
 
 int APS5_VABI sceAmprCommandBufferWriteAddressOnCompletion(Apr::CommandBufferObject* buffer, volatile std::uint64_t* address, std::uint64_t value) {
-    if (!address) return static_cast<int>(0x80020016);
+    if (!ValidWriteAddress(address)) return SCE_KERNEL_ERROR_EINVAL;
     return AppendCommand(buffer, Apr::Opcode::WriteAddress, Apr::WriteAddressCommand{{}, reinterpret_cast<std::uint64_t>(address), value, 0, 0});
 }
 
@@ -83,17 +86,17 @@ int APS5_VABI sceAmprCommandBufferWriteKernelEventQueueOnCompletion(Apr::Command
 }
 
 int APS5_VABI sceAmprCommandBufferWriteAddressFromTimeCounterOnCompletion(Apr::CommandBufferObject* buffer, volatile std::uint64_t* address) {
+    if (!ValidWriteAddress(address)) return SCE_KERNEL_ERROR_EINVAL;
     return AppendCommand(buffer, Apr::Opcode::WriteAddressFromTimeCounter, Apr::WriteAddressFromCounterCommand{{}, reinterpret_cast<std::uint64_t>(address), 0, 0});
 }
 
 int APS5_VABI sceAmprCommandBufferWriteAddressFromCounterOnCompletion(Apr::CommandBufferObject* buffer, volatile std::uint64_t* address, std::uint8_t counter) {
-    if (!ValidCounter(counter)) return SCE_KERNEL_ERROR_EINVAL;
+    if (!ValidWriteAddress(address) || !ValidCounter(counter)) return SCE_KERNEL_ERROR_EINVAL;
     return AppendCommand(buffer, Apr::Opcode::WriteAddressFromCounter, Apr::WriteAddressFromCounterCommand{{}, reinterpret_cast<std::uint64_t>(address), counter, 0});
 }
 
 int APS5_VABI sceAmprCommandBufferWriteAddressFromCounterPairOnCompletion(Apr::CommandBufferObject* buffer, volatile std::uint64_t* address, std::uint8_t counter) {
-    if (!ValidCounter(counter)) return SCE_KERNEL_ERROR_EINVAL;
-    if (!ValidCounter(counter + 1u)) throw std::runtime_error("sceAmprCommandBufferWriteAddressFromCounterPairOnCompletion: the pair of counter 127 is not known");
+    if (!ValidWriteAddress(address) || (counter & 0x81u) != 0u) return SCE_KERNEL_ERROR_EINVAL;
     return AppendCommand(buffer, Apr::Opcode::WriteAddressFromCounterPair, Apr::WriteAddressFromCounterCommand{{}, reinterpret_cast<std::uint64_t>(address), counter, counter + 1u});
 }
 
