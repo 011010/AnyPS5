@@ -17,6 +17,7 @@ struct SpirvRequirements {
     bool imageGatherExtended = false;
     bool functionLds = false;
     bool ldsLock = false;
+    std::uint32_t functionLdsDwords = 0;
     bool functionScratch = false;
     bool pixelValidMask = false;
     bool bufferInt64Atomics = false;
@@ -28,6 +29,8 @@ struct SpirvRequirements {
 };
 
 [[nodiscard]] SpirvRequirements AnalyzeProgramRequirements(const IrProgram& program);
+inline constexpr std::uint32_t FunctionLdsDwordLimit = 8192u;
+[[nodiscard]] std::uint32_t FunctionLdsDwords(const IrProgram& program);
 [[nodiscard]] std::unordered_set<const IrValue*> WaveUniformValues(const IrProgram& program);
 [[nodiscard]] bool IsWaveMaskBranch(BranchCondition condition);
 
