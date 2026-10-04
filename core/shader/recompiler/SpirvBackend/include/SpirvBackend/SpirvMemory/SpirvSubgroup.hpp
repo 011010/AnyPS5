@@ -7,6 +7,8 @@
 namespace ShaderRecompiler {
 
 std::uint32_t EmitSubgroupLocalInvocationId(SpirvEmitterState& state);
+std::uint32_t EmitHostSubgroupLane(SpirvEmitterState& state, std::uint32_t lane);
+std::uint32_t EmitWaveBallot(SpirvEmitterState& state, std::uint32_t ballot);
 DppTargetLane EmitDppQuadPermTargetLane(SpirvEmitterState& state, std::uint32_t subid, std::uint32_t control);
 DppTargetLane EmitDppRowShiftTargetLane(SpirvEmitterState& state, std::uint32_t subid, std::uint32_t amount, bool left);
 DppTargetLane EmitDppRowRotateRightTargetLane(SpirvEmitterState& state, std::uint32_t subid, std::uint32_t amount);

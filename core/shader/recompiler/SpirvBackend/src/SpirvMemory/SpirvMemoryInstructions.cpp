@@ -1,5 +1,6 @@
 #include "SpirvBackend/SpirvBda.hpp"
 #include "SpirvBackend/SpirvEmitterInstructions.hpp"
+#include "SpirvBackend/SpirvMemory/SpirvSubgroup.hpp"
 #include "SpirvBackend/SpirvBufferFormat.hpp"
 #include <spirv/unified1/spirv.hpp>
 #include <algorithm>
@@ -1082,7 +1083,7 @@ std::uint32_t AppendConsume(SpirvValueEmitContext& ctx, const IrValue& inst, boo
         return value;
     });
     const auto result = state.module.AllocateId();
-    state.module.AddFunction(spv::OpGroupNonUniformShuffle, TypeU32(state), result, ConstantU32(state, spv::ScopeSubgroup), atomic, sourceLane);
+    state.module.AddFunction(spv::OpGroupNonUniformShuffle, TypeU32(state), result, ConstantU32(state, spv::ScopeSubgroup), atomic, EmitHostSubgroupLane(state, sourceLane));
     return result;
 }
 
