@@ -15,6 +15,7 @@ inline constexpr std::uint32_t SystemMemoryId = 0x010107d4;
 inline constexpr std::size_t SystemMemorySize = 0x30;
 inline constexpr std::uint32_t RenderInfoId = 0x010107d6;
 inline constexpr std::size_t RenderInfoSize = 0x30;
+inline constexpr std::uint32_t RenderFormat = 2;
 inline constexpr std::uint32_t RayId = 0x010107d7;
 inline constexpr std::size_t RaySize = 0x58;
 inline constexpr std::uint32_t PortalParamsId = 0x010107d8;
@@ -31,6 +32,15 @@ struct Attribute {
     std::uint32_t reserved2;
 };
 
+struct RenderInfo {
+    AudioPropagationStructDescriptor desc;
+    AudioPropagationHandle source;
+    void* output;
+    std::size_t outputSize;
+    std::uint32_t format;
+    std::uint32_t reserved;
+};
+
 struct PortalParams {
     AudioPropagationStructDescriptor desc;
     float rows[4][4];
@@ -40,6 +50,9 @@ struct PortalParams {
 static_assert(sizeof(AudioPropagationStructDescriptor) == 0x10);
 static_assert(sizeof(AudioPropagationSystemMemory) == SystemMemorySize);
 static_assert(sizeof(Attribute) == 0x20);
+static_assert(sizeof(RenderInfo) == RenderInfoSize);
+static_assert(offsetof(RenderInfo, source) == 0x10);
+static_assert(offsetof(RenderInfo, format) == 0x28);
 static_assert(sizeof(PortalParams) == PortalParamsSize);
 static_assert(offsetof(PortalParams, rooms) == 0x50);
 
@@ -68,7 +81,7 @@ std::int32_t APS5_VABI sceAudioPropagationSourceGetAudioPath(AudioPropagationHan
 std::int32_t APS5_VABI sceAudioPropagationSourceGetRays(AudioPropagationHandle source, void* rays, std::uint32_t* count);
 std::int32_t APS5_VABI sceAudioPropagationSourceCalculateAudioPaths(AudioPropagationHandle source, const void* rays, std::uint32_t rayCount, std::uint32_t flags, void* paths, std::uint32_t pathCount);
 std::int32_t APS5_VABI sceAudioPropagationSourceSetAudioPaths(AudioPropagationHandle source, const void* entries, std::uint32_t count);
-std::int32_t APS5_VABI sceAudioPropagationSourceRender(AudioPropagationHandle system, const AudioPropagationStructDescriptor* renderInfo);
+std::int32_t APS5_VABI sceAudioPropagationSourceRender(AudioPropagationHandle system, const AudioPropagation::RenderInfo* infos, std::uint32_t count);
 
 }
 

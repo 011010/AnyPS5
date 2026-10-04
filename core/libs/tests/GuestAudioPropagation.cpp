@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <stdexcept>
 
 namespace {
@@ -129,7 +130,80 @@ int main() {
     RequireThrows<std::runtime_error>([&] { sceAudioPropagationSourceCalculateAudioPaths(source, rays, 1, 1, nullptr, 0); }, "path calculation with rays");
     Require(sceAudioPropagationSourceSetAudioPaths(source, nullptr, 0) == 0, "empty audio paths failed");
     RequireThrows<std::runtime_error>([&] { sceAudioPropagationSourceSetAudioPaths(source, rays, 1); }, "set audio paths");
-    RequireThrows<std::runtime_error>([&] { sceAudioPropagationSourceRender(system, nullptr); }, "render is not modelled");
+
+    alignas(16) std::uint8_t otherArena[64]{};
+    auto otherMemory = Memory();
+    Require(sceAudioPropagationSystemQueryMemory(options, &otherMemory) == 0, "second query memory failed");
+    otherMemory.p_cpu_mem = otherArena;
+    AudioPropagationHandle otherSystem = 0;
+    Require(sceAudioPropagationSystemCreate(options, &otherMemory, &otherSystem) == 0, "second system create failed");
+    AudioPropagationHandle otherSource = 0;
+    Require(sceAudioPropagationSourceCreate(otherSystem, &otherSource) == 0, "second system source create failed");
+    AudioPropagationHandle secondSource = 0;
+    Require(sceAudioPropagationSourceCreate(system, &secondSource) == 0, "second source create failed");
+
+    float outputs[2][64];
+    const auto fill = [&] { std::memset(outputs, 0xab, sizeof(outputs)); };
+    const auto zeroed = [&](int index) {
+        for (const float sample : outputs[index]) {
+            if (sample != 0.0f) return false;
+        }
+        return true;
+    };
+    const auto untouched = [&] {
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(outputs);
+        for (std::size_t index = 0; index < sizeof(outputs); ++index) {
+            if (bytes[index] != 0xab) return false;
+        }
+        return true;
+    };
+    AudioPropagation::RenderInfo infos[2]{};
+    const auto reset = [&] {
+        infos[0] = {{AudioPropagation::RenderInfoId, AudioPropagation::RenderInfoSize}, source, outputs[0], sizeof(outputs[0]), AudioPropagation::RenderFormat, 0};
+        infos[1] = {{AudioPropagation::RenderInfoId, AudioPropagation::RenderInfoSize}, secondSource, outputs[1], sizeof(outputs[1]), AudioPropagation::RenderFormat, 0};
+        fill();
+    };
+    reset();
+    Require(sceAudioPropagationSourceRender(system, infos, 1) == 0, "render failed");
+    Require(zeroed(0), "render left the output unwritten");
+    const auto* tail = reinterpret_cast<const std::uint8_t*>(outputs[1]);
+    Require(tail[0] == 0xab, "render wrote past the output size");
+    reset();
+    infos[0].outputSize = sizeof(float) * 16;
+    Require(sceAudioPropagationSourceRender(system, infos, 2) == 0, "render of two sources failed");
+    Require(outputs[0][15] == 0.0f && outputs[0][16] != 0.0f && zeroed(1), "render did not write each output for its size");
+
+    reset();
+    RequireThrows<std::invalid_argument>([&] { sceAudioPropagationSourceRender(system, infos, 0); }, "render without infos");
+    RequireThrows<std::invalid_argument>([&] { sceAudioPropagationSourceRender(system, nullptr, 1); }, "render with null infos");
+    RequireThrows<std::invalid_argument>([&] { sceAudioPropagationSourceRender(system + 16, infos, 1); }, "render on an unknown system");
+    infos[1].desc.id = AudioPropagation::RayId;
+    RequireThrows<std::invalid_argument>([&] { sceAudioPropagationSourceRender(system, infos, 2); }, "render info with a wrong descriptor id");
+    Require(untouched(), "rejected render wrote an output");
+    reset();
+    infos[0].desc.size = 0x28;
+    RequireThrows<std::invalid_argument>([&] { sceAudioPropagationSourceRender(system, infos, 1); }, "render info with a wrong descriptor size");
+    reset();
+    infos[0].source = rooms[0];
+    RequireThrows<std::invalid_argument>([&] { sceAudioPropagationSourceRender(system, infos, 1); }, "render of a room");
+    reset();
+    infos[0].source = otherSource;
+    RequireThrows<std::invalid_argument>([&] { sceAudioPropagationSourceRender(system, infos, 1); }, "render of another system's source");
+    reset();
+    infos[0].output = nullptr;
+    RequireThrows<std::invalid_argument>([&] { sceAudioPropagationSourceRender(system, infos, 1); }, "render without output");
+    reset();
+    infos[0].outputSize = 0;
+    RequireThrows<std::invalid_argument>([&] { sceAudioPropagationSourceRender(system, infos, 1); }, "render with an empty output");
+    reset();
+    infos[1].format = 1;
+    RequireThrows<std::runtime_error>([&] { sceAudioPropagationSourceRender(system, infos, 2); }, "render with an unknown format");
+    Require(untouched(), "render with an unknown format wrote an output");
+
+    Require(sceAudioPropagationSourceDestroy(system, secondSource) == 0, "second source destroy failed");
+    reset();
+    RequireThrows<std::invalid_argument>([&] { sceAudioPropagationSourceRender(system, infos, 2); }, "render of a destroyed source");
+    Require(sceAudioPropagationSystemDestroy(otherSystem) == 0, "second system destroy failed");
 
     RequireThrows<std::invalid_argument>([&] { sceAudioPropagationRoomDestroy(system, source); }, "room destroy of a source");
     RequireThrows<std::invalid_argument>([&] { sceAudioPropagationSourceDestroy(system + 16, source); }, "source destroy with another system");
