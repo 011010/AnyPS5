@@ -802,17 +802,9 @@ bool TranslationContext::vCndmaskB32(const RdnaInstruction& inst) {
     const IrU1 condition = readMask(maskOperand);
     const RdnaOperand& falseOperand = sourceAt(inst, 0u);
     const RdnaOperand& trueOperand = sourceAt(inst, 1u);
-    IrValue* result = nullptr;
-    if (falseOperand.negate || falseOperand.absolute || trueOperand.negate || trueOperand.absolute) {
-        IrValue* falseValue = readOperand(falseOperand, IrType::F32);
-        IrValue* trueValue = readOperand(trueOperand, IrType::F32);
-        result = &ir.Emit(IrOpcode::SelectF32, IrType::F32, {&condition.Value(), trueValue, falseValue});
-    } else {
-        const IrU32 falseValue = readU32(falseOperand);
-        const IrU32 trueValue = readU32(trueOperand);
-        result = &ir.Select(condition.Value(), trueValue.Value(), falseValue.Value());
-    }
-    writeOperand(inst.destination, result);
+    const IrU32 falseValue = readU32(falseOperand);
+    const IrU32 trueValue = readU32(trueOperand);
+    writeOperand(inst.destination, &ir.Select(condition.Value(), trueValue.Value(), falseValue.Value()));
     return true;
 }
 

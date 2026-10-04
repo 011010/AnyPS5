@@ -1026,9 +1026,20 @@ bool isVop2FloatOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VFmamkF16:
         case RdnaOpcode::VFmaakF16:
         case RdnaOpcode::VMaxF16:
-        case RdnaOpcode::VMinF16: return true;
+        case RdnaOpcode::VMinF16:
+        case RdnaOpcode::VMulLegacyF32: return true;
         default: return false;
     }
+}
+
+bool hasUnsupportedVop2SourceModifiers(RdnaOpcode opcode, bool src0Modified, bool src1Modified) {
+    if (isVop2FloatOpcode(opcode) || opcode == RdnaOpcode::VCndmaskB32) {
+        return false;
+    }
+    if (opcode == RdnaOpcode::VLdexpF16) {
+        return src1Modified;
+    }
+    return src0Modified || src1Modified;
 }
 
 bool usesInexactClampControl(RdnaOpcode opcode) {
@@ -1329,8 +1340,7 @@ void validateVop2Sdwa(const RdnaInstruction& instruction, std::uint32_t opcode, 
         throw std::invalid_argument("VOP2 SDWA output modifiers are not supported");
     }
     if (isFullWidthVop2Sdwa(fields)) {
-        if (!isVop2FloatOpcode(instruction.op) && instruction.op != RdnaOpcode::VCndmaskB32 &&
-            (fields.src0Neg != 0u || fields.src0Abs != 0u || fields.src1Neg != 0u || fields.src1Abs != 0u)) {
+        if (hasUnsupportedVop2SourceModifiers(instruction.op, fields.src0Neg != 0u || fields.src0Abs != 0u, fields.src1Neg != 0u || fields.src1Abs != 0u)) {
             throw std::invalid_argument("VOP2 SDWA source modifiers are not supported");
         }
         return;
@@ -1440,8 +1450,7 @@ void decodeVop2Dpp(std::uint32_t programCounter, std::span<const std::uint32_t> 
         instruction.source1.negateHi = instruction.source1.negate;
     }
 
-    if (!isVop2FloatOpcode(instruction.op) && !packedFmac &&
-        (instruction.source0.negate || instruction.source0.absolute || instruction.source1.negate || instruction.source1.absolute)) {
+    if (!packedFmac && hasUnsupportedVop2SourceModifiers(instruction.op, instruction.source0.negate || instruction.source0.absolute, instruction.source1.negate || instruction.source1.absolute)) {
         throw std::invalid_argument("VOP2 DPP integer source modifiers are not supported");
     }
     finalizeVop2Instruction(code, wordIndex, instruction);
@@ -1863,7 +1872,8 @@ bool supportsNativeVop3SourceModifiers(RdnaOpcode opcode) {
         case RdnaOpcode::VMinF64:
         case RdnaOpcode::VMaxF64:
         case RdnaOpcode::VLdexpF64:
-        case RdnaOpcode::VTrigPreopF64: return true;
+        case RdnaOpcode::VTrigPreopF64:
+        case RdnaOpcode::VLdexpF16: return true;
         default: return false;
     }
 }
@@ -1877,6 +1887,7 @@ bool supportsNativeVop3ResultModifiers(RdnaOpcode opcode) {
         case RdnaOpcode::VSubF32:
         case RdnaOpcode::VSubrevF32:
         case RdnaOpcode::VMulF32:
+        case RdnaOpcode::VMulLegacyF32:
         case RdnaOpcode::VMinF32:
         case RdnaOpcode::VMaxF32:
         case RdnaOpcode::VMacF32:
@@ -1943,6 +1954,12 @@ void checkNativeVop3Modifiers(RdnaOpcode opcode, bool permlane, bool carryInOut,
     }
     if (opcode == RdnaOpcode::VLdexpF32 || opcode == RdnaOpcode::VLdexpF64 || opcode == RdnaOpcode::VTrigPreopF64) {
         if ((abs & ~1u) != 0u || opSel != 0u || (neg & ~1u) != 0u) {
+            throw std::invalid_argument("VOP3 source modifiers are not implemented");
+        }
+        return;
+    }
+    if (opcode == RdnaOpcode::VLdexpF16) {
+        if ((abs & ~1u) != 0u || opSel != 0u || clamp != 0u || omod != 0u || (neg & ~1u) != 0u) {
             throw std::invalid_argument("VOP3 source modifiers are not implemented");
         }
         return;
