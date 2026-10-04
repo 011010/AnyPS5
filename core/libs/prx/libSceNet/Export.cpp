@@ -650,9 +650,8 @@ int APS5_VABI sceNetEpollCreate(const char* name, int flags) {
     return id;
 }
 
-APS5_EXPORT("rMyh97BU5pY", sceNetUnknown01);
-int APS5_VABI sceNetUnknown01() {
-    NotImplemented_nid_no_patch("rMyh97BU5pY");
+int APS5_VABI sceNetGetMemoryPoolStats() {
+    NotImplemented_nid_no_patch(__func__);
     return 0;
 }
 

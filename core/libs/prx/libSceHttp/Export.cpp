@@ -257,15 +257,8 @@ int APS5_VABI sceHttpUnknown01(void) {
     return 0;
 }
 
-APS5_EXPORT("vO4B-42ef-k", sceHttpUnknown01);
-int APS5_VABI sceHttpUnknown01(void) {
-    NotImplemented_nid_no_patch("vO4B-42ef-k");
-    return 0;
-}
-
-APS5_EXPORT("hPTXo3bICzI", sceHttpUnknown02);
-int APS5_VABI sceHttpUnknown02(void) {
-    NotImplemented_nid_no_patch("hPTXo3bICzI");
+int APS5_VABI sceHttpParseResponseHeader(void) {
+    NotImplemented_nid_no_patch(__func__);
     return 0;
 }
 
