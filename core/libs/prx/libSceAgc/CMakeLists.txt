@@ -105,6 +105,26 @@ if(BUILD_TESTING)
     endif()
 endif()
 
+add_test_executable(agc_predication_tests EXCLUDE_FROM_ALL
+        tests/Predication.cpp
+        Command/src/Packet.cpp
+        Command/src/Control.cpp
+        DcbState/src/Predication.cpp
+        DcbDraw/src/IndexBuffer.cpp
+        Predication/src/Predication.cpp
+)
+target_include_directories(agc_predication_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_predication_tests PRIVATE libc)
+configure_windows_unwind(agc_predication_tests)
+if(BUILD_TESTING)
+    set_target_properties(agc_predication_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME agc_predication_tests COMMAND agc_predication_tests)
+    if(WIN32)
+        set_tests_properties(agc_predication_tests PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
+
 add_test_executable(agc_shader_fusion_tests EXCLUDE_FROM_ALL tests/ShaderFusion.cpp)
 target_include_directories(agc_shader_fusion_tests PRIVATE ${LIBS_INCLUDE_DIR})
 target_link_libraries(agc_shader_fusion_tests PRIVATE libSceAgc libc)

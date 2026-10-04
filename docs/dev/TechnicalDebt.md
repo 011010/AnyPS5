@@ -52,6 +52,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceAvPlayerInit / sceAvPlayerInitEx](../../core/libs/prx/libSceAvPlayer/src/Player.cpp) (libSceAvPlayer) - behaviour without a memory replacement unknown; frame and sample buffers then come from the guest heap
 - [SceAvPlayerVideoEx](../../core/libs/SceTypes.hpp) (libSceAvPlayer) - frame rate field and encoding unknown; it is left zero in frame and stream info
 - [AJM Opus decoder](../../core/libs/prx/libSceAjm.native/src/Ajm.cpp) (libSceAjm.native, codec 24) - the initialize parameter layout (`u32 channels, u32 sample rate, u32`, seen as `2, 48000, 0`) and the little-endian `u16` byte count before each packet come from one title (The Smurfs Dreams); only 48000 Hz and a zero third word are accepted
+- [sceAgcDcbSetZPassPredicationEnableGetSize, sceAgcDcbSetPredicationDisableGetSize, sceAgcDcbSetBoolPredicationEnableGetSize](../../core/libs/prx/libSceAgc/DcbState/src/Predication.cpp) (libSceAgc) - the builders are inline in the SDK and not exported; the size is assumed to be that of the SET_PREDICATION packet `sceAgcDcbSetPredication` writes (16 bytes)
 
 ### Functional
 
