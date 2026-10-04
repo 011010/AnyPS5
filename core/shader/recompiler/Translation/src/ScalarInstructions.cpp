@@ -1,6 +1,7 @@
 #include "Translation/ScalarInstructions.hpp"
 #include "Translation/TranslationContext.hpp"
 #include <stdexcept>
+#include <string>
 
 namespace ShaderRecompiler {
 
@@ -377,9 +378,10 @@ bool TranslationContext::emitScalar(const RdnaInstruction& inst) {
     case RdnaOpcode::SIcacheInv:
     case RdnaOpcode::SIncperflevel:
     case RdnaOpcode::SDecperflevel:
-    case RdnaOpcode::SDenormMode:
         emitControlNop();
         return true;
+    case RdnaOpcode::SDenormMode:
+        throw std::runtime_error("s_denorm_mode " + std::to_string(inst.source0.value) + " at pc " + std::to_string(inst.programCounter) + ": the recompiler does not model denormal modes");
     case RdnaOpcode::SWaitcntDepctr:
     case RdnaOpcode::SWaitIdle:
         emitWaitcnt();

@@ -30,8 +30,8 @@ alignas(256) constexpr std::array<std::uint32_t, 28> HelperCode{
 
 alignas(256) constexpr std::array<std::uint32_t, 29> DivisionCode{
     0x34020082, 0xe0302000, 0x80000401, 0xe0302004, 0x80000501, 0xbf8c3f70, 0xd56d1408, 0x04120b05,
-    0xd56d6a09, 0x04120b04, 0x7e145508, 0xbfa5000f, 0xd54b000b, 0x23ca1508, 0x5614150b, 0x10161509,
-    0xd54b000c, 0x24261708, 0x5616150c, 0xd54b0008, 0x24261708, 0xbfa5000c, 0xd56f0008, 0x042e1508,
+    0xd56d6a09, 0x04120b04, 0x7e145508, 0xbf800000, 0xd54b000b, 0x23ca1508, 0x5614150b, 0x10161509,
+    0xd54b000c, 0x24261708, 0x5616150c, 0xd54b0008, 0x24261708, 0xbf800000, 0xd56f0008, 0x042e1508,
     0xd55f000a, 0x04120b08, 0xe0702000, 0x80010a01, 0xbf810000,
 };
 
@@ -604,14 +604,6 @@ private:
     ShaderRecompiler::RecompileResult result;
 };
 
-bool IsNan(std::uint32_t bits) {
-    return (bits & 0x7fffffffu) > 0x7f800000u;
-}
-
-bool Same(std::uint32_t actual, std::uint32_t expected) {
-    return actual == expected || (IsNan(actual) && IsNan(expected));
-}
-
 std::string Hex(std::uint32_t value) {
     char text[16];
     std::snprintf(text, sizeof(text), "0x%08x", value);
@@ -643,10 +635,10 @@ void CheckHelpers(AgcDriver::VulkanDevice& device, bool fused) {
             const auto* out = &Output[lane * Stride];
             const std::string where = "division helpers: vector " + std::to_string(first + lane) + " (" + Hex(vector.s0) + ", " + Hex(vector.s1) + ", " + Hex(vector.s2) + ")";
             if (vector.s0 == vector.s1 || vector.s0 == vector.s2) {
-                Require(Same(out[0], vector.scale) && out[1] == vector.scaleVcc, where + ": v_div_scale_f32 is " + Hex(out[0]) + " vcc " + std::to_string(out[1]) + ", expected " + Hex(vector.scale) + " vcc " + std::to_string(vector.scaleVcc));
+                Require(out[0] == vector.scale && out[1] == vector.scaleVcc, where + ": v_div_scale_f32 is " + Hex(out[0]) + " vcc " + std::to_string(out[1]) + ", expected " + Hex(vector.scale) + " vcc " + std::to_string(vector.scaleVcc));
             }
-            Require(!fused || Same(out[2], vector.fmas), where + " vcc " + std::to_string(vector.vcc) + ": v_div_fmas_f32 is " + Hex(out[2]) + ", expected " + Hex(vector.fmas));
-            Require(Same(out[3], vector.fixup), where + ": v_div_fixup_f32 is " + Hex(out[3]) + ", expected " + Hex(vector.fixup));
+            Require(!fused || out[2] == vector.fmas, where + " vcc " + std::to_string(vector.vcc) + ": v_div_fmas_f32 is " + Hex(out[2]) + ", expected " + Hex(vector.fmas));
+            Require(out[3] == vector.fixup, where + ": v_div_fixup_f32 is " + Hex(out[3]) + ", expected " + Hex(vector.fixup));
         }
     }
 }
@@ -664,7 +656,7 @@ void CheckDivision(AgcDriver::VulkanDevice& device) {
         for (std::uint32_t lane = 0; lane < Threads && first + lane < count; ++lane) {
             const auto& vector = DivisionVectors[first + lane];
             const auto actual = Output[lane * Stride];
-            Require(Same(actual, vector.quotient), "division macro: " + Hex(vector.numerator) + " / " + Hex(vector.denominator) + " is " + Hex(actual) + ", expected " + Hex(vector.quotient));
+            Require(actual == vector.quotient, "division macro: " + Hex(vector.numerator) + " / " + Hex(vector.denominator) + " is " + Hex(actual) + ", expected " + Hex(vector.quotient));
         }
     }
 }

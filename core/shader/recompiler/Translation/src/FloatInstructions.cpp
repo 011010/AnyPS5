@@ -287,7 +287,10 @@ bool TranslationContext::vDivScaleF32(const RdnaInstruction& inst) {
         ir.LogicalOr(ir.LogicalNot(nearMin.Value()), isDenominator.Value())));
     const IrF32 up(ir.Emit(IrOpcode::FPMul32, IrType::F32, {&value.Value(), &ir.ConstantF32(18446744073709551616.0f)}));
     const IrF32 down(ir.Emit(IrOpcode::FPMul32, IrType::F32, {&value.Value(), &ir.ConstantF32(5.42101086242752217e-20f)}));
-    const IrU32 scaled(ir.Select(scaleUp.Value(), ir.BitCastU32(up.Value()), ir.Select(scaleDown.Value(), ir.BitCastU32(down.Value()), bits.Value())));
+    const IrU1 valueNan(ir.UGreaterThan(ir.BitwiseAnd(bits.Value(), ir.Constant(0x7fffffffu)), ir.Constant(0x7f800000u)));
+    const IrU1 scaleUpNumber(ir.LogicalAnd(scaleUp.Value(), ir.LogicalNot(valueNan.Value())));
+    const IrU1 scaleDownNumber(ir.LogicalAnd(scaleDown.Value(), ir.LogicalNot(valueNan.Value())));
+    const IrU32 scaled(ir.Select(scaleUpNumber.Value(), ir.BitCastU32(up.Value()), ir.Select(scaleDownNumber.Value(), ir.BitCastU32(down.Value()), bits.Value())));
     const auto isZero = [&](IrU32 word) { return IrU1(ir.IEqual(ir.BitwiseAnd(word.Value(), ir.Constant(0x7fffffffu)), ir.Constant(0u))); };
     const IrU1 zero(ir.LogicalOr(isZero(denominator).Value(), isZero(numerator).Value()));
     const IrU32 result(ir.Select(zero.Value(), ir.Constant(0xffc00000u), scaled.Value()));
@@ -322,7 +325,14 @@ bool TranslationContext::vDivFmasF32(const RdnaInstruction& inst) {
         &ir.Emit(IrOpcode::FPMul32, IrType::F32, {addend, &power})});
     IrValue& afterwards = ir.Emit(IrOpcode::FPMul32, IrType::F32, {&plain, &power});
     IrValue& scaledResult = ir.Emit(IrOpcode::SelectF32, IrType::F32, {&rescale.Value(), &rescaled, &afterwards});
-    writeOperand(inst.destination, &ir.Emit(IrOpcode::SelectF32, IrType::F32, {&scale.Value(), &scaledResult, &plain}));
+    const auto isNan = [&](IrValue& value) { return IrU1(ir.UGreaterThan(ir.BitwiseAnd(ir.BitCastU32(value), ir.Constant(0x7fffffffu)), ir.Constant(0x7f800000u))); };
+    const auto quiet = [&](IrValue& value) { return IrU32(ir.BitwiseOr(ir.BitCastU32(value), ir.Constant(0x400000u))); };
+    IrValue& computed = ir.Emit(IrOpcode::SelectF32, IrType::F32, {&scale.Value(), &scaledResult, &plain});
+    IrU32 result(ir.Select(isNan(computed).Value(), ir.Constant(0xffc00000u), ir.BitCastU32(computed)));
+    result = IrU32(ir.Select(isNan(*addend).Value(), quiet(*addend).Value(), result.Value()));
+    result = IrU32(ir.Select(isNan(*rhs).Value(), quiet(*rhs).Value(), result.Value()));
+    result = IrU32(ir.Select(isNan(*lhs).Value(), quiet(*lhs).Value(), result.Value()));
+    writeOperand(inst.destination, &ir.BitCastF32(result.Value()));
     return true;
 }
 
