@@ -72,8 +72,8 @@ void TranslationContext::addU32(const RdnaInstruction& inst, bool vector, bool u
     const IrU32 sum(ir.Emit(IrOpcode::CompositeExtractU32x2, IrType::U32, {&firstAdd, &ir.Constant(0u)}));
     const IrU32 firstCarry(ir.Emit(IrOpcode::CompositeExtractU32x2, IrType::U32, {&firstAdd, &ir.Constant(1u)}));
     if (!useCarryIn) {
-        writeRawU32(inst.destination, sum);
         const IrU1 carryOut(ir.INotEqual(firstCarry.Value(), ir.Constant(0u)));
+        writeRawU32(inst.destination, inst.destination.clamp ? IrU32(ir.Select(carryOut.Value(), ir.Constant(0xffffffffu), sum.Value())) : sum);
         if (vector) {
             writeMask(inst.destination2, carryOut);
             return;
@@ -87,7 +87,7 @@ void TranslationContext::addU32(const RdnaInstruction& inst, bool vector, bool u
     const IrU32 result(ir.Emit(IrOpcode::CompositeExtractU32x2, IrType::U32, {&secondAdd, &ir.Constant(0u)}));
     const IrU32 secondCarry(ir.Emit(IrOpcode::CompositeExtractU32x2, IrType::U32, {&secondAdd, &ir.Constant(1u)}));
     const IrU1 carryOut(ir.LogicalOr(ir.INotEqual(firstCarry.Value(), ir.Constant(0u)), ir.INotEqual(secondCarry.Value(), ir.Constant(0u))));
-    writeRawU32(inst.destination, result);
+    writeRawU32(inst.destination, inst.destination.clamp ? IrU32(ir.Select(carryOut.Value(), ir.Constant(0xffffffffu), result.Value())) : result);
     if (vector) {
         writeMask(inst.destination2, carryOut);
         return;
@@ -122,12 +122,26 @@ void TranslationContext::subbU32(const RdnaInstruction& inst, bool vector, bool 
     const IrU32 result(ir.ISub(partial.Value(), borrowInU32.Value()));
     const IrU1 secondBorrow(ir.ULessThan(partial.Value(), borrowInU32.Value()));
     const IrU1 borrowOut(ir.LogicalOr(firstBorrow.Value(), secondBorrow.Value()));
-    writeRawU32(inst.destination, result);
+    writeRawU32(inst.destination, inst.destination.clamp ? IrU32(ir.Select(borrowOut.Value(), ir.Constant(0u), result.Value())) : result);
     if (vector) {
         writeMask(inst.destination2, borrowOut);
         return;
     }
     ir.SetScc(borrowOut.Value());
+}
+
+bool TranslationContext::vAddSubNcU32(const RdnaInstruction& inst, bool subtract, bool reverse) {
+    const IrU32 first = readU32(sourceAt(inst, 0u));
+    const IrU32 second = readU32(sourceAt(inst, 1u));
+    const IrU32& lhs = reverse ? second : first;
+    const IrU32& rhs = reverse ? first : second;
+    IrU32 result(subtract ? ir.ISub(lhs.Value(), rhs.Value()) : ir.IAdd(lhs.Value(), rhs.Value()));
+    if (inst.destination.clamp) {
+        const IrU1 carry(subtract ? ir.ULessThan(lhs.Value(), rhs.Value()) : ir.ULessThan(result.Value(), lhs.Value()));
+        result = IrU32(ir.Select(carry.Value(), ir.Constant(subtract ? 0u : 0xffffffffu), result.Value()));
+    }
+    writeOperand(inst.destination, &result.Value());
+    return true;
 }
 
 void TranslationContext::sAbsdiffI32(const RdnaInstruction& inst) {

@@ -972,11 +972,11 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
     case RdnaOpcode::VMulHiI32:
         return simpleInteger(inst, IrOpcode::SMulHi, IrType::U32, false, false, false);
     case RdnaOpcode::VAddNcU32:
-        return simpleInteger(inst, IrOpcode::IAdd32, IrType::U32, false, false, false);
+        return vAddSubNcU32(inst, false, false);
     case RdnaOpcode::VSubNcU32:
-        return simpleInteger(inst, IrOpcode::ISub32, IrType::U32, false, false, false);
+        return vAddSubNcU32(inst, true, false);
     case RdnaOpcode::VSubrevNcU32:
-        return simpleInteger(inst, IrOpcode::ISub32, IrType::U32, true, false, false);
+        return vAddSubNcU32(inst, true, true);
     case RdnaOpcode::VMinI32:
         return simpleInteger(inst, IrOpcode::SMin32, IrType::U32, false, false, false);
     case RdnaOpcode::VMaxI32:

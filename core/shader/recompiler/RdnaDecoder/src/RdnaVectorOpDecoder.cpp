@@ -1225,6 +1225,11 @@ const Vop2SdwaRule* findVop2SdwaRule(std::uint32_t encoding) {
     return &vop2SdwaRules[static_cast<std::size_t>(info->sdwaProfile)];
 }
 
+bool supportsVop2SdwaIntegerClamp(RdnaOpcode op, std::uint32_t encoding) {
+    const auto* info = findVectorOpcodeEntry(vop2Opcodes, encoding);
+    return info != nullptr && info->sdwaProfile == Vop2SdwaProfile::Integer && op != RdnaOpcode::VCndmaskB32;
+}
+
 bool isVop2SdwaDestinationSupported(const Vop2SdwaRule& rule, const Vop2SdwaFields& fields) {
     if (!hasSdwaSelector(rule.dstSelectors, fields.dstSel)) {
         return false;
@@ -1243,7 +1248,8 @@ void validateVop2Sdwa(const RdnaInstruction& instruction, std::uint32_t opcode, 
     if (fields.src0Sel > 6u || fields.src1Sel > 6u || fields.dstSel > 6u) {
         throw std::invalid_argument("VOP2 SDWA selector is invalid");
     }
-    if ((fields.clamp != 0u || fields.omod != 0u) && !isVop2FloatOpcode(instruction.op)) {
+    const bool clampSupported = isVop2FloatOpcode(instruction.op) || supportsVop2SdwaIntegerClamp(instruction.op, opcode);
+    if ((fields.clamp != 0u && !clampSupported) || (fields.omod != 0u && !isVop2FloatOpcode(instruction.op))) {
         throw std::invalid_argument("VOP2 SDWA output modifiers are not supported");
     }
     if (isFullWidthVop2Sdwa(fields)) {
