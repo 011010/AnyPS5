@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 
 extern "C" {
 int APS5_VABI sceRtcCheckValid(const RtcDateTime*);
@@ -21,6 +22,7 @@ int APS5_VABI sceRtcGetWin32FileTime(const RtcDateTime*, std::uint64_t*);
 int APS5_VABI sceRtcSetWin32FileTime(RtcDateTime*, std::uint64_t);
 int APS5_VABI sceRtcFormatRFC3339(char*, const RtcTick*, int);
 int APS5_VABI sceRtcParseRFC3339(RtcTick*, const char*);
+int APS5_VABI sceRtcParseDateTime(RtcTick*, const char*);
 int APS5_VABI sceRtcTickAddTicks(RtcTick*, const RtcTick*, std::int64_t);
 int APS5_VABI sceRtcTickAddSeconds(RtcTick*, const RtcTick*, std::int64_t);
 int APS5_VABI sceRtcTickAddDays(RtcTick*, const RtcTick*, std::int32_t);
@@ -122,6 +124,30 @@ int main() {
     Require(sceRtcParseRFC3339(&tick, "2024-02-29T12:34:56.789+23:59") == 0 && tick.tick == leapDayTick - 86340000000ull);
     Require(sceRtcParseRFC3339(&tick, "2024-02-29T12:34:56.789-23:59") == 0 && tick.tick == leapDayTick + 86340000000ull);
     Require(sceRtcParseRFC3339(nullptr, "1970-01-01T00:00:00Z") == invalidPointer);
+
+    Require(sceRtcParseDateTime(&tick, "2024-02-29T12:34:56.789") == 0 && tick.tick == leapDayTick);
+    Require(sceRtcParseDateTime(&tick, "2024-02-29 12:34:56") == 0 && tick.tick == leapDayTick - 789000ull);
+    Require(sceRtcParseDateTime(&tick, "2024-02-29T14:04:56.789+01:30") == 0 && tick.tick == leapDayTick);
+    Require(sceRtcParseDateTime(&tick, "2024-02-29t12:34:56.789z") == 0 && tick.tick == leapDayTick);
+    Require(sceRtcParseDateTime(&tick, "1970-01-01T00:00:00Z") == 0 && tick.tick == unixEpochTick);
+    Require(sceRtcParseDateTime(&tick, "2023-02-29T00:00:00") == invalidDay);
+    Require(sceRtcParseDateTime(nullptr, "1970-01-01T00:00:00Z") == invalidPointer);
+    const char* unparseable[] = {
+        "2024-02-29",
+        "2024/02/29T12:34:56",
+        "2024-02-29T12:34:56Zjunk",
+        "2024-02-29T12:34:56+99:99",
+        "2024-02-29T12:34:56.",
+    };
+    for (const char* text : unparseable) {
+        bool thrown = false;
+        try {
+            sceRtcParseDateTime(&tick, text);
+        } catch (const std::exception&) {
+            thrown = true;
+        }
+        Require(thrown);
+    }
 
     RtcTick source{leapDayTick};
     RtcTick result{};
