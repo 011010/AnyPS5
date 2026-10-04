@@ -276,7 +276,6 @@ int APS5_VABI sceVideoOutAdjustColor(int handle, const VideoOutColorSettings* se
     LibcAwaitExit_nid_postfix();
 }
 
-APS5_EXPORT("T4ucGB8CsnM", sceVideoOutVrrUnpegFromFixedRate);
 int APS5_VABI sceVideoOutVrrUnpegFromFixedRate() try {
     NotImplemented_nid_no_patch(__func__);
     return 0;
@@ -284,7 +283,6 @@ int APS5_VABI sceVideoOutVrrUnpegFromFixedRate() try {
     LibcAwaitExit_nid_postfix();
 }
 
-APS5_EXPORT("5tRaBjtdTzY", sceVideoOutVrrPegToFixedRate);
 int APS5_VABI sceVideoOutVrrPegToFixedRate() try {
     NotImplemented_nid_no_patch(__func__);
     return 0;
