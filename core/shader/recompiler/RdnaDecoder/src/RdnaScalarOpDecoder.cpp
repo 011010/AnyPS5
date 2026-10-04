@@ -175,6 +175,7 @@ RdnaOpcode decodeSopkOpcode(std::uint32_t opcode) {
         case 0x0eu: return RdnaOpcode::SCmpLeU32;
         case 0x0fu: return RdnaOpcode::SAddI32;
         case 0x10u: return RdnaOpcode::SMulkI32;
+        case 0x12u: return RdnaOpcode::SGetregB32;
         case 0x13u: return RdnaOpcode::SSetregB32;
         case 0x15u: return RdnaOpcode::SSetregImm32B32;
         case 0x17u: return RdnaOpcode::SWaitcnt;
@@ -415,6 +416,11 @@ RdnaInstruction DecodeRdnaSopk(std::uint32_t programCounter, std::span<const std
         instruction.source0.signedVal = static_cast<std::int32_t>(waitcnt);
         instruction.source0.value = waitcnt;
         instruction.sourceCount = 1;
+        return instruction;
+    }
+    if (instruction.op == RdnaOpcode::SGetregB32) {
+        instruction.destination = DecodeRdnaScalarDestination(scalarRegister, programCounter);
+        instruction.source0.value = word & 0xffffu;
         return instruction;
     }
     if (instruction.op == RdnaOpcode::SSetregB32) {
