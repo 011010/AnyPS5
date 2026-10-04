@@ -23,6 +23,7 @@ Throughout the project, every function at every stage either **does exactly what
 ### Unknown function info
 
 - [sceVideoOutOpen](../../core/libs/prx/libSceVideoOut/src/Output.cpp) (libSceVideoOut) - the open param's first word is unknown (PPSA21564 passes 16; it is not the byte size, since the affinity mask is at offset 16); only 16 is accepted. Whether the param continues past offset 24 is also unknown
+- [sceRtcParseDateTime](../../core/libs/prx/libSceRtc/Export.cpp) (libSceRtc) - accepted format assumed to be the ISO 8601 subset `YYYY-MM-DDTHH:MM:SS[.ffffff]` (T/t/space separator, optional fractional seconds), matching the sibling RFC 3339 parser; unverified against hardware
 - [AMPR WaitOnAddress / WaitOnCounter](../../core/libs/prx/libkernel/Apr/src/Apr.cpp) (libSceAmpr) - compare encoding assumed to be the WAIT_REG_MEM one (0 always, 1 <, 2 <=, 3 ==, 4 !=, 5 >=, 6 >)
 - [sceAgcSetSubmitMode](../../core/libs/prx/libSceAgc/Misc/src/Suspend.cpp) (libSceAgc) - mode values unknown; only 0 is accepted
 - [zARR5aCmkoY](../../core/libs/prx/libSceAgc/DcbFlow/src/Control.cpp) (libSceAgc) - unknown name, signature
