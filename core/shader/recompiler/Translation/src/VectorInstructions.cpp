@@ -950,6 +950,8 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
         return floatTernary(inst, IrOpcode::FPMedTri32, false, false);
     case RdnaOpcode::VDot2cF32F16:
         return vDot2cF32F16(inst);
+    case RdnaOpcode::VDot2F32F16:
+        return vDot2F32F16(inst);
     case RdnaOpcode::VDot4cI32I8:
         return integerDot(inst, 8u, true, true);
     case RdnaOpcode::VDot2I32I16:
