@@ -11,6 +11,7 @@ extern "C" {
 int APS5_VABI sceAjmInitialize(std::int64_t, std::uint32_t*);
 int APS5_VABI sceAjmFinalize(std::uint32_t);
 int APS5_VABI sceAjmDecAt9ParseConfigData(const void*, AjmDecAt9ConfigDataInfo*);
+int APS5_VABI sceAjmDecMp3ParseFrame(const std::uint8_t*, std::uint32_t, int, AjmDecMp3ParseFrame*);
 int APS5_VABI sceAjmInstanceCreate(std::uint32_t, std::uint32_t, std::uint64_t, std::uint32_t*);
 int APS5_VABI sceAjmInstanceDestroy(std::uint32_t, std::uint32_t);
 int APS5_VABI sceAjmBatchInitialize(void*, std::size_t, AjmBatchInfo*);
@@ -148,6 +149,52 @@ void TestOpus(std::uint32_t context) {
     Require(sceAjmInstanceDestroy(context, instance) == 0);
 }
 
+bool ParsesTo(const std::uint8_t* stream, std::uint32_t streamSize, std::uint64_t frameSize, std::uint32_t channels, std::uint32_t samples, std::uint32_t bitrate, std::uint32_t sampleRate) {
+    AjmDecMp3ParseFrame frame;
+    std::memset(&frame, 0xFF, sizeof(frame));
+    if (sceAjmDecMp3ParseFrame(stream, streamSize, 0, &frame) != 0) return false;
+    return frame.frame_size == frameSize && frame.num_channels == channels && frame.samples_per_channel == samples && frame.bitrate == bitrate && frame.sample_rate == sampleRate &&
+           frame.encoder_delay == 0 && frame.num_frames == 0 && frame.total_samples == 0 && frame.ofl_type == 0;
+}
+
+void TestMp3ParseFrame() {
+    constexpr int invalidParameter = static_cast<int>(0x80930005);
+    static_assert(sizeof(AjmDecMp3ParseFrame) == 40);
+    for (std::size_t offset = 0; offset < sizeof(MP3_MONO); offset += 96) {
+        Require(ParsesTo(MP3_MONO + offset, static_cast<std::uint32_t>(sizeof(MP3_MONO) - offset), 96, 1, 1152, 32000, 48000));
+    }
+
+    const std::uint8_t mpeg1StereoPadded[4] = {0xFF, 0xFB, 0x92, 0x00};
+    Require(ParsesTo(mpeg1StereoPadded, 4, 418, 2, 1152, 128000, 44100));
+    const std::uint8_t mpeg1Protected[4] = {0xFF, 0xFA, 0xE8, 0x40};
+    Require(ParsesTo(mpeg1Protected, 4, 1440, 2, 1152, 320000, 32000));
+    const std::uint8_t mpeg2Mono[4] = {0xFF, 0xF3, 0x80, 0xC0};
+    Require(ParsesTo(mpeg2Mono, 4, 208, 1, 576, 64000, 22050));
+    const std::uint8_t mpeg2DualChannel[4] = {0xFF, 0xF3, 0xE8, 0x80};
+    Require(ParsesTo(mpeg2DualChannel, 4, 720, 2, 576, 160000, 16000));
+    const std::uint8_t mpeg25Mono[4] = {0xFF, 0xE3, 0x88, 0xC0};
+    Require(ParsesTo(mpeg25Mono, 4, 576, 1, 576, 64000, 8000));
+    const std::uint8_t mpeg25StereoPadded[4] = {0xFF, 0xE3, 0x12, 0x00};
+    Require(ParsesTo(mpeg25StereoPadded, 4, 53, 2, 576, 8000, 11025));
+
+    AjmDecMp3ParseFrame frame{};
+    Require(sceAjmDecMp3ParseFrame(nullptr, 4, 0, &frame) == invalidParameter);
+    Require(sceAjmDecMp3ParseFrame(MP3_MONO, 4, 0, nullptr) == invalidParameter);
+    Require(sceAjmDecMp3ParseFrame(MP3_MONO, 3, 0, &frame) == invalidParameter);
+    const std::uint8_t brokenSync[4] = {0xFF, 0xDB, 0x14, 0xC4};
+    Require(sceAjmDecMp3ParseFrame(brokenSync, 4, 0, &frame) == invalidParameter);
+    const std::uint8_t reservedVersion[4] = {0xFF, 0xEB, 0x14, 0xC4};
+    Require(sceAjmDecMp3ParseFrame(reservedVersion, 4, 0, &frame) == invalidParameter);
+    const std::uint8_t freeBitrate[4] = {0xFF, 0xFB, 0x04, 0xC4};
+    Require(sceAjmDecMp3ParseFrame(freeBitrate, 4, 0, &frame) == invalidParameter);
+    const std::uint8_t forbiddenBitrate[4] = {0xFF, 0xFB, 0xF4, 0xC4};
+    Require(sceAjmDecMp3ParseFrame(forbiddenBitrate, 4, 0, &frame) == invalidParameter);
+    const std::uint8_t reservedSampleRate[4] = {0xFF, 0xFB, 0x1C, 0xC4};
+    Require(sceAjmDecMp3ParseFrame(reservedSampleRate, 4, 0, &frame) == invalidParameter);
+    const std::uint8_t mpeg25Above64Kbps[4] = {0xFF, 0xE3, 0x98, 0xC0};
+    Require(sceAjmDecMp3ParseFrame(mpeg25Above64Kbps, 4, 0, &frame) == invalidParameter);
+}
+
 }
 
 int main() {
@@ -164,6 +211,7 @@ int main() {
     const std::uint8_t badHeader[4] = {0xFD, 0x72, 0x1F, 0xF0};
     Require(sceAjmDecAt9ParseConfigData(badHeader, &info) == invalidParameter);
     Require(sceAjmDecAt9ParseConfigData(nullptr, &info) == invalidParameter);
+    TestMp3ParseFrame();
     TestMp3(context);
     TestOpus(context);
     Require(sceAjmFinalize(context) == 0);

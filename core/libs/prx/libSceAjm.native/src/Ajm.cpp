@@ -832,6 +832,36 @@ int APS5_VABI sceAjmDecAt9ParseConfigData(const void* config_data, AjmDecAt9Conf
     return 0;
 }
 
+int APS5_VABI sceAjmDecMp3ParseFrame(const uint8_t* stream, uint32_t streamSize, int parseOfl, AjmDecMp3ParseFrame* frame) {
+    if (!stream || streamSize < 4 || !frame) return SCE_AJM_ERROR_INVALID_PARAMETER;
+    static constexpr std::uint32_t sampleRates[4][4] = {{11025, 12000, 8000, 0}, {0, 0, 0, 0}, {22050, 24000, 16000, 0}, {44100, 48000, 32000, 0}};
+    static constexpr std::uint32_t kbps[4][16] = {
+        {0, 8, 16, 24, 32, 40, 48, 56, 64, 0, 0, 0, 0, 0, 0, 0},
+        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0},
+        {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0},
+    };
+    const std::uint32_t header = (std::uint32_t{stream[0]} << 24u) | (std::uint32_t{stream[1]} << 16u) | (std::uint32_t{stream[2]} << 8u) | stream[3];
+    const std::uint32_t version = (header >> 19u) & 3u;
+    const std::uint32_t sampleRate = sampleRates[version][(header >> 10u) & 3u];
+    const std::uint32_t bitrate = kbps[version][(header >> 12u) & 15u] * 1000u;
+    const bool valid = (header >> 21u) == 0x7FFu && sampleRate != 0 && bitrate != 0;
+    AJM_TRACE("[ajm] parse mp3 frame %02x %02x %02x %02x (%u bytes, parse ofl %d) -> %s, %u Hz, %u bps\n", stream[0], stream[1], stream[2], stream[3], streamSize, parseOfl, valid ? "ok" : "invalid", sampleRate, bitrate);
+    if (!valid) return SCE_AJM_ERROR_INVALID_PARAMETER;
+    if (parseOfl) NotImplemented_nid_no_patch("sceAjmDecMp3ParseFrame (original file length lookup)");
+    const bool mpeg1 = version == 3;
+    frame->frame_size = (mpeg1 ? 144u : 72u) * bitrate / sampleRate + ((header >> 9u) & 1u);
+    frame->num_channels = ((header >> 6u) & 3u) == 3u ? 1u : 2u;
+    frame->samples_per_channel = mpeg1 ? 1152u : 576u;
+    frame->bitrate = bitrate;
+    frame->sample_rate = sampleRate;
+    frame->encoder_delay = 0;
+    frame->num_frames = 0;
+    frame->total_samples = 0;
+    frame->ofl_type = 0;
+    return 0;
+}
+
 int APS5_VABI sceAjmBatchInitialize(void* buffer, size_t size, AjmBatchInfo* info) {
     if (!buffer || !info) return SCE_AJM_ERROR_INVALID_PARAMETER;
     info->p_buffer = buffer;
