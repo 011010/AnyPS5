@@ -129,9 +129,4 @@ const char* APS5_VABI sceAjmStrError(int error) {
  return nullptr;
 }
 
-int APS5_VABI sceAjmDecMp3ParseFrame() {
- AjmStub(__func__);
- return 0;
-}
-
 }
