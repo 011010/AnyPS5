@@ -267,13 +267,7 @@ std::set<Domain::VirtualAddress> CodeInstructionCollector::Collect(const std::ve
                     for (const auto& header : headers) {
                         if (header.Type != 1 || (header.Flags & 1) == 0 || previousStart < header.MappedAddress || previousStart - header.MappedAddress >= header.FileSize) continue;
                         const auto base = header.Offset + previousStart - header.MappedAddress;
-                        const auto prefixEnd = std::min<std::uint64_t>({base + 4, base + (previousEnd - previousStart), bytes.size()});
-                        for (auto probe = base; probe < prefixEnd; ++probe) {
-                            if (bytes[probe] == 0x64) {
-                                spanHasFsPrefix = true;
-                                break;
-                            }
-                        }
+                        if (decoder.DecodeInstruction(bytes.data() + base, bytes.size() - base).SegmentPrefix == 0x64) spanHasFsPrefix = true;
                         break;
                     }
                 }
