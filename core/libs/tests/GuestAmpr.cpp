@@ -33,6 +33,19 @@ int APS5_VABI sceAmprCommandBufferWriteAddressFromTimeCounterOnCompletion(Apr::C
 int APS5_VABI sceAmprCommandBufferWriteAddressFromCounterOnCompletion(Apr::CommandBufferObject*, volatile std::uint64_t*, std::uint8_t);
 int APS5_VABI sceAmprCommandBufferWriteAddressFromCounterPairOnCompletion(Apr::CommandBufferObject*, volatile std::uint64_t*, std::uint8_t);
 int APS5_VABI sceAmprCommandBufferWriteKernelEventQueueOnCompletion(Apr::CommandBufferObject*, std::uint64_t, std::int32_t, std::uint64_t);
+int APS5_VABI sceAmprCommandBufferNop(Apr::CommandBufferObject*, std::uint32_t);
+int APS5_VABI sceAmprCommandBufferNopWithData(Apr::CommandBufferObject*, std::uint32_t, const std::uint32_t*);
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeNop(std::uint32_t);
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeNopWithData(std::uint32_t);
+int APS5_VABI sceAmprCommandBufferWaitOnAddress_04_00(Apr::CommandBufferObject*, volatile std::uint64_t*, std::uint64_t, std::uint8_t, std::uint8_t);
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeWaitOnAddress_04_00(volatile std::uint64_t*, std::uint64_t, std::uint8_t, std::uint8_t);
+int APS5_VABI sceAmprCommandBufferWriteAddressFromTimeCounter_04_00(Apr::CommandBufferObject*, volatile std::uint64_t*, std::uint64_t);
+int APS5_VABI sceAmprCommandBufferWriteAddressFromCounter_04_00(Apr::CommandBufferObject*, volatile std::uint64_t*, std::uint8_t, std::uint64_t);
+int APS5_VABI sceAmprCommandBufferWriteAddressFromCounterPair_04_00(Apr::CommandBufferObject*, volatile std::uint64_t*, std::uint8_t, std::uint64_t);
+int APS5_VABI sceAmprCommandBufferWriteKernelEventQueue_04_00(Apr::CommandBufferObject*, std::uint64_t, std::int32_t, std::uint64_t, std::uint64_t);
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeWriteAddressFromTimeCounter_04_00(volatile std::uint64_t*);
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeWriteAddressFromCounter_04_00(volatile std::uint64_t*, std::uint8_t);
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeWriteAddressFromCounterPair_04_00(volatile std::uint64_t*, std::uint8_t);
 }
 
 static void Require(bool value) { if (!value) std::abort(); }
@@ -212,6 +225,67 @@ void TestRejectedWaitsAndCounters() {
     Require(recorder.Offset() == 0 && recorder.Commands() == 0);
 }
 
+void TestNops() {
+    Recorder recorder;
+    const std::uint32_t data[3] = {0x11111111u, 0x22222222u, 0x33333333u};
+    for (std::uint32_t dwords = 1; dwords <= 16; ++dwords) {
+        const auto offset = recorder.Offset();
+        const auto commands = recorder.Commands();
+        Require(sceAmprCommandBufferNop(&recorder.buffer, dwords) == 0);
+        RequireAppended(recorder, offset, commands, Apr::Opcode::Nop, sceAmprMeasureCommandSizeNop(dwords));
+    }
+    const auto offset = recorder.Offset();
+    const auto commands = recorder.Commands();
+    Require(sceAmprCommandBufferNopWithData(&recorder.buffer, 3, data) == 0);
+    RequireAppended(recorder, offset, commands, Apr::Opcode::Nop, sceAmprMeasureCommandSizeNopWithData(4));
+    Require(std::memcmp(recorder.memory.data() + offset + sizeof(Apr::CommandHeader), data, sizeof(data)) == 0);
+    Require(sceAmprCommandBufferNopWithData(&recorder.buffer, 0, nullptr) == 0);
+    Require(sceKernelAprSubmitCommandBuffer(&recorder.buffer, 0) == 0);
+
+    const auto rejected = static_cast<std::uint64_t>(static_cast<std::uint32_t>(invalidArgument));
+    Require(sceAmprCommandBufferNop(&recorder.buffer, 0) == invalidArgument);
+    Require(sceAmprCommandBufferNop(&recorder.buffer, 17) == invalidArgument);
+    Require(sceAmprCommandBufferNopWithData(&recorder.buffer, 16, data) == invalidArgument);
+    Require(sceAmprMeasureCommandSizeNop(0) == rejected && sceAmprMeasureCommandSizeNop(17) == rejected);
+    Require(sceAmprMeasureCommandSizeNopWithData(0) == rejected && sceAmprMeasureCommandSizeNopWithData(17) == rejected);
+}
+
+void TestVersionedCommands() {
+    Recorder recorder;
+    alignas(8) std::uint64_t value = 0x8000000000000005ull;
+    alignas(8) std::uint64_t single = 0;
+    alignas(8) std::uint64_t pair = 0;
+    alignas(8) std::uint64_t time = 0;
+    Require(sceAmprCommandBufferWaitOnAddress_04_00(&recorder.buffer, &value, 0x8000000000000003ull, 4, 0) == 0);
+    Require(sceAmprCommandBufferWaitOnAddress_04_00(&recorder.buffer, &value, 1, 6, 1) == 0);
+    Require(sceAmprCommandBufferWaitOnAddress_04_00(&recorder.buffer, &value, 0x8000000000000000ull, 5, 0) == 0);
+    Require(sceAmprCommandBufferWriteCounterOnCompletion(&recorder.buffer, 10, 3) == 0);
+    Require(sceAmprCommandBufferWriteCounterOnCompletion(&recorder.buffer, 11, 4) == 0);
+    Require(sceAmprCommandBufferWriteAddressFromCounter_04_00(&recorder.buffer, &single, 10, 1) == 0);
+    Require(sceAmprCommandBufferWriteAddressFromCounterPair_04_00(&recorder.buffer, &pair, 10, 0) == 0);
+    Require(sceAmprCommandBufferWriteAddressFromTimeCounter_04_00(&recorder.buffer, &time, 1) == 0);
+    auto submitted = std::async(std::launch::async, [&]() { return sceKernelAprSubmitCommandBuffer(&recorder.buffer, 0); });
+    Require(submitted.wait_for(std::chrono::seconds(10)) == std::future_status::ready);
+    Require(submitted.get() == 0 && single == 3 && pair == (3ull | (4ull << 32u)) && time != 0);
+
+    const auto rejected = static_cast<std::uint64_t>(static_cast<std::uint32_t>(invalidArgument));
+    Recorder empty;
+    Require(sceAmprCommandBufferWaitOnAddress_04_00(&empty.buffer, nullptr, 0, 0, 0) == invalidArgument);
+    Require(sceAmprCommandBufferWaitOnAddress_04_00(&empty.buffer, &value, 0, 7, 0) == invalidArgument);
+    Require(sceAmprCommandBufferWaitOnAddress_04_00(&empty.buffer, &value, 0, 0, 2) == invalidArgument);
+    Require(sceAmprCommandBufferWriteAddressFromCounterPair_04_00(&empty.buffer, &pair, 11, 0) == invalidArgument);
+    Require(sceAmprCommandBufferWriteAddressFromTimeCounter_04_00(&empty.buffer, nullptr, 0) == invalidArgument);
+    Require(sceAmprCommandBufferWriteKernelEventQueue_04_00(&empty.buffer, 0, 1, 0, 0) == invalidArgument);
+    Require(empty.Offset() == 0 && empty.Commands() == 0);
+    Require(sceAmprMeasureCommandSizeWaitOnAddress_04_00(nullptr, 0, 0, 0) == rejected);
+    Require(sceAmprMeasureCommandSizeWaitOnAddress_04_00(&value, 0, 7, 0) == rejected);
+    Require(sceAmprMeasureCommandSizeWriteAddressFromTimeCounter_04_00(nullptr) == rejected);
+    Require(sceAmprMeasureCommandSizeWriteAddressFromCounter_04_00(&single, 128) == rejected);
+    Require(sceAmprMeasureCommandSizeWriteAddressFromCounterPair_04_00(&pair, 11) == rejected);
+    Require(sceAmprMeasureCommandSizeWaitOnAddress_04_00(&value, 0, 6, 1) == sizeof(Apr::WaitCommand));
+    Require(sceAmprMeasureCommandSizeWriteAddressFromCounterPair_04_00(&pair, 10) == sizeof(Apr::WriteAddressFromCounterCommand));
+}
+
 }
 
 int main() {
@@ -226,5 +300,7 @@ int main() {
     TestWaits();
     TestCounters();
     TestRejectedWaitsAndCounters();
+    TestNops();
+    TestVersionedCommands();
     return 0;
 }

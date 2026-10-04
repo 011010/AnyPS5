@@ -4,6 +4,7 @@
 #include "prx/libc/include/General.hpp"
 #include "prx/libkernel/Apr/include/AprCommandBuffer.hpp"
 #include <cstring>
+#include <stdexcept>
 
 static constexpr int SCE_AMPR_ERROR_BUFFER_FULL = 0x8002001C;
 static constexpr int SCE_KERNEL_ERROR_EINVAL = 0x80020016;
@@ -33,6 +34,26 @@ static bool ValidWriteAddress(volatile std::uint64_t* address) {
 
 static bool ValidWait(std::uint32_t compare, std::uint32_t flush) {
     return compare < 4u && flush < 2u;
+}
+
+static constexpr std::uint64_t MeasureInvalid = static_cast<std::uint32_t>(SCE_KERNEL_ERROR_EINVAL);
+
+static std::uint64_t NopBytes(std::uint32_t dwords) {
+    return sizeof(Apr::CommandHeader) + std::uint64_t{dwords} * 4u;
+}
+
+static int AppendNop(Apr::CommandBufferObject* buffer, std::uint32_t dwords, const std::uint32_t* data) {
+    if (!buffer) return SCE_KERNEL_ERROR_EINVAL;
+    const std::uint64_t bytes = NopBytes(dwords);
+    if (!buffer->base || bytes > buffer->size - buffer->offset) return SCE_AMPR_ERROR_BUFFER_FULL;
+    const Apr::CommandHeader header{Apr::Opcode::Nop, static_cast<std::uint32_t>(bytes)};
+    std::uint8_t* destination = buffer->base + buffer->offset;
+    std::memset(destination, 0, bytes);
+    std::memcpy(destination, &header, sizeof(header));
+    if (data) std::memcpy(destination + sizeof(header), data, std::uint64_t{dwords} * 4u);
+    buffer->offset += static_cast<std::uint32_t>(bytes);
+    ++buffer->numCommands;
+    return 0;
 }
 
 static std::uint64_t MarkerBytes(const char* text) {
@@ -215,14 +236,15 @@ uint32_t APS5_VABI sceAmprCommandBufferGetType(const Apr::CommandBufferObject* b
     return static_cast<uint32_t>(buffer->type);
 }
 
-int APS5_VABI sceAmprCommandBufferNop() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+int APS5_VABI sceAmprCommandBufferNop(Apr::CommandBufferObject* buffer, std::uint32_t dwords) {
+    if (dwords == 0u || dwords > 16u) return SCE_KERNEL_ERROR_EINVAL;
+    return AppendNop(buffer, dwords, nullptr);
 }
 
-int APS5_VABI sceAmprCommandBufferNopWithData() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+int APS5_VABI sceAmprCommandBufferNopWithData(Apr::CommandBufferObject* buffer, std::uint32_t dwords, const std::uint32_t* data) {
+    if (dwords > 15u) return SCE_KERNEL_ERROR_EINVAL;
+    if (dwords != 0u && !data) throw std::invalid_argument("sceAmprCommandBufferNopWithData: null data");
+    return AppendNop(buffer, dwords, data);
 }
 
 int APS5_VABI sceAmprCommandBufferPopMarker(Apr::CommandBufferObject* buffer) {
@@ -261,9 +283,9 @@ int APS5_VABI sceAmprCommandBufferSetMarkerWithColor(Apr::CommandBufferObject* b
     return AppendMarker(buffer, Apr::Opcode::SetMarker, text);
 }
 
-int APS5_VABI sceAmprCommandBufferWaitOnAddress_04_00() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+int APS5_VABI sceAmprCommandBufferWaitOnAddress_04_00(Apr::CommandBufferObject* buffer, volatile std::uint64_t* address, std::uint64_t reference, std::uint8_t compare, std::uint8_t flush) {
+    if (!ValidWriteAddress(address) || compare > 6u || flush > 1u) return SCE_KERNEL_ERROR_EINVAL;
+    return AppendCommand(buffer, Apr::Opcode::WaitOnAddress, Apr::WaitCommand{{}, reinterpret_cast<std::uint64_t>(address), reference, ~0ull, 0, compare});
 }
 
 int APS5_VABI sceAmprCommandBufferWaitOnCounter_04_00() {
@@ -271,19 +293,19 @@ int APS5_VABI sceAmprCommandBufferWaitOnCounter_04_00() {
  return 0;
 }
 
-int APS5_VABI sceAmprCommandBufferWriteAddressFromCounterPair_04_00() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+int APS5_VABI sceAmprCommandBufferWriteAddressFromCounterPair_04_00(Apr::CommandBufferObject* buffer, volatile std::uint64_t* address, std::uint8_t counter, std::uint64_t atStart) {
+    (void)atStart;
+    return sceAmprCommandBufferWriteAddressFromCounterPairOnCompletion(buffer, address, counter);
 }
 
-int APS5_VABI sceAmprCommandBufferWriteAddressFromCounter_04_00() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+int APS5_VABI sceAmprCommandBufferWriteAddressFromCounter_04_00(Apr::CommandBufferObject* buffer, volatile std::uint64_t* address, std::uint8_t counter, std::uint64_t atStart) {
+    (void)atStart;
+    return sceAmprCommandBufferWriteAddressFromCounterOnCompletion(buffer, address, counter);
 }
 
-int APS5_VABI sceAmprCommandBufferWriteAddressFromTimeCounter_04_00() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+int APS5_VABI sceAmprCommandBufferWriteAddressFromTimeCounter_04_00(Apr::CommandBufferObject* buffer, volatile std::uint64_t* address, std::uint64_t atStart) {
+    (void)atStart;
+    return sceAmprCommandBufferWriteAddressFromTimeCounterOnCompletion(buffer, address);
 }
 
 int APS5_VABI sceAmprCommandBufferWriteAddress_04_00(Apr::CommandBufferObject* buffer, uint64_t* address, uint64_t value, uint32_t flags) {
@@ -300,9 +322,9 @@ int APS5_VABI sceAmprCommandBufferWriteCounter_04_00() {
  return 0;
 }
 
-int APS5_VABI sceAmprCommandBufferWriteKernelEventQueue_04_00() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+int APS5_VABI sceAmprCommandBufferWriteKernelEventQueue_04_00(Apr::CommandBufferObject* buffer, std::uint64_t equeue, std::int32_t ident, std::uint64_t data, std::uint64_t atStart) {
+    (void)atStart;
+    return sceAmprCommandBufferWriteKernelEventQueueOnCompletion(buffer, equeue, ident, data);
 }
 
 int APS5_VABI sceAmprMeasureCommandSizeMapBegin() {
@@ -320,14 +342,14 @@ int APS5_VABI sceAmprMeasureCommandSizeMapEnd() {
  return 0;
 }
 
-int APS5_VABI sceAmprMeasureCommandSizeNop() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeNop(std::uint32_t dwords) {
+    if (dwords == 0u || dwords > 16u) return MeasureInvalid;
+    return NopBytes(dwords);
 }
 
-int APS5_VABI sceAmprMeasureCommandSizeNopWithData() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeNopWithData(std::uint32_t dwords) {
+    if (dwords == 0u || dwords > 16u) return MeasureInvalid;
+    return NopBytes(dwords - 1u);
 }
 
 std::uint64_t APS5_VABI sceAmprMeasureCommandSizePopMarker() {
@@ -376,9 +398,9 @@ std::uint64_t APS5_VABI sceAmprMeasureCommandSizeSetMarkerWithColor(const char* 
     return MeasureMarker(text);
 }
 
-int APS5_VABI sceAmprMeasureCommandSizeWaitOnAddress_04_00() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeWaitOnAddress_04_00(volatile std::uint64_t* address, std::uint64_t, std::uint8_t compare, std::uint8_t flush) {
+    if (!ValidWriteAddress(address) || compare > 6u || flush > 1u) return MeasureInvalid;
+    return sizeof(Apr::WaitCommand);
 }
 
 int APS5_VABI sceAmprMeasureCommandSizeWaitOnCounter_04_00() {
@@ -386,19 +408,19 @@ int APS5_VABI sceAmprMeasureCommandSizeWaitOnCounter_04_00() {
  return 0;
 }
 
-int APS5_VABI sceAmprMeasureCommandSizeWriteAddressFromCounterPair_04_00() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeWriteAddressFromCounterPair_04_00(volatile std::uint64_t* address, std::uint8_t counter) {
+    if (!ValidWriteAddress(address) || (counter & 0x81u) != 0u) return MeasureInvalid;
+    return sizeof(Apr::WriteAddressFromCounterCommand);
 }
 
-int APS5_VABI sceAmprMeasureCommandSizeWriteAddressFromCounter_04_00() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeWriteAddressFromCounter_04_00(volatile std::uint64_t* address, std::uint8_t counter) {
+    if (!ValidWriteAddress(address) || !ValidCounter(counter)) return MeasureInvalid;
+    return sizeof(Apr::WriteAddressFromCounterCommand);
 }
 
-int APS5_VABI sceAmprMeasureCommandSizeWriteAddressFromTimeCounter_04_00() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeWriteAddressFromTimeCounter_04_00(volatile std::uint64_t* address) {
+    if (!ValidWriteAddress(address)) return MeasureInvalid;
+    return sizeof(Apr::WriteAddressFromCounterCommand);
 }
 
 uint32_t APS5_VABI sceAmprMeasureCommandSizeWriteAddress_04_00(void) {
@@ -410,9 +432,8 @@ int APS5_VABI sceAmprMeasureCommandSizeWriteCounter_04_00() {
  return 0;
 }
 
-int APS5_VABI sceAmprMeasureCommandSizeWriteKernelEventQueue_04_00() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeWriteKernelEventQueue_04_00(std::uint64_t, std::int32_t, std::uint64_t) {
+    return sizeof(Apr::WriteKernelEventQueueCommand);
 }
 
 }
