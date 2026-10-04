@@ -1,6 +1,7 @@
 #include "AudioPropagation.hpp"
 
 #include <cstdint>
+#include <cstring>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -290,10 +291,19 @@ std::int32_t APS5_VABI sceAudioPropagationSourceSetAudioPaths(AudioPropagationHa
     return 0;
 }
 
-std::int32_t APS5_VABI sceAudioPropagationSourceRender(AudioPropagationHandle system, const AudioPropagationStructDescriptor* renderInfo) {
-    static_cast<void>(system);
-    static_cast<void>(renderInfo);
-    NotImplemented_nid_no_patch(__func__);
+std::int32_t APS5_VABI sceAudioPropagationSourceRender(AudioPropagationHandle system, const RenderInfo* infos, std::uint32_t count) {
+    require(infos != nullptr && count != 0, __func__);
+    auto& state = registry();
+    std::lock_guard lock(state.mutex);
+    requireSystem(state, system, __func__);
+    for (std::uint32_t index = 0; index < count; ++index) {
+        const auto& info = infos[index];
+        requireDescriptor(&info.desc, RenderInfoId, RenderInfoSize, __func__);
+        require(requireObject(state, info.source, Kind::Source, __func__).system == system, __func__);
+        require(info.output != nullptr && info.outputSize != 0, __func__);
+        if (info.format != RenderFormat) throw std::runtime_error(std::string(__func__) + ": render format " + std::to_string(info.format) + " is unknown");
+    }
+    for (std::uint32_t index = 0; index < count; ++index) std::memset(infos[index].output, 0, infos[index].outputSize);
     return 0;
 }
 
