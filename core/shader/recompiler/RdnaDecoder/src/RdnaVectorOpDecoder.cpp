@@ -757,6 +757,11 @@ bool usesSignedSaturateClamp(RdnaOpcode opcode) {
     return opcode == RdnaOpcode::VAddNcI32 || opcode == RdnaOpcode::VSubNcI32;
 }
 
+bool isCubeOpcode(RdnaOpcode opcode) {
+    return opcode == RdnaOpcode::VCubeidF32 || opcode == RdnaOpcode::VCubescF32 || opcode == RdnaOpcode::VCubetcF32 ||
+        opcode == RdnaOpcode::VCubemaF32;
+}
+
 bool isNativeVop3B16BinaryOpcode(RdnaOpcode opcode) {
     switch (opcode) {
         case RdnaOpcode::VAddNcU16:
@@ -1932,7 +1937,7 @@ bool isF32DivisionStepOpcode(RdnaOpcode opcode) {
 
 bool supportsNativeVop3Clamp(RdnaOpcode opcode) {
     return supportsNativeVop3ResultModifiers(opcode) || usesInexactClampControl(opcode) || usesSignedSaturateClamp(opcode) ||
-        isF32DivisionStepOpcode(opcode);
+        isF32DivisionStepOpcode(opcode) || isCubeOpcode(opcode);
 }
 
 void checkNativeVop3Modifiers(RdnaOpcode opcode, bool permlane, bool carryInOut, bool scalarDst, std::uint32_t abs, std::uint32_t opSel, std::uint32_t clamp, std::uint32_t omod, std::uint32_t neg) {
