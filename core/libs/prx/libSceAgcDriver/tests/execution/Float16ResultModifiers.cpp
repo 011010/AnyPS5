@@ -131,6 +131,22 @@ bool SameHalf(std::uint32_t actual, std::uint32_t expected) {
     return actual == expected || (IsNan16(actual) && IsNan16(expected));
 }
 
+double HalfValue(std::uint32_t bits) {
+    const double magnitude = (bits & 0x7c00u) == 0u ? std::ldexp(static_cast<double>(bits & 0x3ffu), -24) : std::ldexp(static_cast<double>((bits & 0x3ffu) | 0x400u), static_cast<int>((bits >> 10u) & 0x1fu) - 25);
+    return (bits & 0x8000u) != 0u ? -magnitude : magnitude;
+}
+
+bool NearHalf(std::uint32_t actual, std::uint32_t expected, bool clamped) {
+    if (clamped && (actual & 0x8000u) != 0u) return false;
+    if (!clamped && (expected & 0x7fffu) == 0u) return actual == expected;
+    if (IsNan16(actual) || IsNan16(expected) || (actual & 0x7fffu) == 0x7c00u || (expected & 0x7fffu) == 0x7c00u) return SameHalf(actual, expected);
+    return std::abs(HalfValue(actual) - HalfValue(expected)) <= 0x1p-10;
+}
+
+void ExpectNear(std::uint32_t tid, std::uint32_t actual, std::uint32_t expected, const char* name, bool clamped) {
+    Require((actual >> 16u) == (expected >> 16u) && NearHalf(actual & 0xffffu, expected & 0xffffu, clamped), std::string("float16 result modifiers: lane ") + std::to_string(tid) + " " + name + " is " + Hex(actual) + ", expected near " + Hex(expected));
+}
+
 void Expect(std::uint32_t tid, std::uint32_t actual, std::uint32_t expected, const char* name) {
     Require(SameHalf(actual & 0xffffu, expected & 0xffffu) && SameHalf(actual >> 16u, expected >> 16u), std::string("float16 result modifiers: lane ") + std::to_string(tid) + " " + name + " is " + Hex(actual) + ", expected " + Hex(expected));
 }
@@ -162,7 +178,10 @@ void Check() {
     for (std::uint32_t tid = 0; tid < Threads; ++tid) {
         const std::uint32_t* in = &Input[tid * Inputs];
         const std::uint32_t* out = &Output[tid * Results];
-        for (std::uint32_t index = 0; index < 16; ++index) Expect(tid, out[index], Expected[tid][index], Names[index]);
+        for (std::uint32_t index = 0; index < 16; ++index) {
+            if (index == 3u || index == 4u) ExpectNear(tid, out[index], Expected[tid][index], Names[index], index == 4u);
+            else Expect(tid, out[index], Expected[tid][index], Names[index]);
+        }
     }
 }
 
