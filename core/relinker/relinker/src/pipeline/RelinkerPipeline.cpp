@@ -38,14 +38,20 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
 
     std::vector<std::uint8_t> textSection;
     VirtualAddress textVAddr = 0;
+    std::vector<std::pair<std::vector<std::uint8_t>, VirtualAddress>> executableSegments;
     VirtualAddress gotVAddr = 0;
     ByteCount gotSize = 0;
 
     for (const auto& ph : programHeaders) {
         if (ph.Type == PT_LOAD && (ph.Flags & PF_X) != 0) {
-            textSection = _elfReader->ReadSegment(ph);
-            textVAddr = ph.MappedAddress;
-            break;
+            auto segment = _elfReader->ReadSegment(ph);
+            if (!segment.empty()) {
+                if (textSection.empty()) {
+                    textSection = segment;
+                    textVAddr = ph.MappedAddress;
+                }
+                executableSegments.emplace_back(std::move(segment), ph.MappedAddress);
+            }
         }
     }
 
@@ -199,8 +205,8 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
     for (const auto& ref : nidRefs)
         _validationPolicy->ValidateRelocationTypeSupported(ref.RelocationTypeValue, ref.RelocationTableOffset);
 
-    if (!textSection.empty())
-        _syscallScanner->ScanCodeSectionForSyscalls(textSection, textVAddr, textSection.size());
+    for (const auto& [segment, segmentVAddr] : executableSegments)
+        _syscallScanner->ScanCodeSectionForSyscalls(segment, segmentVAddr, segment.size());
 
     _validationPolicy->ValidateSyscallAbsence();
 
@@ -211,6 +217,8 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
     std::cout << "NID input: " << originalNidCount << " references\n";
 
     if (unusedFilterLevel == 2) {
+        if (executableSegments.size() > 1)
+            throw RelinkerException("Strict NID filtering does not support multiple executable segments");
         nidRefs = _unusedNidFilter->Filter(nidRefs, raw, textSection, textVAddr);
         if (nidRefs.size() > originalNidCount) throw RelinkerException("Strict NID filter increased the reference count");
         std::cout << "Strict filtering total: " << originalNidCount << " -> " << nidRefs.size() << "; filtered=" << originalNidCount - nidRefs.size() << "\n";
@@ -226,9 +234,14 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
 
         std::cout << "PLT preservation: " << pltRefs.size() << " -> " << pltRefs.size() << "; filtered=0\n";
         const std::size_t nonPltCount = nonPltRefs.size();
-        nonPltRefs = _unusedNidFilter->Filter(nonPltRefs, raw, textSection, textVAddr);
-        if (nonPltRefs.size() > nonPltCount) throw RelinkerException("Unused NID filter increased the reference count");
-        std::cout << "CFG/GOT filtering: " << nonPltCount << " -> " << nonPltRefs.size() << "; filtered=" << nonPltCount - nonPltRefs.size() << "\n";
+        if (executableSegments.size() > 1) {
+            std::cout << "CFG/GOT filtering skipped: multiple executable segments are not modeled; "
+                      << nonPltCount << " -> " << nonPltCount << "; filtered=0\n";
+        } else {
+            nonPltRefs = _unusedNidFilter->Filter(nonPltRefs, raw, textSection, textVAddr);
+            if (nonPltRefs.size() > nonPltCount) throw RelinkerException("Unused NID filter increased the reference count");
+            std::cout << "CFG/GOT filtering: " << nonPltCount << " -> " << nonPltRefs.size() << "; filtered=" << nonPltCount - nonPltRefs.size() << "\n";
+        }
 
         nidRefs.clear();
         nidRefs.reserve(pltRefs.size() + nonPltRefs.size());
@@ -285,8 +298,11 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
     for (const auto& ref : nidRefs) {
         std::vector<FileByteOffset> callSites;
         bool callSitesResolved = false;
-        if (!textSection.empty() && gotSize > 0) {
-            callSites = _callSiteResolver->ResolveCallSites(textSection, textVAddr, ref.RelocationAddress, 8);
+        if (!executableSegments.empty()) {
+            for (const auto& [segment, segmentVAddr] : executableSegments) {
+                auto segmentSites = _callSiteResolver->ResolveCallSites(segment, segmentVAddr, ref.RelocationAddress, 8);
+                callSites.insert(callSites.end(), segmentSites.begin(), segmentSites.end());
+            }
             callSitesResolved = !callSites.empty();
         }
         CallRegistryEntry entry;
