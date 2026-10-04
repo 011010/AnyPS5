@@ -271,7 +271,7 @@ RdnaInstruction DecodeRdnaMimg(std::uint32_t programCounter, std::span<const std
     }
     const auto opcode = ((word0 >> 18u) & 0x7Fu) | ((word0 & 1u) << 7u);
     const auto& info = lookupOpcode(opcode);
-    const auto reservedWord0 = info.sample || info.gather ? 0x000350C0u : 0x000340C0u;
+    const auto reservedWord0 = info.sample || info.gather ? 0x00035040u : info.atomic ? 0x000340C0u : 0x00034040u;
     if ((word0 & reservedWord0) != 0u || (word1 & 0x3C000000u) != 0u) {
         char message[96];
         std::snprintf(message, sizeof(message), "unsupported or reserved MIMG control bits (words %08x %08x)", word0, word1);
@@ -347,6 +347,7 @@ RdnaInstruction DecodeRdnaMimg(std::uint32_t programCounter, std::span<const std
     instruction.dataDwordCount = dataDwords;
     instruction.glc = (word0 & 0x2000u) != 0u;
     instruction.slc = (word0 & 0x02000000u) != 0u;
+    instruction.dlc = (word0 & 0x80u) != 0u;
     instruction.imageGlc = instruction.glc;
     instruction.imageSlc = instruction.slc;
     instruction.imageA16 = a16;
