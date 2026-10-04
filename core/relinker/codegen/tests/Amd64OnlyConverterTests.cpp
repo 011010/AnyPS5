@@ -4,6 +4,7 @@
 #include <codegen/x86/Sse4aLowering.hpp>
 #include <codegen/x86/Sse4aOperands.hpp>
 #include <codegen/x86/Sha256Operands.hpp>
+#include <codegen/x86/Sha1Operands.hpp>
 #include <codegen/x86/ClzeroOperands.hpp>
 #include <codegen/x86/ClzeroLowering.hpp>
 #include <codegen/x86/DecodedInstruction.hpp>
@@ -122,6 +123,7 @@ void decoderLengths() {
         {0xF2, 0x44, 0x0F, 0x2B, 0x4C, 0x24, 0x10}, {0x0F, 0x01, 0xFA}, {0x0F, 0xB9, 0x00},
         {0x41, 0x0F, 0xBB, 0xF7}, {0x0F, 0xBB, 0x47, 0x08},
         {0x0F, 0x38, 0xCB, 0xCA}, {0x45, 0x0F, 0x38, 0xCC, 0xE1}, {0x0F, 0x38, 0xCD, 0x08}, {0x0F, 0x38, 0xCB, 0x0D, 0x10, 0x00, 0x00, 0x00},
+        {0x0F, 0x3A, 0xCC, 0xD5, 0x03}, {0x45, 0x0F, 0x3A, 0xCC, 0xE1, 0x00}, {0x0F, 0x3A, 0xCC, 0x08, 0x01}, {0x0F, 0x38, 0xC8, 0xCA}, {0x0F, 0x38, 0xC9, 0xCA}, {0x0F, 0x38, 0xCA, 0x08},
         {0x48, 0x66, 0xB8, 0x34, 0x12}, {0x66, 0x48, 0xB8, 1, 2, 3, 4, 5, 6, 7, 8}, {0x41, 0x48, 0xB8, 1, 2, 3, 4, 5, 6, 7, 8},
         {0x48, 0x64, 0x8B, 0x00}, {0x48, 0xF3, 0x0F, 0x2B, 0x00}, {0x48, 0x67, 0x0F, 0x01, 0xFC}, {0x48, 0x48, 0x0F, 0x01, 0xFC}};
     Bytes padded;
@@ -198,6 +200,25 @@ void sha256Operands() {
     require(Codegen::DecodedInstruction{rounds.data(), rounds.size()}.IsShaNi(), "SHA256RNDS2 is not recognised as SHA-NI");
 }
 
+void sha1Operands() {
+    const auto check = [](const Bytes& site, const Codegen::Sha1Operation operation, const int dst, const int src, const int function) {
+        const auto operands = Codegen::DecodeSha1(site.data(), site.size());
+        require(operands.Operation == operation && operands.Destination == dst && operands.Source == src && operands.Function == function, "SHA-1 operands were decoded incorrectly");
+    };
+    check({0x0F, 0x3A, 0xCC, 0xCA, 0x02}, Codegen::Sha1Operation::Rnds4, 1, 2, 2);
+    check({0x45, 0x0F, 0x3A, 0xCC, 0xE1, 0xFF}, Codegen::Sha1Operation::Rnds4, 12, 9, 3);
+    check({0x44, 0x0F, 0x38, 0xC8, 0xC0}, Codegen::Sha1Operation::Nexte, 8, 0, 0);
+    check({0x0F, 0x38, 0xC9, 0xD5}, Codegen::Sha1Operation::Msg1, 2, 5, 0);
+    check({0x2E, 0x41, 0x0F, 0x38, 0xCA, 0xCA}, Codegen::Sha1Operation::Msg2, 1, 10, 0);
+    requireFailure([] { const Bytes bytes = {0x0F, 0x38, 0xC9, 0x08}; (void)Codegen::DecodeSha1(bytes.data(), bytes.size()); }, "SHA-1 memory operand was accepted");
+    requireFailure([] { const Bytes bytes = {0x0F, 0x3A, 0xCC, 0x08, 0x00}; (void)Codegen::DecodeSha1(bytes.data(), bytes.size()); }, "SHA1RNDS4 memory operand was accepted");
+    requireFailure([] { const Bytes bytes = {0x0F, 0x3A, 0xCC, 0xCA}; (void)Codegen::DecodeSha1(bytes.data(), bytes.size()); }, "SHA1RNDS4 without its immediate was accepted");
+    requireFailure([] { const Bytes bytes = {0x66, 0x0F, 0x38, 0xC8, 0xCA}; (void)Codegen::DecodeSha1(bytes.data(), bytes.size()); }, "Prefixed 0F 38 C8 was decoded as SHA-1");
+    requireFailure([] { const Bytes bytes = {0x0F, 0x38, 0xCC, 0xCA}; (void)Codegen::DecodeSha1(bytes.data(), bytes.size()); }, "SHA-256 was decoded as SHA-1");
+    const Bytes prefixedRounds = {0x66, 0x0F, 0x3A, 0xCC, 0xCA, 0x00};
+    require(!Codegen::DecodedInstruction{prefixedRounds.data(), prefixedRounds.size()}.IsSha1(), "66-prefixed 0F 3A CC was recognised as SHA-1");
+}
+
 void clzeroOperands() {
     const auto decode = [](const Bytes& bytes) { return Codegen::DecodeClzero(bytes.data(), bytes.size()); };
     require(!decode({0x0F, 0x01, 0xFC}).AddressSize32 && decode({0x67, 0x0F, 0x01, 0xFC}).AddressSize32, "CLZERO address size was decoded incorrectly");
@@ -257,7 +278,10 @@ void matcherSubstitutions() {
         const auto sha256 = match(bytes);
         require(sha256 && sha256->Lowering == Codegen::Amd64OnlyLowering::Trampoline && sha256->InstructionName == name, "SHA-256 instruction was not lowered through a stub");
     }
-    require(!match({0x0F, 0x38, 0xC9, 0xCA}), "SHA-1 instruction was matched");
+    for (const auto& [bytes, name] : {std::pair{Bytes{0x0F, 0x3A, 0xCC, 0xCA, 0x01}, "SHA1RNDS4"}, {Bytes{0x0F, 0x38, 0xC8, 0xCA}, "SHA1NEXTE"}, {Bytes{0x0F, 0x38, 0xC9, 0xCA}, "SHA1MSG1"}, {Bytes{0x45, 0x0F, 0x38, 0xCA, 0xE1}, "SHA1MSG2"}}) {
+        const auto sha1 = match(bytes);
+        require(sha1 && sha1->Lowering == Codegen::Amd64OnlyLowering::Trampoline && sha1->InstructionName == name, "SHA-1 instruction was not lowered through a stub");
+    }
     const auto stub = match(kInsertqHighSite);
     require(stub && stub->Lowering == Codegen::Amd64OnlyLowering::Trampoline && stub->StubBody == kInsertqHighBody && stub->ReturnBranchOffset == 15 && stub->InstructionName == "INSERTQ", "INSERTQ was not lowered through a stub");
     const auto topAligned = match({0x66, 0x0F, 0x78, 0xC3, 0x18, 0x28});
@@ -400,6 +424,33 @@ void converterSha256() {
     auto memoryForm = file;
     memoryForm[0x20F] = 0x28;
     require(failureOffset([&] { (void)converter->Convert(memoryForm, {segmentHeader(text.size())}); }, "SHA-256 memory form was accepted") == 0x20C, "SHA-256 operand failure does not carry the file offset");
+}
+
+void converterSha1() {
+    const auto converter = Codegen::MakeAmd64OnlyConverter();
+    Bytes file(0x300, 0xCC);
+    const Bytes text = {
+        0x0F, 0x3A, 0xCC, 0xCA, 0x00,
+        0x0F, 0x38, 0xC8, 0xD3,
+        0x0F, 0x38, 0xC9, 0xE5,
+        0x66, 0x0F, 0xFE, 0xC1,
+        0x0F, 0x38, 0xCA, 0xE5,
+        0x90,
+        0xC3};
+    std::copy(text.begin(), text.end(), file.begin() + 0x200);
+    const auto result = converter->Convert(file, {segmentHeader(text.size())});
+    require(result.Trampolines.size() == 3 && result.Reports.size() == 3 && result.Bytes == file, "SHA-1 sites were not lowered through stubs");
+    require(result.Trampolines[0].Offset == 0x200 && result.Trampolines[0].Length == 5 && result.Reports[0].InstructionName == "SHA1RNDS4", "SHA1RNDS4 was not lowered as one site");
+    require(result.Trampolines[1].Offset == 0x205 && result.Trampolines[1].Length == 8 && result.Reports[1].InstructionName == "SHA1NEXTE", "SHA1NEXTE did not absorb the following SHA1MSG1");
+    const auto& message = result.Trampolines[2];
+    require(message.Offset == 0x211 && message.Length == 5 && result.Reports[2].InstructionName == "SHA1MSG2", "SHA1MSG2 did not absorb the following instruction");
+    require(message.Body[message.ReturnBranchOffset - 1] == 0x90 && message.Body[message.ReturnBranchOffset] == 0xE9, "Absorbed instruction does not run before the return jump");
+    auto beforeReturn = file;
+    beforeReturn[0x215] = 0xC3;
+    requireFailure([&] { (void)converter->Convert(beforeReturn, {segmentHeader(text.size())}); }, "Short SHA-1 instruction followed by a return was relocated");
+    auto memoryForm = file;
+    memoryForm[0x214] = 0x28;
+    require(failureOffset([&] { (void)converter->Convert(memoryForm, {segmentHeader(text.size())}); }, "SHA-1 memory form was accepted") == 0x211, "SHA-1 operand failure does not carry the file offset");
 }
 
 void converterMonitorWait() {
@@ -709,15 +760,15 @@ void sha256Execution() {
     }
 }
 
-struct ClzeroRun {
+struct StubRun {
     std::uint64_t Rax;
     std::uint64_t Rcx;
     std::uint64_t Flags;
     std::uint64_t Xmm[16][2];
 };
 
-ClzeroRun runClzeroBody(const Codegen::Amd64OnlyMatch& match, const std::uint64_t rax, const std::uint64_t (&xmmIn)[16][2]) {
-    require(match.Lowering == Codegen::Amd64OnlyLowering::Trampoline, "CLZERO stub was not produced");
+StubRun runStubBody(const Codegen::Amd64OnlyMatch& match, const std::uint64_t rax, const std::uint64_t (&xmmIn)[16][2]) {
+    require(match.Lowering == Codegen::Amd64OnlyLowering::Trampoline, "Stub was not produced");
     auto body = match.StubBody;
     const auto ret = body.size();
     body.push_back(0xC3);
@@ -726,7 +777,7 @@ ClzeroRun runClzeroBody(const Codegen::Amd64OnlyMatch& match, const std::uint64_
     void* code = mmap(nullptr, 4096, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     require(code != MAP_FAILED, "cannot map executable memory for the stub");
     std::memcpy(code, body.data(), body.size());
-    ClzeroRun run{};
+    StubRun run{};
     asm volatile(
         "movdqu 0x00(%[xmmIn]), %%xmm0\n\t"
         "movdqu 0x10(%[xmmIn]), %%xmm1\n\t"
@@ -808,7 +859,7 @@ void clzeroExecution() {
         for (const std::size_t offset : {std::size_t{0x80}, std::size_t{0xAD}, std::size_t{0xFF}}) {
             std::memset(buffer, 0xA5, 4096);
             const auto address = reinterpret_cast<std::uint64_t>(buffer + offset);
-            const auto run = runClzeroBody(*item.Match, address | item.Junk, xmmIn);
+            const auto run = runStubBody(*item.Match, address | item.Junk, xmmIn);
             const auto line = offset & ~std::size_t{63};
             for (std::size_t index = 0; index < 4096; ++index)
                 require(buffer[index] == (index >= line && index < line + 64 ? 0x00 : 0xA5), "CLZERO stub did not clear exactly the addressed line");
@@ -821,8 +872,75 @@ void clzeroExecution() {
         munmap(buffer, 4096);
     }
 }
+
+std::uint32_t rotl(const std::uint32_t value, const unsigned count) {
+    return (value << count) | (value >> (32 - count));
+}
+
+std::array<std::uint32_t, 4> sha1Reference(const Codegen::Sha1Operands& operands, const std::uint32_t (&x)[4], const std::uint32_t (&y)[4]) {
+    switch (operands.Operation) {
+    case Codegen::Sha1Operation::Nexte:
+        return {y[0], y[1], y[2], y[3] + rotl(x[3], 30)};
+    case Codegen::Sha1Operation::Msg1:
+        return {x[0] ^ y[2], x[1] ^ y[3], x[2] ^ x[0], x[3] ^ x[1]};
+    case Codegen::Sha1Operation::Msg2: {
+        const auto w16 = rotl(x[3] ^ y[2], 1);
+        return {rotl(x[0] ^ w16, 1), rotl(x[1] ^ y[0], 1), rotl(x[2] ^ y[1], 1), w16};
+    }
+    case Codegen::Sha1Operation::Rnds4:
+        break;
+    }
+    constexpr std::uint32_t keys[4] = {0x5A827999, 0x6ED9EBA1, 0x8F1BBCDC, 0xCA62C1D6};
+    std::uint32_t a = x[3], b = x[2], c = x[1], d = x[0], e = 0;
+    for (int round = 0; round < 4; ++round) {
+        std::uint32_t f = b ^ c ^ d;
+        if (operands.Function == 0) f = (b & c) ^ (~b & d);
+        if (operands.Function == 2) f = (b & c) ^ (b & d) ^ (c & d);
+        const auto next = f + rotl(a, 5) + y[3 - round] + e + keys[operands.Function];
+        e = d; d = c; c = rotl(b, 30); b = a; a = next;
+    }
+    return {d, c, b, a};
+}
+
+void sha1Execution() {
+    const auto matcher = Codegen::MakeAmd64OnlyInstructionMatcher();
+    std::uint64_t seed = 0x9e3779b97f4a7c15ull;
+    const auto random = [&] { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; return seed; };
+    const std::vector<Bytes> sites = {
+        {0x0F, 0x3A, 0xCC, 0xD5, 0x00}, {0x0F, 0x3A, 0xCC, 0xD5, 0x01}, {0x0F, 0x3A, 0xCC, 0xD5, 0x02}, {0x0F, 0x3A, 0xCC, 0xD5, 0xFF},
+        {0x0F, 0x3A, 0xCC, 0xD2, 0x02}, {0x45, 0x0F, 0x3A, 0xCC, 0xCE, 0x00}, {0x41, 0x0F, 0x3A, 0xCC, 0xC0, 0x01},
+        {0x0F, 0x38, 0xC8, 0xD5}, {0x0F, 0x38, 0xC8, 0xD2}, {0x44, 0x0F, 0x38, 0xC8, 0xC7},
+        {0x0F, 0x38, 0xC9, 0xD5}, {0x0F, 0x38, 0xC9, 0xD2}, {0x41, 0x0F, 0x38, 0xC9, 0xC7},
+        {0x0F, 0x38, 0xCA, 0xD5}, {0x0F, 0x38, 0xCA, 0xD2}, {0x45, 0x0F, 0x38, 0xCA, 0xFF}};
+    for (const auto& site : sites) {
+        const auto operands = Codegen::DecodeSha1(site.data(), site.size());
+        const auto match = matcher->Match(site.data(), site.size());
+        require(match.has_value(), "SHA-1 stub was not produced");
+        for (int sample = 0; sample < 64; ++sample) {
+            std::uint64_t xmmIn[16][2];
+            for (auto& reg : xmmIn) {
+                reg[0] = random();
+                reg[1] = random();
+            }
+            std::uint32_t x[4];
+            std::uint32_t y[4];
+            std::memcpy(x, xmmIn[operands.Destination], sizeof(x));
+            std::memcpy(y, xmmIn[operands.Source], sizeof(y));
+            const auto expected = sha1Reference(operands, x, y);
+            const auto run = runStubBody(*match, 0x5A5A5A5A5A5A5A5Aull, xmmIn);
+            for (unsigned reg = 0; reg < 16; ++reg) {
+                if (reg == operands.Destination)
+                    require(std::memcmp(run.Xmm[reg], expected.data(), 16) == 0, "SHA-1 stub computed the wrong result");
+                else
+                    require(run.Xmm[reg][0] == xmmIn[reg][0] && run.Xmm[reg][1] == xmmIn[reg][1], "SHA-1 stub clobbered an xmm register");
+            }
+            require(run.Rax == 0x5A5A5A5A5A5A5A5Aull && run.Rcx == 0x1122334455667788ull && (run.Flags & 0x8D5) == (0x8D7 & 0x8D5), "SHA-1 stub changed a general register or RFLAGS");
+        }
+    }
+}
 #else
 void registerFormExecution() {}
+void sha1Execution() {}
 void sha256Execution() {}
 void clzeroExecution() {}
 void immediateFormExecution() {}
@@ -842,16 +960,19 @@ int main() {
         decoderRipRelative();
         sse4aOperands();
         sha256Operands();
+        sha1Operands();
         clzeroOperands();
         matcherSubstitutions();
         goldenBodies();
         registerFormExecution();
         immediateFormExecution();
         sha256Execution();
+        sha1Execution();
         clzeroExecution();
         converterSegment();
         converterRipRelativeFollower();
         converterSha256();
+        converterSha1();
         converterMonitorWait();
         converterClzero();
         converterStrayRex();
