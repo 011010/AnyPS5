@@ -732,6 +732,7 @@ enum class RdnaOpcode : std::uint16_t {
     FlatLoadDwordx2,
     FlatLoadDwordx3,
     FlatLoadDwordx4,
+    GlobalLoadDwordAddtid,
     FlatStoreByte,
     FlatStoreShort,
     FlatLoadUbyteD16,
