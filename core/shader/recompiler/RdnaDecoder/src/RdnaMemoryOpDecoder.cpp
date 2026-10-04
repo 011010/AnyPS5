@@ -786,7 +786,7 @@ RdnaInstruction DecodeRdnaFlat(std::uint32_t programCounter, std::span<const std
         throw std::runtime_error("instruction is not FLAT");
     }
     const auto rawOffset = word0 & 0xFFFu;
-    const auto dlc = (word0 >> 12u) & 1u;
+    const auto dlc = ((word0 >> 12u) & 1u) != 0u;
     const auto lds = (word0 >> 13u) & 1u;
     const auto seg = (word0 >> 14u) & 0x3u;
     const auto glc = ((word0 >> 16u) & 1u) != 0u;
@@ -798,7 +798,7 @@ RdnaInstruction DecodeRdnaFlat(std::uint32_t programCounter, std::span<const std
     const auto addr = word1 & 0xFFu;
     const auto& info = lookupOpcode(flatOpcodes, opcode, "FLAT opcode is not supported");
     const bool atomic = isFlatAtomicOpcode(info.opcode);
-    if (dlc != 0u || lds != 0u || (glc && !atomic) || (atomic && seg == 1u) || slc || seg == 3u) {
+    if (lds != 0u || (atomic && seg == 1u) || seg == 3u) {
         throw std::runtime_error("unsupported FLAT modifiers or segment");
     }
 
@@ -809,6 +809,7 @@ RdnaInstruction DecodeRdnaFlat(std::uint32_t programCounter, std::span<const std
     instruction.memorySegment = seg;
     instruction.memoryOffset = seg == 0u ? (rawOffset & 0x7FFu) : signExtend(rawOffset, 12u);
     instruction.glc = glc;
+    instruction.dlc = dlc;
     instruction.slc = slc;
     applyMemoryInfo(instruction, info);
     setRawWords(instruction, code, wordIndex, 2u);
