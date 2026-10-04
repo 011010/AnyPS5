@@ -89,9 +89,14 @@ std::shared_ptr<DrawDecode> Driver::decodeDraw(const QueueState& queue, const Su
         } else {
             append(0xc8, 2, Stage::Vertex, 0x8b, 0x8c, Role::Main);
         }
+        const bool nullPixel = Graphics::PixelProgramUnset(queue);
+        if (nullPixel) {
+            const auto rejection = Graphics::NullPixelProgramRejection(queue);
+            require(rejection.empty(), rejection.c_str());
+        }
         append(0x008, 1, Stage::Fragment, 0x00b, 0x00c, Role::Fragment);
         programs.back().firstUserSgpr = 0;
-        product->pixel = Graphics::DecodePixelStageInfo(queue.context, Graphics::ExportMappings(graphics));
+        product->pixel = Graphics::DecodePixelStageInfo(queue.context, Graphics::ExportMappings(graphics), nullPixel);
         return product;
     }
 }

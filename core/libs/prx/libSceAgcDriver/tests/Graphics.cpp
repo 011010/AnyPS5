@@ -170,11 +170,21 @@ void stateTests() {
     queue = makeState();
     queue.context.erase(0x1b3);
     queue.context.erase(0x1b4);
-    Require(AgcDriver::Graphics::DrawRejection(queue, true).empty(), "a bank without SPI_PS_INPUT_ENA/ADDR was rejected");
-    state = AgcDriver::Graphics::DecodeState(queue);
     queue.context.erase(0x1c5);
-    const auto unset = AgcDriver::Graphics::DecodePixelStageInfo(queue.context, AgcDriver::Graphics::ExportMappings(state));
-    Require(unset.inputAddr == ShaderRecompiler::PixelInputBit(ShaderRecompiler::PixelInput::PerspectiveCenter), "unset pixel inputs did not read as PERSP_CENTER_ENA");
+    queue.shader[0x008] = 0x100;
+    queue.shader[0x009] = 0;
+    Require(!AgcDriver::Graphics::PixelProgramUnset(queue), "a pixel program address was read as unset");
+    Require(AgcDriver::Graphics::DrawRejection(queue, true).find("missing register at DWORD 0x1b3") != std::string::npos, "a real pixel program without SPI_PS_INPUT_ENA was accepted");
+    expectFailure([&] { AgcDriver::Graphics::DecodePixelStageInfo(queue.context, std::array<std::uint8_t, 8>{0xe4u, 0xe4u, 0xe4u, 0xe4u, 0xe4u, 0xe4u, 0xe4u, 0xe4u}); }, "missing register");
+    queue.shader[0x008] = 0;
+    Require(AgcDriver::Graphics::PixelProgramUnset(queue), "a zero pixel program address was not read as unset");
+    Require(AgcDriver::Graphics::DrawRejection(queue, true).find("writes color") != std::string::npos, "a draw without a pixel program that writes color was accepted");
+    queue.context[0x8e] = 0;
+    Require(AgcDriver::Graphics::DrawRejection(queue, true).empty(), "a depth-only draw without a pixel program was rejected");
+    state = AgcDriver::Graphics::DecodeState(queue);
+    Require(!state.hasColorTarget, "a depth-only draw without a pixel program decoded a color target");
+    const auto unset = AgcDriver::Graphics::DecodePixelStageInfo(queue.context, AgcDriver::Graphics::ExportMappings(state), true);
+    Require(unset.inputAddr == ShaderRecompiler::PixelInputBit(ShaderRecompiler::PixelInput::PerspectiveCenter), "unset pixel inputs of the null program did not read as PERSP_CENTER_ENA");
     for (const auto mode : unset.targetOutputMode) Require(mode == 0, "an unset SPI_SHADER_COL_FORMAT exported a color");
 }
 
