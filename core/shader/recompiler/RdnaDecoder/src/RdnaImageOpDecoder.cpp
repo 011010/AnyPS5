@@ -97,6 +97,10 @@ constexpr ImageOpcodeInfo imageOpcodes[] = {
     {0x1cu, RdnaOpcode::ImageAtomicDec, nullptr, 0, false, false, true},
     {0x00u, RdnaOpcode::ImageLoad, nullptr, 0, false, false, false},
     {0x01u, RdnaOpcode::ImageLoadMip, nullptr, 0, false, false, false},
+    {0x02u, RdnaOpcode::ImageLoadPck, nullptr, 0, false, false, false},
+    {0x03u, RdnaOpcode::ImageLoadPckSgn, nullptr, 0, false, false, false},
+    {0x04u, RdnaOpcode::ImageLoadMipPck, nullptr, 0, false, false, false},
+    {0x05u, RdnaOpcode::ImageLoadMipPckSgn, nullptr, 0, false, false, false},
     {0x08u, RdnaOpcode::ImageStore, nullptr, 0, false, false, false},
     {0x09u, RdnaOpcode::ImageStoreMip, nullptr, 0, false, false, false},
     {0x0eu, RdnaOpcode::ImageGetResinfo, nullptr, 0, false, false, false},
@@ -282,7 +286,7 @@ RdnaInstruction DecodeRdnaMimg(std::uint32_t programCounter, std::span<const std
     validateFlags(flags);
     const auto dimension = decodeDimension((word0 >> 3u) & 7u);
     const bool multisampled = dimension == RdnaImageDimension::Dim2DMsaa || dimension == RdnaImageDimension::Dim2DMsaaArray;
-    if (multisampled && (info.sample || info.gather || opcode == 0x60u || opcode == 1u || opcode == 9u)) {
+    if (multisampled && (info.sample || info.gather || opcode == 0x60u || (opcode >= 1u && opcode <= 5u) || opcode == 9u)) {
         throw std::runtime_error("unsupported multisampled MIMG operation");
     }
     const auto dmask = (word0 >> 8u) & 15u;
@@ -295,7 +299,7 @@ RdnaInstruction DecodeRdnaMimg(std::uint32_t programCounter, std::span<const std
     }
     const bool rayQuery = info.opcode == RdnaOpcode::ImageBvhIntersectRay;
     std::uint32_t components = rayQuery ? (a16 ? 8u : 11u) : opcode == 0x0Eu ? 1u : coordinateCount(dimension);
-    if (opcode == 1u || opcode == 9u) {
+    if (opcode == 1u || opcode == 4u || opcode == 5u || opcode == 9u) {
         ++components;
     }
     if (info.sample || info.gather) {
