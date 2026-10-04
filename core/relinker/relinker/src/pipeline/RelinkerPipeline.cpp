@@ -296,15 +296,6 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
     std::vector<CallRegistryEntry> entries;
     entries.reserve(nidRefs.size());
     for (const auto& ref : nidRefs) {
-        std::vector<FileByteOffset> callSites;
-        bool callSitesResolved = false;
-        if (!executableSegments.empty()) {
-            for (const auto& [segment, segmentVAddr] : executableSegments) {
-                auto segmentSites = _callSiteResolver->ResolveCallSites(segment, segmentVAddr, ref.RelocationAddress, 8);
-                callSites.insert(callSites.end(), segmentSites.begin(), segmentSites.end());
-            }
-            callSitesResolved = !callSites.empty();
-        }
         CallRegistryEntry entry;
         entry.Nid = ref.Nid;
         entry.Library = ref.Library;
@@ -312,9 +303,16 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
         entry.RelocationOffset = ref.RelocationTableOffset;
         entry.TargetSection = ".got";
         entry.TargetOffset = ref.RelocationAddress;
-        entry.CallSites = callSites;
-        entry.CallSitesResolved = callSitesResolved;
+        entry.CallSitesResolved = false;
         entries.push_back(std::move(entry));
+    }
+
+    for (const auto& [segment, segmentVAddr] : executableSegments) {
+        for (auto& entry : entries) {
+            auto segmentSites = _callSiteResolver->ResolveCallSites(segment, segmentVAddr, entry.TargetOffset, 8);
+            entry.CallSites.insert(entry.CallSites.end(), segmentSites.begin(), segmentSites.end());
+            entry.CallSitesResolved = !entry.CallSites.empty();
+        }
     }
 
     return RelinkResult{std::move(entries), std::move(programHeaders), std::move(dynSection), gotVAddr, std::move(patches)};
