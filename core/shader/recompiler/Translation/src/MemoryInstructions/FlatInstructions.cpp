@@ -141,4 +141,34 @@ bool TranslationContext::flatStore(const RdnaInstruction& inst) {
     return true;
 }
 
+bool TranslationContext::flatAtomic(const RdnaInstruction& inst, IrOpcode opcode) {
+    const MemoryInfo memory = flatMemoryInfoFromInstruction(inst);
+    const AddressOperands address = readAddressOperands(inst, 0u);
+    const MemoryFlags flags = addMemoryInfo(memory, inst.programCounter);
+    IrValue& active = ir.GetExec();
+    const bool compare = opcode == IrOpcode::AddressAtomicCmpSwap32 || opcode == IrOpcode::AddressAtomicCmpSwap64;
+    IrValue* result;
+    if (IrOpcodeType(opcode) == IrType::U64) {
+        const IrU64 value = readU64(inst.source2);
+        if (compare) {
+            const IrU64 comparator = readU64(offsetOperand(inst.source2, 2u));
+            result = &ir.Emit(opcode, IrOpcodeType(opcode), {address.resource, address.low, address.high, &value.Value(), &comparator.Value(), &active}, flags);
+        } else {
+            result = &ir.Emit(opcode, IrOpcodeType(opcode), {address.resource, address.low, address.high, &value.Value(), &active}, flags);
+        }
+    } else {
+        const IrU32 value = readU32(inst.source2);
+        if (compare) {
+            const IrU32 comparator = readU32(offsetOperand(inst.source2, 1u));
+            result = &ir.Emit(opcode, IrOpcodeType(opcode), {address.resource, address.low, address.high, &value.Value(), &comparator.Value(), &active}, flags);
+        } else {
+            result = &ir.Emit(opcode, IrOpcodeType(opcode), {address.resource, address.low, address.high, &value.Value(), &active}, flags);
+        }
+    }
+    if (inst.glc) {
+        writeOperand(inst.destination, result);
+    }
+    return true;
+}
+
 }

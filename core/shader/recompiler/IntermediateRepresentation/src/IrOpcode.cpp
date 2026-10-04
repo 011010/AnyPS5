@@ -334,6 +334,30 @@ constexpr std::array<OpcodeMeta, static_cast<std::size_t>(IrOpcode::Count)> Meta
     makeMeta("StoreAddressU8", Void, AddressResource, U32, U32, U8, U1),
     makeMeta("StoreAddressU16", Void, AddressResource, U32, U32, U16, U1),
     makeMeta("StoreAddressU32", Void, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicSwap32", U32, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicCmpSwap32", U32, AddressResource, U32, U32, U32, U32, U1),
+    makeMeta("AddressAtomicIAdd32", U32, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicISub32", U32, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicSMin32", U32, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicUMin32", U32, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicSMax32", U32, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicUMax32", U32, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicAnd32", U32, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicOr32", U32, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicXor32", U32, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicInc32", U32, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicDec32", U32, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicSwap64", U64, AddressResource, U32, U32, U64, U1),
+    makeMeta("AddressAtomicCmpSwap64", U64, AddressResource, U32, U32, U64, U64, U1),
+    makeMeta("AddressAtomicIAdd64", U64, AddressResource, U32, U32, U64, U1),
+    makeMeta("AddressAtomicISub64", U64, AddressResource, U32, U32, U64, U1),
+    makeMeta("AddressAtomicSMin64", U64, AddressResource, U32, U32, U64, U1),
+    makeMeta("AddressAtomicUMin64", U64, AddressResource, U32, U32, U64, U1),
+    makeMeta("AddressAtomicSMax64", U64, AddressResource, U32, U32, U64, U1),
+    makeMeta("AddressAtomicUMax64", U64, AddressResource, U32, U32, U64, U1),
+    makeMeta("AddressAtomicAnd64", U64, AddressResource, U32, U32, U64, U1),
+    makeMeta("AddressAtomicOr64", U64, AddressResource, U32, U32, U64, U1),
+    makeMeta("AddressAtomicXor64", U64, AddressResource, U32, U32, U64, U1),
     makeMeta("LoadBufferU8", U8, BufferResource, U32, U32, U32, U1),
     makeMeta("LoadBufferU16", U16, BufferResource, U32, U32, U32, U1),
     makeMeta("LoadBufferU32", U32, BufferResource, U32, U32, U32, U1),
@@ -702,6 +726,32 @@ AddressOpcodeInfo AddressOpcodeInfoOf(IrOpcode opcode) {
             return {AddressAccess::Write, 16u};
         case IrOpcode::StoreAddressU32:
             return {AddressAccess::Write, 32u};
+        case IrOpcode::AddressAtomicSwap32:
+        case IrOpcode::AddressAtomicCmpSwap32:
+        case IrOpcode::AddressAtomicIAdd32:
+        case IrOpcode::AddressAtomicISub32:
+        case IrOpcode::AddressAtomicSMin32:
+        case IrOpcode::AddressAtomicUMin32:
+        case IrOpcode::AddressAtomicSMax32:
+        case IrOpcode::AddressAtomicUMax32:
+        case IrOpcode::AddressAtomicAnd32:
+        case IrOpcode::AddressAtomicOr32:
+        case IrOpcode::AddressAtomicXor32:
+        case IrOpcode::AddressAtomicInc32:
+        case IrOpcode::AddressAtomicDec32:
+            return {AddressAccess::Atomic, 32u};
+        case IrOpcode::AddressAtomicSwap64:
+        case IrOpcode::AddressAtomicCmpSwap64:
+        case IrOpcode::AddressAtomicIAdd64:
+        case IrOpcode::AddressAtomicISub64:
+        case IrOpcode::AddressAtomicSMin64:
+        case IrOpcode::AddressAtomicUMin64:
+        case IrOpcode::AddressAtomicSMax64:
+        case IrOpcode::AddressAtomicUMax64:
+        case IrOpcode::AddressAtomicAnd64:
+        case IrOpcode::AddressAtomicOr64:
+        case IrOpcode::AddressAtomicXor64:
+            return {AddressAccess::Atomic, 32u, 2u};
         default:
             return {};
     }
@@ -757,7 +807,8 @@ bool IrOpcodeHasSideEffects(IrOpcode opcode) {
     if (sharedAccess == SharedAccess::Write || sharedAccess == SharedAccess::Atomic || sharedAccess == SharedAccess::Append || sharedAccess == SharedAccess::Consume) {
         return true;
     }
-    if (AddressOpcodeInfoOf(opcode).access == AddressAccess::Write) {
+    const AddressAccess addressAccess = AddressOpcodeInfoOf(opcode).access;
+    if (addressAccess == AddressAccess::Write || addressAccess == AddressAccess::Atomic) {
         return true;
     }
     const ImageAccess imageAccess = ImageOpcodeInfoOf(opcode).access;

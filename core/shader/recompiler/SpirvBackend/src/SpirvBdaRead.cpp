@@ -191,6 +191,28 @@ void EmitBdaStore(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint32_t
     });
 }
 
+std::uint32_t EmitBdaAtomic(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint32_t address, std::uint32_t bytes, const std::function<std::uint32_t(std::uint32_t)>& operation) {
+    auto& state = ctx.state;
+    if (bytes != 4u && bytes != 8u) ctx.Fail(inst, "unsupported BDA atomic width");
+    if (state.bdaWritePointerFunction == 0 || state.bdaNoteWriteFunction == 0) ctx.Fail(inst, "BDA write functions are missing");
+    const auto instruction = ConstantU32(state, inst.Flags<MemoryFlags>().pc);
+    const auto type = bytes == 8u ? TypeScalarU64(state) : TypeU32(state);
+    const auto zero = bytes == 8u ? BdaConstant(state, 0u) : ConstantU32(state, 0u);
+    const auto unaligned = Binary(state, spv::OpINotEqual, TypeBool(state), Binary(state, spv::OpBitwiseAnd, TypeScalarU64(state), address, BdaConstant(state, bytes - 1u)), BdaConstant(state, 0u));
+    EmitIfCondition(state, unaligned, [&] { RecordBdaFault(state, address, ConstantU32(state, bytes), instruction, BdaAbi::FaultReason::Unaligned); });
+    return EmitValueOrDefaultIfCondition(state, Unary(state, spv::OpLogicalNot, TypeBool(state), unaligned), type, zero, [&] {
+        const auto physical = state.module.AllocateId();
+        state.module.AddFunction(spv::OpFunctionCall, TypeScalarU64(state), physical, state.bdaWritePointerFunction, address, ConstantU32(state, bytes), instruction);
+        return EmitValueOrDefaultIfCondition(state, Binary(state, spv::OpINotEqual, TypeBool(state), physical, BdaConstant(state, 0u)), type, zero, [&] {
+            const auto pointer = state.module.AllocateId();
+            state.module.AddFunction(spv::OpConvertUToPtr, TypePointer(state, spv::StorageClassPhysicalStorageBuffer, type), pointer, physical);
+            const auto old = operation(pointer);
+            state.module.AddFunction(spv::OpFunctionCall, state.module.Type(spv::OpTypeVoid), state.module.AllocateId(), state.bdaNoteWriteFunction, address);
+            return old;
+        });
+    });
+}
+
 // One probe of the span from the first to the last extracted dword replaces 4 lookups per dword (a
 // Bink DC pass spent ~450 dependent table levels per iteration on them). The span is loaded
 // dword-wise from the returned device address when it lies in one range and that address is

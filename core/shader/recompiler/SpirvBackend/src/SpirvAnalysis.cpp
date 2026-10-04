@@ -67,13 +67,13 @@ SpirvRequirements AnalyzeProgramRequirements(const IrProgram& program) {
     SpirvRequirements requirements {};
     for (const IrBlock* block : program.BlockOrder()) {
         for (const IrValue* inst : block->Instructions()) {
-            if (BufferAccessOf(inst->Opcode()) == BufferAccess::Atomic && inst->Type() == IrType::U64) {
+            const auto addressAccess = AddressOpcodeInfoOf(inst->Opcode()).access;
+            if ((BufferAccessOf(inst->Opcode()) == BufferAccess::Atomic || addressAccess == AddressAccess::Atomic) && inst->Type() == IrType::U64) {
                 requirements.bufferInt64Atomics = true;
             }
             if (IsFloat64Opcode(inst->Opcode())) {
                 requirements.float64 = true;
             }
-            const auto addressAccess = AddressOpcodeInfoOf(inst->Opcode()).access;
             if (addressAccess != AddressAccess::None) {
                 const auto memoryIndex = inst->Flags<MemoryFlags>().index;
                 if (memoryIndex >= program.Resources().memoryInfo.size()) {
