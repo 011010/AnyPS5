@@ -252,7 +252,16 @@ IrF32 TranslationContext::applyF32ResultModifiers(const RdnaOperand& operand, Ir
             case 2u: multiplier = 4.0f; break;
             default: break;
         }
-        value = IrF32(ir.Emit(IrOpcode::FPMul32, IrType::F32, {&value.Value(), &ir.ConstantF32(multiplier)}));
+        const IrF32 scaled(ir.Emit(IrOpcode::FPMul32, IrType::F32, {&value.Value(), &ir.ConstantF32(multiplier)}));
+        IrValue& bits = ir.BitCastU32(value.Value());
+        IrValue& magnitude = ir.BitwiseAnd(bits, ir.Constant(0x7fffffffu));
+        IrValue* result = &ir.BitCastU32(scaled.Value());
+        if (operand.omod == 3u) {
+            result = &ir.Select(ir.ULessThan(magnitude, ir.Constant(0x01000000u)), ir.BitwiseAnd(bits, ir.Constant(0x80000000u)), *result);
+        }
+        result = &ir.Select(ir.ULessThan(magnitude, ir.Constant(0x00800000u)), ir.Constant(0u), *result);
+        result = &ir.Select(ir.UGreaterThan(magnitude, ir.Constant(0x7f800000u)), bits, *result);
+        value = IrF32(ir.BitCastF32(*result));
     }
     if (operand.clamp) {
         value = IrF32(ir.Emit(IrOpcode::FPSaturate32, IrType::F32, {&value.Value()}));
