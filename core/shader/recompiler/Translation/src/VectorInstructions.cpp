@@ -542,6 +542,8 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
         return vMulLegacyF32(inst, false);
     case RdnaOpcode::VMacLegacyF32:
         return vMulLegacyF32(inst, true);
+    case RdnaOpcode::VMullitF32:
+        return vMullitF32(inst);
     case RdnaOpcode::VCmpClassF32:
         emitFloatClassCompare(inst, false);
         return true;
@@ -928,7 +930,6 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
     case RdnaOpcode::VSubrevF32:
         return floatBinary(inst, IrOpcode::FPSub32, true);
     case RdnaOpcode::VMulF32:
-    case RdnaOpcode::VMullitF32:
         return floatBinary(inst, IrOpcode::FPMul32, false);
     case RdnaOpcode::VMinF32:
         return floatBinary(inst, IrOpcode::FPMin32, false);

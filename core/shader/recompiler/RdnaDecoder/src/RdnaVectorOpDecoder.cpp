@@ -1847,6 +1847,8 @@ bool supportsNativeVop3SourceModifiers(RdnaOpcode opcode) {
     switch (opcode) {
         case RdnaOpcode::VMulLegacyF32:
         case RdnaOpcode::VMacLegacyF32:
+        case RdnaOpcode::VMullitF32:
+        case RdnaOpcode::VCvtPkU8F32:
         case RdnaOpcode::VCndmaskB32:
         case RdnaOpcode::VAddF32:
         case RdnaOpcode::VSubF32:
@@ -1985,7 +1987,7 @@ void checkNativeVop3Modifiers(RdnaOpcode opcode, bool permlane, bool carryInOut,
         }
         return;
     }
-    if (opcode == RdnaOpcode::VLdexpF16) {
+    if (opcode == RdnaOpcode::VLdexpF16 || opcode == RdnaOpcode::VCvtPkU8F32) {
         if ((abs & ~1u) != 0u || opSel != 0u || clamp != 0u || omod != 0u || (neg & ~1u) != 0u) {
             throw std::invalid_argument("VOP3 source modifiers are not implemented");
         }
