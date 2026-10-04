@@ -61,6 +61,6 @@ int main() {
     Require(scePadClose_nid_postfix(handle) == 0);
     Require(scePadGetHandle(user, 0, 0) == noHandle);
     Require(scePadSetVibrationTriggerEffectWeakWhileEmbeddedMicInUse(true) == 0);
-    Require(scePadSetAngularVelocityDeadbandState(handle, true) == 0);
     Require(scePadSetAngularVelocityDeadbandState(handle, false) == 0);
+    Require(scePadSetAngularVelocityDeadbandState(handle + 1, false) == PAD_ERROR_INVALID_HANDLE);
 }
