@@ -809,8 +809,8 @@ std::uint32_t EmitMinMaxF32Value(SpirvEmitterState& state, std::uint32_t lhs, st
     const auto zeroBits = Binary(state, maxValue ? spv::OpBitwiseAnd : spv::OpBitwiseOr, TypeU32(state), lhsClass.bits, rhsClass.bits);
     const auto numericBits = Select(state, TypeU32(state), bothZero, zeroBits, orderedBits);
 
-    const auto rhsNanBits = Select(state, TypeU32(state), rhsClass.nan, lhsClass.bits, numericBits);
-    const auto resultBits = Select(state, TypeU32(state), lhsClass.nan, rhsClass.bits, rhsNanBits);
+    const auto lhsNanBits = Select(state, TypeU32(state), lhsClass.nan, rhsClass.bits, numericBits);
+    const auto resultBits = Select(state, TypeU32(state), rhsClass.nan, lhsClass.bits, lhsNanBits);
     return Unary(state, spv::OpBitcast, TypeF32(state), resultBits);
 }
 
