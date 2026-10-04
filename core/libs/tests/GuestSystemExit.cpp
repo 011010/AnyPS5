@@ -23,6 +23,7 @@ void APS5_VABI QuickSecond() { quickOrder = 1; }
 void APS5_VABI QuickFirst() {
     if (quickOrder != 1) std::_Exit(1);
     std::puts("Guest quick_exit handlers completed");
+    std::fflush(stdout);
 }
 void Require(bool value) { if (!value) std::abort(); }
 void UnexpectedCleanup() { std::_Exit(3); }
