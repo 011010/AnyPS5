@@ -109,7 +109,7 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
     }
 
     const FileByteOffset dynStrTabOffset = readAsOffset(DT_OS_STRTAB, DT_STRTAB, "DT_STRTAB");
-    requireExactlyOneOf(DT_OS_STRSZ, DT_STRSZ, "DT_STRSZ");
+    const ByteCount dynStrTabSize = readAsSize(DT_OS_STRSZ, DT_STRSZ, "DT_STRSZ");
 
     const FileByteOffset dynSymTabOffset = readAsOffset(DT_OS_SYMTAB, DT_SYMTAB, "DT_SYMTAB");
     constexpr std::size_t symEntSize = 24;
@@ -147,11 +147,19 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
 
     const std::vector<std::uint8_t>& raw = _elfReader->GetRawBytes();
 
+    if (dynStrTabOffset > raw.size() || dynStrTabSize > raw.size() - dynStrTabOffset)
+        throw RelinkerException("Dynamic string table is out of bounds", dynStrTabOffset);
+
     auto readCStr = [&](FileByteOffset strOff) -> std::string {
+        if (strOff >= dynStrTabSize)
+            throw RelinkerException("Dynamic string offset is outside DT_STRSZ", strOff);
         std::string result;
         FileByteOffset pos = dynStrTabOffset + strOff;
-        while (pos < raw.size() && raw[pos] != 0)
+        const FileByteOffset end = dynStrTabOffset + dynStrTabSize;
+        while (pos < end && raw[pos] != 0)
             result.push_back(static_cast<char>(raw[pos++]));
+        if (pos == end)
+            throw RelinkerException("Dynamic string is not NUL-terminated within DT_STRSZ", strOff);
         return result;
     };
 
