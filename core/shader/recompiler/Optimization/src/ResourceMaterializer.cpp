@@ -160,8 +160,8 @@ DecodedImage decodeImageDescriptor(const DescriptorValue& descriptor, const Imag
         throw std::runtime_error("FMASK requires a direct sampled image load");
     }
     if (base.packed) {
-        if (storage || base.indirectRoot != ImageResource::NoIndirectImage || descriptorImageSwizzle(descriptor) != ShaderImageIdentitySwizzle) {
-            throw std::runtime_error("packed image load requires a direct sampled image with identity swizzle");
+        if (base.indirectRoot != ImageResource::NoIndirectImage || (!storage && descriptorImageSwizzle(descriptor) != ShaderImageIdentitySwizzle)) {
+            throw std::runtime_error("packed image access requires a direct image, with identity swizzle when sampled");
         }
         decoded.packedFormat = format;
     }

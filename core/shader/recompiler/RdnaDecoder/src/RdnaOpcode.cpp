@@ -763,6 +763,8 @@ bool IsImageOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::ImageLoadMipPck:
         case RdnaOpcode::ImageLoadMipPckSgn:
         case RdnaOpcode::ImageStoreMip:
+        case RdnaOpcode::ImageStorePck:
+        case RdnaOpcode::ImageStoreMipPck:
         case RdnaOpcode::ImageAtomicSwap:
         case RdnaOpcode::ImageAtomicAdd:
         case RdnaOpcode::ImageAtomicUmin:
