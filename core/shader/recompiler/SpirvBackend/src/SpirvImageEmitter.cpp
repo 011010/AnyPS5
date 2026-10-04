@@ -448,18 +448,26 @@ std::uint32_t UnpackImageTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess
     return result;
 }
 
-std::uint32_t PackedImageTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t texel) {
-    auto& state = ctx.state;
+SpirvBufferFormatInfo PackedTexelFormat(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     const auto format = access.image.packedFormat;
     if (format == IrBufferFormat::Invalid || access.table.mapped != 0 || access.image.depthBits || access.image.conversionFormat != IrBufferFormat::Invalid) {
-        ctx.Fail(access.inst, "reads packed texels from an image without a packed format");
+        ctx.Fail(access.inst, "accesses packed texels of an image without a packed format");
     }
     const auto info = GetFormatInfo(format);
+    if (info.packedBitfield) {
+        ctx.Fail(access.inst, "accesses packed texels of a bitfield format");
+    }
+    return info;
+}
+
+std::uint32_t PackedImageTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t texel) {
+    auto& state = ctx.state;
+    const auto info = PackedTexelFormat(ctx, access);
     std::uint32_t texelBits = 0;
     for (std::uint32_t component = 0; component < info.componentCount; component++) {
         const auto bits = info.componentBits[component];
         const bool exact = info.type == SpirvFormatComponentType::Uint || info.type == SpirvFormatComponentType::Sint || (info.type == SpirvFormatComponentType::Unorm && bits <= 16u) || (info.type == SpirvFormatComponentType::Float && bits == 32u);
-        if (info.packedBitfield || !exact) {
+        if (!exact) {
             ctx.Fail(access.inst, "reads packed texels of a format whose bits are not recoverable from the view");
         }
         texelBits += bits;
@@ -599,6 +607,48 @@ std::uint32_t StoreTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess& acce
     return PackImageTexel(ctx, access, texel);
 }
 
+std::uint32_t PackedStoreTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t data) {
+    auto& state = ctx.state;
+    const auto info = PackedTexelFormat(ctx, access);
+    const auto numericClass = access.image.numericClass;
+    if (info.byteSize == 12u) {
+        ctx.Fail(access.inst, "stores packed texels of a format the hardware does not write");
+    }
+    std::uint32_t words[4] = {};
+    for (std::uint32_t word = 0; word < 4u; word++) {
+        if (((access.mem.dmask >> word) & 1u) == 0u) {
+            words[word] = ConstantU32(state, 0u);
+            continue;
+        }
+        words[word] = state.module.AllocateId();
+        state.module.AddFunction(spv::OpCompositeExtract, TypeU32(state), words[word], data, DmaskComponentIndex(access.mem.dmask, word));
+    }
+    std::uint32_t values[4] = {};
+    for (std::uint32_t component = 0; component < 4u; component++) {
+        if (component >= info.componentCount) {
+            values[component] = numericClass == IrTextureNumericClass::Float ? ZeroF32(state) : ConstantU32(state, 0u);
+            continue;
+        }
+        const auto bits = info.componentBits[component];
+        const auto offset = info.componentBitOffset[component];
+        const bool exact = (info.type == SpirvFormatComponentType::Uint && numericClass == IrTextureNumericClass::Uint) || (bits == 32u && ((info.type == SpirvFormatComponentType::Sint && numericClass == IrTextureNumericClass::Uint) || (info.type == SpirvFormatComponentType::Float && numericClass == IrTextureNumericClass::Float)));
+        if (!exact || offset % 32u + bits > 32u) {
+            ctx.Fail(access.inst, "stores packed texels of a format whose bits are not reproducible through the view");
+        }
+        auto value = words[offset / 32u];
+        if (offset % 32u != 0u) {
+            value = Binary(state, spv::OpShiftRightLogical, TypeU32(state), value, ConstantU32(state, offset % 32u));
+        }
+        if (bits < 32u) {
+            value = Binary(state, spv::OpBitwiseAnd, TypeU32(state), value, ConstantU32(state, (1u << bits) - 1u));
+        }
+        values[component] = numericClass == IrTextureNumericClass::Float ? Unary(state, spv::OpBitcast, TypeF32(state), value) : value;
+    }
+    const auto texel = state.module.AllocateId();
+    state.module.AddFunction(spv::OpCompositeConstruct, numericClass == IrTextureNumericClass::Float ? TypeF32Vector(state, 4) : TypeU32Vector(state, 4), texel, values[0], values[1], values[2], values[3]);
+    return texel;
+}
+
 std::uint32_t ImageAtomicOpcode(IrOpcode opcode) {
     switch (opcode) {
         case IrOpcode::ImageAtomicSwap32:
@@ -686,7 +736,7 @@ void EmitWriteOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     EmitIfCondition(state, ctx.Arg(access.inst, 3), [&]() {
         const auto mipLod = access.image.mipMode == ImageMipMode::DynamicStorage ? LodU32(ctx, access) : 0u;
         const auto coord = CoordU32(ctx, access);
-        const auto texel = StoreTexel(ctx, access, ctx.Arg(access.inst, 2), uintImage);
+        const auto texel = access.mem.imagePacked ? PackedStoreTexel(ctx, access, ctx.Arg(access.inst, 2)) : StoreTexel(ctx, access, ctx.Arg(access.inst, 2), uintImage);
         EmitStorageImageWrite(state, access.mem.resource, mipLod, coord, texel);
     });
 }
