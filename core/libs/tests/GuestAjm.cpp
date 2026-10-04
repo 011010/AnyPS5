@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <stdexcept>
 #include <vector>
 
 extern "C" {
@@ -17,6 +18,11 @@ int APS5_VABI sceAjmInstanceDestroy(std::uint32_t, std::uint32_t);
 int APS5_VABI sceAjmBatchInitialize(void*, std::size_t, AjmBatchInfo*);
 int APS5_VABI sceAjmBatchJobInitialize(AjmBatchInfo*, std::uint32_t, const void*, std::size_t, void*);
 int APS5_VABI sceAjmBatchJobDecode(AjmBatchInfo*, std::uint32_t, const void*, std::size_t, void*, std::size_t, void*);
+int APS5_VABI sceAjmBatchJobDecodeSingle(AjmBatchInfo*, std::uint32_t, const void*, std::size_t, void*, std::size_t, void*);
+int APS5_VABI sceAjmBatchJobRun(AjmBatchInfo*, std::uint32_t, std::uint64_t, const void*, std::size_t, void*, std::size_t, void*, std::size_t);
+int APS5_VABI sceAjmBatchJobSetGaplessDecode(AjmBatchInfo*, std::uint32_t, const void*, int, void*);
+int APS5_VABI sceAjmBatchJobGetGaplessDecode(AjmBatchInfo*, std::uint32_t, void*);
+int APS5_VABI sceAjmBatchJobGetCodecInfo(AjmBatchInfo*, std::uint32_t, void*, std::size_t);
 int APS5_VABI sceAjmBatchStart(std::uint32_t, const AjmBatchInfo*, int, AjmBatchError*, std::uint32_t*);
 int APS5_VABI sceAjmBatchWait(std::uint32_t, std::uint32_t, std::uint32_t, AjmBatchError*);
 }
@@ -195,6 +201,126 @@ void TestMp3ParseFrame() {
     Require(sceAjmDecMp3ParseFrame(mpeg25Above64Kbps, 4, 0, &frame) == invalidParameter);
 }
 
+struct GaplessDecode {
+    std::uint32_t totalSamples;
+    std::uint16_t skipSamples;
+    std::uint16_t skippedSamples;
+};
+
+struct GaplessSideband {
+    std::int32_t result;
+    std::int32_t internalResult;
+    std::uint32_t totalSamples;
+    std::uint16_t skipSamples;
+    std::uint16_t skippedSamples;
+};
+
+struct At9CodecInfoSideband {
+    std::int32_t result;
+    std::int32_t internalResult;
+    std::uint32_t superframeSize;
+    std::uint32_t framesInSuperframe;
+    std::uint32_t nextFrameSize;
+    std::uint32_t frameSamples;
+};
+
+void Submit(std::uint32_t context, const AjmBatchInfo& info) {
+    std::uint32_t id = 0;
+    AjmBatchError error{};
+    Require(sceAjmBatchStart(context, &info, 0, &error, &id) == 0 && sceAjmBatchWait(context, id, 0, &error) == 0);
+}
+
+bool Refused(std::uint32_t context, const AjmBatchInfo& info) {
+    std::uint32_t id = 0;
+    AjmBatchError error{};
+    try {
+        static_cast<void>(sceAjmBatchStart(context, &info, 0, &error, &id));
+    } catch (const std::runtime_error&) {
+        return true;
+    }
+    return false;
+}
+
+void TestDecodeSingle(std::uint32_t context) {
+    std::uint32_t instance = 0;
+    Require(sceAjmInstanceCreate(context, 0, 0, &instance) == 0);
+    std::vector<std::uint8_t> batch(0x40);
+    std::vector<std::int16_t> pcm(1152 * 6);
+    AjmBatchInfo info{};
+    DecodeSideband sideband{};
+    Require(sceAjmBatchInitialize(batch.data(), batch.size(), &info) == 0);
+    Require(sceAjmBatchJobDecodeSingle(&info, instance, MP3_MONO, sizeof(MP3_MONO), pcm.data(), pcm.size() * sizeof(std::int16_t), &sideband) == 0);
+    Submit(context, info);
+    Require(sideband.result == 0 && sideband.inputConsumed == 96 && sideband.outputWritten == 1152 * 2 && sideband.totalDecodedSamples == 1152);
+    Require(sceAjmInstanceDestroy(context, instance) == 0);
+}
+
+void TestGaplessDecode(std::uint32_t context) {
+    std::uint32_t instance = 0;
+    Require(sceAjmInstanceCreate(context, 0, 0, &instance) == 0);
+    std::vector<std::uint8_t> batch(4096);
+    const GaplessDecode gapless{2000, 100, 0};
+    AjmBatchInfo info{};
+    std::int32_t setResult[2] = {-1, -1};
+    GaplessSideband before{-1, -1, 0, 0, 0xffff};
+    Require(sceAjmBatchInitialize(batch.data(), batch.size(), &info) == 0);
+    Require(sceAjmBatchJobSetGaplessDecode(&info, instance, &gapless, 1, setResult) == 0);
+    Require(sceAjmBatchJobGetGaplessDecode(&info, instance, &before) == 0);
+    Submit(context, info);
+    Require(setResult[0] == 0);
+    Require(before.result == 0 && before.internalResult == 0 && before.totalSamples == 2000 && before.skipSamples == 100 && before.skippedSamples == 0);
+
+    std::vector<std::int16_t> pcm(1152);
+    DecodeSideband decoded{};
+    GaplessSideband after{-1, -1, 0, 0, 0};
+    Require(sceAjmBatchInitialize(batch.data(), batch.size(), &info) == 0);
+    Require(sceAjmBatchJobDecodeSingle(&info, instance, MP3_MONO, sizeof(MP3_MONO), pcm.data(), pcm.size() * sizeof(std::int16_t), &decoded) == 0);
+    Require(sceAjmBatchJobGetGaplessDecode(&info, instance, &after) == 0);
+    Submit(context, info);
+    Require(decoded.result == 0 && decoded.inputConsumed == 96 && decoded.outputWritten == (1152 - 100) * 2);
+    Require(after.result == 0 && after.skippedSamples == 100);
+    Require(sceAjmInstanceDestroy(context, instance) == 0);
+}
+
+void TestCodecInfo(std::uint32_t context) {
+    std::uint32_t instance = 0;
+    Require(sceAjmInstanceCreate(context, 1, 0, &instance) == 0);
+    std::vector<std::uint8_t> batch(4096);
+    AjmBatchInfo info{};
+    At9CodecInfoSideband early{-1, -1, 0xaaaaaaaau, 0xaaaaaaaau, 0xaaaaaaaau, 0xaaaaaaaau};
+    Require(sceAjmBatchInitialize(batch.data(), batch.size(), &info) == 0);
+    Require(sceAjmBatchJobGetCodecInfo(&info, instance, &early, sizeof(early)) == 0);
+    Submit(context, info);
+    Require(early.result == 1 && early.superframeSize == 0xaaaaaaaau);
+
+    const std::uint8_t config[8] = {0xFE, 0x72, 0x1F, 0xF0};
+    std::int32_t initResult[2] = {-1, -1};
+    At9CodecInfoSideband codec{-1, -1, 0, 0, 0, 0};
+    At9CodecInfoSideband bounded{-1, -1, 0xaaaaaaaau, 0xaaaaaaaau, 0xaaaaaaaau, 0xaaaaaaaau};
+    Require(sceAjmBatchInitialize(batch.data(), batch.size(), &info) == 0);
+    Require(sceAjmBatchJobInitialize(&info, instance, config, sizeof(config), initResult) == 0);
+    Require(sceAjmBatchJobGetCodecInfo(&info, instance, &codec, sizeof(codec)) == 0);
+    Require(sceAjmBatchJobGetCodecInfo(&info, instance, &bounded, 2 * sizeof(std::int32_t)) == 0);
+    Submit(context, info);
+    Require(initResult[0] == 0);
+    Require(codec.result == 0 && codec.internalResult == 0 && codec.superframeSize == 1024 && codec.framesInSuperframe == 4 && codec.nextFrameSize == 1024 && codec.frameSamples == 256);
+    Require(bounded.result == 0 && bounded.superframeSize == 0xaaaaaaaau && bounded.frameSamples == 0xaaaaaaaau);
+
+    constexpr std::uint64_t runGetCodecInfo = 1ull << 11;
+    constexpr std::uint64_t runMultipleFrames = 1ull << 12;
+    std::uint8_t sideband[64] = {};
+    Require(sceAjmBatchInitialize(batch.data(), batch.size(), &info) == 0);
+    Require(sceAjmBatchJobRun(&info, instance, runGetCodecInfo | runMultipleFrames, nullptr, 0, nullptr, 0, sideband, sizeof(sideband)) == 0);
+    Require(Refused(context, info));
+    Require(sceAjmInstanceDestroy(context, instance) == 0);
+
+    Require(sceAjmInstanceCreate(context, 0, 0, &instance) == 0);
+    Require(sceAjmBatchInitialize(batch.data(), batch.size(), &info) == 0);
+    Require(sceAjmBatchJobGetCodecInfo(&info, instance, sideband, sizeof(sideband)) == 0);
+    Require(Refused(context, info));
+    Require(sceAjmInstanceDestroy(context, instance) == 0);
+}
+
 }
 
 int main() {
@@ -214,5 +340,8 @@ int main() {
     TestMp3ParseFrame();
     TestMp3(context);
     TestOpus(context);
+    TestDecodeSingle(context);
+    TestGaplessDecode(context);
+    TestCodecInfo(context);
     Require(sceAjmFinalize(context) == 0);
 }
