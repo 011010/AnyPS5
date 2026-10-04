@@ -19,6 +19,7 @@ using AgcDriver::Graphics::Require;
 using ShaderRecompiler::ShaderStage;
 
 constexpr std::uint32_t Threads = 32;
+constexpr std::uint32_t Wave64Threads = 64;
 constexpr std::uint32_t Inputs = 12;
 constexpr std::uint32_t Results = 16;
 constexpr std::uint32_t Width = 64;
@@ -76,7 +77,7 @@ alignas(256) constexpr std::array<std::uint32_t, Threads * Inputs> Input{
     0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x3f030000, 0x3f600000, 0x3f400000, 0x00000000,
     0x00000000, 0x00000000, 0x3a800000, 0x00000000, 0x00000000, 0x3a800000, 0x00000000, 0x00000000,
 };
-alignas(256) std::array<std::uint32_t, Threads * Inputs + Threads * Results> Buffer{};
+alignas(256) std::array<std::uint32_t, Wave64Threads * Inputs + Wave64Threads * Results> Buffer{};
 alignas(256) std::array<float, Width * Height * Depth> Texels{};
 
 alignas(256) constexpr std::array<std::uint32_t, 168> Code2D{
@@ -258,11 +259,28 @@ std::string Hex(std::uint32_t value) {
     return text;
 }
 
+std::uint32_t SourceRow(std::uint32_t tid) {
+    return tid < Threads ? tid : (tid - Threads + Threads / 2u) % Threads;
+}
+
+template <std::size_t CodeWords>
+std::array<std::uint32_t, CodeWords> MovedStores(const std::array<std::uint32_t, CodeWords>& code, std::uint32_t threads) {
+    auto moved = code;
+    for (auto& word : moved) {
+        if ((word & 0xfffff000u) == 0xe0701000u && (word & 0xfffu) >= Threads * Inputs * 4u) word += (threads - Threads) * Inputs * 4u;
+    }
+    return moved;
+}
+
 template <std::size_t CodeWords, std::size_t Cases>
-void Run(AgcDriver::VulkanDevice& device, const std::array<std::uint32_t, CodeWords>& code, std::uint32_t type, std::uint32_t height, std::uint32_t depth,
+void Run(AgcDriver::VulkanDevice& device, const std::array<std::uint32_t, CodeWords>& source, std::uint32_t threads, std::uint32_t type, std::uint32_t height, std::uint32_t depth,
          const std::array<const char*, Cases>& names, const std::array<bool, Cases>& masked, const std::array<std::uint32_t, Threads * Cases>& expected) {
-    std::copy(Input.begin(), Input.end(), Buffer.begin());
-    std::fill(Buffer.begin() + Threads * Inputs, Buffer.end(), 0xdeadbeefu);
+    alignas(256) static std::array<std::uint32_t, CodeWords> code;
+    code = MovedStores(source, threads);
+    for (std::uint32_t tid = 0; tid < threads; ++tid) {
+        std::copy_n(Input.begin() + SourceRow(tid) * Inputs, Inputs, Buffer.begin() + tid * Inputs);
+    }
+    std::fill(Buffer.begin() + threads * Inputs, Buffer.end(), 0xdeadbeefu);
     for (std::uint32_t z = 0; z < depth; ++z) {
         for (std::uint32_t y = 0; y < height; ++y) {
             for (std::uint32_t x = 0; x < Width; ++x) {
@@ -280,10 +298,10 @@ void Run(AgcDriver::VulkanDevice& device, const std::array<std::uint32_t, CodeWo
     std::copy(sampler.begin(), sampler.end(), userData.begin() + 12);
     const std::span<const std::uint32_t> span(code);
     const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(span.data()), std::as_bytes(span)}}};
-    const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0u, {false, false, false}, false, 1};
+    const ShaderRecompiler::ShaderComputeStageInfo compute{{threads, 1, 1}, 0u, {false, false, false}, false, 1};
     ShaderRecompiler::RecompileRequest request{
         {ShaderStage::Compute, reinterpret_cast<std::uintptr_t>(span.data()), span, 0, {}},
-        {32, 0, userData, compute, std::nullopt, std::nullopt, memory},
+        {threads, 0, userData, compute, std::nullopt, std::nullopt, memory},
         device.Target(),
         {0, 0, 0, 128}
     };
@@ -291,13 +309,13 @@ void Run(AgcDriver::VulkanDevice& device, const std::array<std::uint32_t, CodeWo
     const auto result = ShaderRecompiler::Recompile(request);
     device.Dispatch(result, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(span.data()));
     device.WaitIdle();
-    for (std::uint32_t tid = 0; tid < Threads; ++tid) {
+    for (std::uint32_t tid = 0; tid < threads; ++tid) {
         for (std::uint32_t k = 0; k < Cases; ++k) {
-            if (masked[k] && device.Target().subgroupSize < Threads) continue;
-            const auto actual = Buffer[Threads * Inputs + tid * Results + k];
-            const auto wanted = expected[tid * Cases + k];
+            if (masked[k] && (device.Target().subgroupSize < Threads || tid >= Threads)) continue;
+            const auto actual = Buffer[threads * Inputs + tid * Results + k];
+            const auto wanted = expected[SourceRow(tid) * Cases + k];
             const bool close = std::fabs(std::bit_cast<float>(actual) - std::bit_cast<float>(wanted)) <= 1.0f / 64.0f;
-            Require(close, std::string(names[k]) + ": lane " + std::to_string(tid) + " is " + Hex(actual) + ", expected " + Hex(wanted));
+            Require(close, std::string(names[k]) + ": wave" + std::to_string(threads) + " lane " + std::to_string(tid) + " is " + Hex(actual) + ", expected " + Hex(wanted));
         }
     }
 }
@@ -311,9 +329,13 @@ int main() {
         if (device->Target().subgroupSize < Threads) {
             std::printf("EXEC-masked cases skipped, subgroup size %u cannot hold a wave32\n", device->Target().subgroupSize);
         }
-        Run(*device, Code2D, 9u, Height, 1u, Names2D, Masked2D, Expected2D);
-        Run(*device, Code3D, 10u, Height, Depth, Names3D, Masked3D, Expected3D);
-        Run(*device, Code1D, 8u, 1u, 1u, Names1D, Masked1D, Expected1D);
+        std::vector<std::uint32_t> waves{Threads};
+        if (device->Target().subgroupSize >= Threads) waves.push_back(Wave64Threads);
+        for (const auto threads : waves) {
+            Run(*device, Code2D, threads, 9u, Height, 1u, Names2D, Masked2D, Expected2D);
+            Run(*device, Code3D, threads, 10u, Height, Depth, Names3D, Masked3D, Expected3D);
+            Run(*device, Code1D, threads, 8u, 1u, 1u, Names1D, Masked1D, Expected1D);
+        }
         std::puts("image sample derivatives tests passed");
         return 0;
     } catch (const std::exception& error) {

@@ -118,12 +118,14 @@ IrValue* TranslationContext::makeImageAddress(const RdnaInstruction& inst, const
         IrValue& active = ir.BitwiseAnd(ir.ShiftRightLogical(word, ir.BitwiseAnd(quad, ir.Constant(31u))), ir.Constant(15u));
         IrValue& first = ir.Emit(IrOpcode::FindILsb32, IrType::U32, {&active});
         IrValue& source = ir.Select(ir.INotEqual(active, ir.Constant(0u)), ir.IAdd(quad, first), lane);
+        IrValue& address = ir.ShiftLeftLogical(source, ir.Constant(2u));
+        IrValue& exec = ir.GetExec();
         const std::uint32_t gradientStart = std::popcount(inst.imageSampleFlags & (RdnaImageSampleFlagOffset | RdnaImageSampleFlagBias | RdnaImageSampleFlagCompare));
         const std::uint32_t gradients = 2u * ((inst.imageSampleFlags & RdnaImageSampleGradientCountMask) >> RdnaImageSampleGradientCountShift);
         const std::uint32_t firstDword = GetRdnaImageAddressComponentLayout(inst.imageSampleFlags, gradientStart).bitOffset / 32u;
         const std::uint32_t lastDword = GetRdnaImageAddressComponentLayout(inst.imageSampleFlags, gradientStart + gradients - 1u).bitOffset / 32u;
         for (std::uint32_t index = firstDword; index <= lastDword; ++index) {
-            components[index] = &ir.Emit(IrOpcode::ReadLane, IrType::U32, {components[index], &source});
+            components[index] = &ir.Emit(IrOpcode::BpermuteU32, IrOpcodeType(IrOpcode::BpermuteU32), {components[index], &address, &exec});
         }
     }
     return &ir.Emit(IrOpcode::MakeImageAddress, IrOpcodeType(IrOpcode::MakeImageAddress),
