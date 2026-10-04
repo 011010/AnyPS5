@@ -448,6 +448,55 @@ std::uint32_t UnpackImageTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess
     return result;
 }
 
+std::uint32_t PackedImageTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t texel) {
+    auto& state = ctx.state;
+    const auto format = access.image.packedFormat;
+    if (format == IrBufferFormat::Invalid || access.table.mapped != 0 || access.image.depthBits || access.image.conversionFormat != IrBufferFormat::Invalid) {
+        ctx.Fail(access.inst, "reads packed texels from an image without a packed format");
+    }
+    const auto info = GetFormatInfo(format);
+    std::uint32_t texelBits = 0;
+    for (std::uint32_t component = 0; component < info.componentCount; component++) {
+        const auto bits = info.componentBits[component];
+        const bool exact = info.type == SpirvFormatComponentType::Uint || info.type == SpirvFormatComponentType::Sint || (info.type == SpirvFormatComponentType::Unorm && bits <= 16u) || (info.type == SpirvFormatComponentType::Float && bits == 32u);
+        if (info.packedBitfield || !exact) {
+            ctx.Fail(access.inst, "reads packed texels of a format whose bits are not recoverable from the view");
+        }
+        texelBits += bits;
+    }
+    const auto numericClass = access.image.numericClass;
+    std::uint32_t words[4] = {ConstantU32(state, 0), ConstantU32(state, 0), ConstantU32(state, 0), ConstantU32(state, 0)};
+    std::uint32_t position = 0;
+    for (std::uint32_t component = 0; component < info.componentCount; component++) {
+        const auto bits = info.componentBits[component];
+        const auto scalar = state.module.AllocateId();
+        state.module.AddFunction(spv::OpCompositeExtract, ImageScalarType(state, numericClass), scalar, texel, component);
+        std::uint32_t value;
+        if (info.type == SpirvFormatComponentType::Unorm) {
+            const auto scaled = Binary(state, spv::OpFMul, TypeF32(state), scalar, ConstantF32Value(state, static_cast<float>((1u << bits) - 1u)));
+            value = Unary(state, spv::OpConvertFToU, TypeU32(state), Binary(state, spv::OpFAdd, TypeF32(state), scaled, ConstantF32Value(state, 0.5f)));
+        } else {
+            value = SampledComponentBits(ctx, scalar, numericClass);
+        }
+        if (bits < 32u) {
+            value = Binary(state, spv::OpBitwiseAnd, TypeU32(state), value, ConstantU32(state, (1u << bits) - 1u));
+        }
+        const auto word = position / 32u;
+        if (position % 32u != 0u) {
+            value = Binary(state, spv::OpShiftLeftLogical, TypeU32(state), value, ConstantU32(state, position % 32u));
+        }
+        words[word] = Binary(state, spv::OpBitwiseOr, TypeU32(state), words[word], value);
+        position += bits;
+    }
+    if (access.mem.dataSigned && texelBits < 32u) {
+        const auto shift = ConstantU32(state, 32u - texelBits);
+        words[0] = Binary(state, spv::OpShiftRightArithmetic, TypeU32(state), Binary(state, spv::OpShiftLeftLogical, TypeU32(state), words[0], shift), shift);
+    }
+    const auto result = state.module.AllocateId();
+    state.module.AddFunction(spv::OpCompositeConstruct, TypeU32Vector(state, 4), result, words[0], words[1], words[2], words[3]);
+    return result;
+}
+
 std::uint32_t UnpackImageGather(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t gathered) {
     auto& state = ctx.state;
     const auto info = ImageConversionFormat(access.image);
@@ -620,6 +669,9 @@ void EmitReadOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
             state.module.AddFunction(spv::OpImageFetch, ImageVectorType(state, numericClass, 4), color, descriptor, coord, spv::ImageOperandsSampleMask, AddressU32(ctx, access, dimensionInfo.coordinateComponents));
         } else {
             state.module.AddFunction(spv::OpImageFetch, ImageVectorType(state, numericClass, 4), color, descriptor, coord, spv::ImageOperandsLodMask, LodU32(ctx, access));
+        }
+        if (access.mem.imagePacked) {
+            return PackedImageTexel(ctx, access, color);
         }
         return TableResult(ctx, access, ResultVector(ctx, access, UnpackImageTexel(ctx, access, color), numericClass, false, false));
     }));

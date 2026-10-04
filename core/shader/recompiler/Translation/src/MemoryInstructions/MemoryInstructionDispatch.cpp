@@ -377,6 +377,10 @@ bool TranslationContext::emitMemory(const RdnaInstruction& inst) {
         return imageAtomic(inst, IrOpcode::ImageAtomicDec32);
     case RdnaOpcode::ImageLoad:
     case RdnaOpcode::ImageLoadMip:
+    case RdnaOpcode::ImageLoadPck:
+    case RdnaOpcode::ImageLoadPckSgn:
+    case RdnaOpcode::ImageLoadMipPck:
+    case RdnaOpcode::ImageLoadMipPckSgn:
         return imageLoad(inst);
     case RdnaOpcode::ImageStore:
     case RdnaOpcode::ImageStoreMip:

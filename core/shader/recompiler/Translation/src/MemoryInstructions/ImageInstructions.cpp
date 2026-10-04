@@ -34,7 +34,9 @@ MemoryInfo imageMemoryInfoFromInstruction(const RdnaInstruction& inst) {
     memory.imageSampleFlags = inst.imageSampleFlags;
     memory.imageDimension = inst.imageDimension;
     memory.imageAddressComponents = inst.imageAddressComponents;
-    memory.imageHasMip = inst.op == RdnaOpcode::ImageLoadMip || inst.op == RdnaOpcode::ImageStoreMip;
+    memory.imageHasMip = inst.op == RdnaOpcode::ImageLoadMip || inst.op == RdnaOpcode::ImageStoreMip || inst.op == RdnaOpcode::ImageLoadMipPck || inst.op == RdnaOpcode::ImageLoadMipPckSgn;
+    memory.imagePacked = inst.op == RdnaOpcode::ImageLoadPck || inst.op == RdnaOpcode::ImageLoadPckSgn || inst.op == RdnaOpcode::ImageLoadMipPck || inst.op == RdnaOpcode::ImageLoadMipPckSgn;
+    memory.dataSigned = inst.op == RdnaOpcode::ImageLoadPckSgn || inst.op == RdnaOpcode::ImageLoadMipPckSgn;
     memory.imageR128 = inst.imageR128;
     return memory;
 }
