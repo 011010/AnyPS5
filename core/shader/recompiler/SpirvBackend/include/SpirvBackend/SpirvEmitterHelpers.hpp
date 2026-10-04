@@ -78,7 +78,7 @@ void EmitMeshEntryPoint(SpirvEmitterState& state);
 void EmitMeshAllocate(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t MeshOutputPointer(SpirvEmitterState& state, StageOutputKind kind, std::uint32_t index = 0);
 std::uint32_t MeshPrimitivePointer(SpirvEmitterState& state);
-DppTargetLane EmitDppQuadPermTargetLane(SpirvEmitterState& state, std::uint32_t subid, std::uint32_t control);
+DppTargetLane EmitDppGroupPermTargetLane(SpirvEmitterState& state, std::uint32_t subid, std::uint32_t control, std::uint32_t laneBits);
 DppTargetLane EmitDppRowShiftTargetLane(SpirvEmitterState& state, std::uint32_t subid, std::uint32_t amount, bool left);
 DppTargetLane EmitDppRowRotateRightTargetLane(SpirvEmitterState& state, std::uint32_t subid, std::uint32_t amount);
 DppTargetLane EmitDppMirrorTargetLane(SpirvEmitterState& state, std::uint32_t subid, bool halfRow);

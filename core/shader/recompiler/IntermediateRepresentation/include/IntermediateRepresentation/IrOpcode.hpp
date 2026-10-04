@@ -440,7 +440,8 @@ struct ImageOpcodeInfo {
 };
 
 struct DppMoveFlags {
-    std::uint16_t control = 0;
+    static constexpr std::uint32_t Lanes8 = 0x1000000u;
+    std::uint32_t control = 0;
     std::uint8_t rowMask = 0xf;
     std::uint8_t bankMask = 0xf;
     bool fetchInactive = false;

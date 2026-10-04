@@ -5,6 +5,15 @@
 
 namespace ShaderRecompiler {
 
+namespace {
+
+DppMoveFlags dppFlags(const RdnaOperand& operand) {
+    const auto control = operand.dpp8 ? DppMoveFlags::Lanes8 | operand.dppCtrl : operand.dppCtrl;
+    return {control, static_cast<std::uint8_t>(operand.dppRowMask), static_cast<std::uint8_t>(operand.dppBankMask), operand.dppFetchInactive, operand.dppBoundCtrl};
+}
+
+}
+
 const RdnaOperand& TranslationContext::sourceAt(const RdnaInstruction& inst, std::uint32_t index) {
     switch (index) {
         case 0u: return inst.source0;
@@ -26,6 +35,7 @@ RdnaOperand TranslationContext::destinationOperand(const RdnaInstruction& inst) 
             continue;
         }
         destination.dpp = true;
+        destination.dpp8 = source.dpp8;
         destination.dppCtrl = source.dppCtrl;
         destination.dppRowMask = source.dppRowMask;
         destination.dppBankMask = source.dppBankMask;
@@ -111,6 +121,7 @@ RdnaOperand TranslationContext::plainOperand(const RdnaOperand& operand) {
     result.dppFetchInactive = false;
     result.dppBoundCtrl = false;
     result.dpp = false;
+    result.dpp8 = false;
     return result;
 }
 
@@ -223,7 +234,7 @@ void TranslationContext::writeOperand(const RdnaOperand& operand, IrValue* value
 
 IrU32 TranslationContext::applyBitSourceModifiers(const RdnaOperand& operand, IrU32 value) {
     if (operand.dpp) {
-        const DppMoveFlags flags{static_cast<std::uint16_t>(operand.dppCtrl), static_cast<std::uint8_t>(operand.dppRowMask), static_cast<std::uint8_t>(operand.dppBankMask), operand.dppFetchInactive, operand.dppBoundCtrl};
+        const auto flags = dppFlags(operand);
         value = IrU32(ir.Emit(IrOpcode::DppMoveU32, IrType::U32, {&value.Value(), &ir.GetExec()}, flags));
     }
     if (operand.sdwaSel != 6u) {
@@ -355,7 +366,7 @@ void TranslationContext::writeRawU32(const RdnaOperand& operand, IrU32 value) {
             const VectorReg reg = static_cast<VectorReg>(operand.reg);
             IrValue& old = ir.GetVectorReg(reg);
             if (operand.dpp) {
-                const DppMoveFlags flags{static_cast<std::uint16_t>(operand.dppCtrl), static_cast<std::uint8_t>(operand.dppRowMask), static_cast<std::uint8_t>(operand.dppBankMask), operand.dppFetchInactive, operand.dppBoundCtrl};
+                const auto flags = dppFlags(operand);
                 value = IrU32(ir.Emit(IrOpcode::DppUpdateU32, IrType::U32, {&value.Value(), &old, &ir.GetExec()}, flags));
             } else {
                 value = IrU32(ir.Select(ir.GetExec(), value.Value(), old));
