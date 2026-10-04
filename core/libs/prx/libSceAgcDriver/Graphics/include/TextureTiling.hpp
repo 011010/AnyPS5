@@ -65,6 +65,7 @@ struct SurfaceGeometry {
     std::int32_t CopyDepth(std::uint32_t layer) const { return imageDepth > 1 ? static_cast<std::int32_t>(layer) : 0; }
 };
 SurfaceGeometry DescribeSurface(const GuestTextureResource& descriptor);
+bool LevelsFitAllocation(const GuestTextureResource& surface, std::uint32_t levels);
 
 }
 
