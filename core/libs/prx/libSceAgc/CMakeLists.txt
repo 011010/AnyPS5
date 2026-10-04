@@ -113,3 +113,22 @@ if(BUILD_TESTING)
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()
+
+add_test_executable(agc_dma_data_tests EXCLUDE_FROM_ALL
+        tests/DmaData.cpp
+        Command/src/Packet.cpp
+        Command/src/Memory.cpp
+        Acb/src/Memory.cpp
+        DcbFlow/src/Memory.cpp
+)
+target_include_directories(agc_dma_data_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_dma_data_tests PRIVATE libc)
+configure_windows_unwind(agc_dma_data_tests)
+if(BUILD_TESTING)
+    set_target_properties(agc_dma_data_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME agc_dma_data_tests COMMAND agc_dma_data_tests)
+    if(WIN32)
+        set_tests_properties(agc_dma_data_tests PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
