@@ -191,7 +191,7 @@ private:
     bool vFfbh32(const RdnaInstruction& inst, bool sign);
     bool sFlbitI32B64(const RdnaInstruction& inst, bool sign);
     bool integer24(const RdnaInstruction& inst, bool sign, bool addend, bool high = false);
-    bool vMadU64U32(const RdnaInstruction& inst);
+    bool vMad64x32(const RdnaInstruction& inst, bool sign);
     bool vSadU32(const RdnaInstruction& inst);
     IrU32 byteSad(const IrU32& lhs, const IrU32& rhs, std::uint32_t fieldBits, bool masked);
     bool subwordSad(const RdnaInstruction& inst, std::uint32_t fieldBits, std::uint32_t sumShift, bool masked);
