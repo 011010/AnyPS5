@@ -339,20 +339,28 @@ LONG WINAPI ReportCrash(EXCEPTION_POINTERS* info) {
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-void ReportThreadContext(const CONTEXT* context, DWORD threadId, const char* name) {
+std::size_t CaptureFrames(const CONTEXT* context, std::uint64_t* frames, std::size_t capacity) {
+    std::size_t count = 0;
+    std::uint64_t frame = context->Rbp;
+    while (count < capacity && frame != 0 && (frame & 7) == 0 && IsReadable(frame) && IsReadable(frame + 8)) {
+        const auto returnAddress = reinterpret_cast<const std::uint64_t*>(frame)[1];
+        if (!IsExecutable(returnAddress)) break;
+        frames[count++] = returnAddress;
+        const auto next = reinterpret_cast<const std::uint64_t*>(frame)[0];
+        if (next <= frame) break;
+        frame = next;
+    }
+    return count;
+}
+
+void ReportThreadContext(const CONTEXT* context, DWORD threadId, const char* name, const std::uint64_t* frames, std::size_t frameCount) {
     char line[MAX_PATH + 64];
     Report("  thread %lu '%s': rip ", static_cast<unsigned long>(threadId), name ? name : "");
     DescribeAddress(context->Rip, line, sizeof(line));
     Report("%s rsp 0x%016llx rbp 0x%016llx\n", line, static_cast<unsigned long long>(context->Rsp), static_cast<unsigned long long>(context->Rbp));
-    std::uint64_t frame = context->Rbp;
-    for (int depth = 0; depth < 12 && frame != 0 && (frame & 7) == 0 && IsReadable(frame) && IsReadable(frame + 8); ++depth) {
-        const auto returnAddress = reinterpret_cast<const std::uint64_t*>(frame)[1];
-        if (!IsExecutable(returnAddress)) break;
-        DescribeAddress(returnAddress, line, sizeof(line));
-        Report("    #%d %s\n", depth, line);
-        const auto next = reinterpret_cast<const std::uint64_t*>(frame)[0];
-        if (next <= frame) break;
-        frame = next;
+    for (std::size_t depth = 0; depth < frameCount; ++depth) {
+        DescribeAddress(frames[depth], line, sizeof(line));
+        Report("    #%llu %s\n", static_cast<unsigned long long>(depth), line);
     }
 }
 
@@ -367,13 +375,19 @@ void ReportAllThreads() {
         DWORD id;
         char name[128];
         CONTEXT context;
+        std::uint64_t frames[12];
+        std::size_t frameCount;
     };
     static CapturedThread captured[128];
     std::size_t capturedCount = 0;
+    std::size_t skippedCount = 0;
     if (Thread32First(snapshot, &entry)) {
         do {
             if (entry.th32OwnerProcessID != pid || entry.th32ThreadID == current) continue;
-            if (capturedCount >= sizeof(captured) / sizeof(captured[0])) break;
+            if (capturedCount >= sizeof(captured) / sizeof(captured[0])) {
+                ++skippedCount;
+                continue;
+            }
             HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, entry.th32ThreadID);
             if (!thread) continue;
             if (SuspendThread(thread) == static_cast<DWORD>(-1)) {
@@ -383,6 +397,8 @@ void ReportAllThreads() {
             CONTEXT context{};
             context.ContextFlags = CONTEXT_FULL;
             const BOOL haveContext = GetThreadContext(thread, &context);
+            std::uint64_t frames[12] = {};
+            const std::size_t frameCount = haveContext ? CaptureFrames(&context, frames, sizeof(frames) / sizeof(frames[0])) : 0;
             ResumeThread(thread);
             char name[128] = "";
             PWSTR description = nullptr;
@@ -395,14 +411,17 @@ void ReportAllThreads() {
             captured[capturedCount].id = entry.th32ThreadID;
             std::memcpy(captured[capturedCount].name, name, sizeof(captured[capturedCount].name));
             captured[capturedCount].context = context;
+            std::memcpy(captured[capturedCount].frames, frames, sizeof(captured[capturedCount].frames));
+            captured[capturedCount].frameCount = frameCount;
             ++capturedCount;
         } while (Thread32Next(snapshot, &entry));
     }
     CloseHandle(snapshot);
     Report("  all threads:\n");
     for (std::size_t i = 0; i < capturedCount; ++i) {
-        ReportThreadContext(&captured[i].context, captured[i].id, captured[i].name);
+        ReportThreadContext(&captured[i].context, captured[i].id, captured[i].name, captured[i].frames, captured[i].frameCount);
     }
+    if (skippedCount != 0) Report("  %llu further thread(s) left out\n", static_cast<unsigned long long>(skippedCount));
 }
 
 // abort() and the UCRT's invalid-parameter path end the process with a silent fast fail
