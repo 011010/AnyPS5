@@ -92,7 +92,7 @@ int main() {
         Run(*device);
         Check();
         ExpectRefused(*device, 0xb9141901u, "the MODE denormal fields");
-        ExpectRefused(*device, 0xb914f804u, "HW_ID");
+        ExpectRefused(*device, 0xb914f804u, "hardware register 4");
         std::puts("s_getreg_b32 tests passed");
         return 0;
     } catch (const std::exception& error) {

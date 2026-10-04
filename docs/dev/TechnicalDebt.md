@@ -55,7 +55,7 @@ Throughout the project, every function at every stage either **does exactly what
 
 ### Functional
 
-- The shader recompiler [ignores `s_setreg_b32`](../../core/shader/recompiler/Translation/src/ScalarInstructions.cpp): writes to MODE (float rounding and denormal controls) and the other hardware registers have no effect.
+- The shader recompiler [ignores `s_setreg_b32`](../../core/shader/recompiler/Translation/src/ScalarInstructions.cpp): writes to MODE (float rounding and denormal controls) and the other hardware registers have no effect, and `s_getreg_b32` reads of the MODE round fields report round to nearest even even after `s_setreg_b32` wrote another mode. The initial round mode from the shader's program registers is not read either.
 - [Shader recompilation](../../core/shader/recompiler/Recompiler.cpp) currently occurs right before it was transferred to Vulkan with caching, but should be moved to the [relinker](../../core/relinker/main.cpp) stage. For this purpose, [shader/recompiler](../../core/shader/recompiler) was written completely independently from [libs/prx](../../core/libs/prx).
 - [v_fma_f64](../../core/shader/recompiler/SpirvBackend/src/SpirvAlu/SpirvAluEmitterFloat64.cpp) is fused exactly only for normal inputs: with a subnormal input it is a separate multiply and add, which rounds twice.
 - The executable file that [relinker](../../core/relinker/elfpatcher/src/windows/WindowsPeWriter.cpp) generates opens the console when launched, which is inconvenient for playability.
