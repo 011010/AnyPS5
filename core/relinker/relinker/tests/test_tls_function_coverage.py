@@ -60,8 +60,8 @@ def displacement_load(register, displacement, flags, round_trip=False):
     immediate(1, 0x2468ace013579bdf)
     emit(bytes.fromhex("48 89 08"))
     if displacement == 0:
-        emit(fs_load(2, 8))
-        immediate(1, positive[8])
+        emit(fs_load(2, 40))
+        immediate(1, positive[40])
         emit(bytes.fromhex("48 39 ca"))
         check()
     else:
@@ -115,8 +115,8 @@ def displacement_cases():
         if register == 4:
             continue
         for flags in (0x202, 0xad7):
-            for displacement, round_trip in ((0, False), (8, False), (16, False), (40, False),
-                                             (-64, False), (-40, False), (-8, False), (40, True)):
+            for displacement, round_trip in ((0, False), (40, False), (-64, False), (-40, False),
+                                             (-8, False), (40, True)):
                 offset, body = displacement_load(register, displacement, flags, round_trip)
                 image = make_image("register", "unwind", body=body)
                 struct.pack_into("<IIQQQQQQ", image, 176, 7, 4, 0x800, 0x800, 0x800, 48, 48, 32)
@@ -129,12 +129,12 @@ def displacement_cases():
 
 def displacement_bounds_cases():
     for register in (0, 12):
-        for displacement in (0x30, 0x2c, -65, -0x80000000, 0x7fffffff):
+        for displacement in (1, 8, 0x10, 0x20, 0x27, 0x29, 0x2c, 0x30, -65, -0x80000000, 0x7fffffff):
             image = make_image("register", "unwind", body=fs_load(register, displacement) + b"\xc3")
             struct.pack_into("<IIQQQQQQ", image, 176, 7, 4, 0x800, 0x800, 0x800, 48, 48, 32)
             if register == 12:
                 image[176:232], image[288:344] = image[288:344], image[176:232]
-            error = f"Windows guest TLS load displacement {displacement} is outside the thread TLS block"
+            error = f"Windows guest TLS load displacement {displacement} is not in the thread TLS block, 0 or the stack guard at 0x28"
             yield f"displacement-bounds-{register}-{displacement}", image, error
 
 
