@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""Suggest real names for Unknown NID stubs from the public hash-verified database.
-
-Reads every APS5_EXPORT("NID", *Unknown*) in core/, looks the NID up in the
-community NID database (zecoxao/sce_symbols aerolib.csv, downloaded once into
-a local cache) and prints the verified real name plus what already exists in
-the tree. Every suggestion can be re-verified with --verify, which recomputes
-each NID with the project's own Nid::Compute algorithm (SHA-1 + salt).
-
-Usage:
-    python tools/nid_names.py [--db PATH] [--nid NID ...] [--verify] [--json]
-"""
 import argparse
 import hashlib
 import json
@@ -23,13 +12,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PRX = ROOT / "core" / "libs" / "prx"
 DB_URL = ("https://raw.githubusercontent.com/zecoxao/sce_symbols"
-          "/main/aerolib.csv")
+          "/2883963a0a514ba6e77407a08ef4730a65e88254/aerolib.csv")
 DEFAULT_CACHE = Path(tempfile.gettempdir()) / "anyps5-nid-db" / "aerolib.csv"
 
 CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-"
 SUFFIX = bytes([0x51, 0x8D, 0x64, 0xA6, 0x35, 0xDE, 0xD8, 0xC1,
                 0xE6, 0xB0, 0x39, 0xB1, 0xC3, 0xE5, 0x52, 0x30])
 ALIAS = re.compile(r'APS5_EXPORT\("([A-Za-z0-9+\-]{11})",\s*(\w*[Uu]nknown\w*)\)')
+DEFINITION = re.compile(r"\bAPS5_VABI\s+(\w+)\s*\([^;{]*\)\s*(?:noexcept\s*)?\{")
+NID_POSTFIX = "_nid_postfix"
 
 
 def compute_nid(symbol):
@@ -80,8 +71,11 @@ def collect_real_names():
             text = path.read_text(errors="replace")
         except OSError:
             continue
-        for match in re.finditer(r"\b([A-Za-z_]\w*?)_nid_postfix\b", text):
-            names.add(match.group(1))
+        for match in DEFINITION.finditer(text):
+            name = match.group(1)
+            names.add(name)
+            if name.endswith(NID_POSTFIX):
+                names.add(name[:-len(NID_POSTFIX)])
     return names
 
 
@@ -92,8 +86,6 @@ def main():
                         help="NID database CSV (downloaded to a cache dir by default)")
     parser.add_argument("--nid", nargs="*", default=[],
                         help="resolve only these NIDs instead of scanning the tree")
-    parser.add_argument("--verify", action="store_true",
-                        help="recompute every suggested NID and fail on mismatch")
     parser.add_argument("--json", action="store_true",
                         help="emit machine-readable JSON")
     args = parser.parse_args()
@@ -113,7 +105,7 @@ def main():
         suggestion = db.get(nid, "")
         status = "unknown"
         if suggestion:
-            if args.verify and compute_nid(suggestion) != nid:
+            if compute_nid(suggestion) != nid:
                 status = "MISMATCH"
                 failures += 1
             elif suggestion in real_names:
