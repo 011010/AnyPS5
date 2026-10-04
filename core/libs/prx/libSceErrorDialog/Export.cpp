@@ -4,6 +4,7 @@
 #include <mutex>
 
 #include "SceTypes.hpp"
+#include "HitLog.hpp"
 #include "prx/libc/include/General.hpp"
 
 #ifdef _WIN32
@@ -57,6 +58,11 @@ int APS5_VABI sceErrorDialogOpen(const void* param) {
  std::int32_t size = 0;
  std::memcpy(&size, param, sizeof(size));
  if (static_cast<std::size_t>(size) != kParamSize) return kErrParam;
+ std::int32_t errorCode = 0;
+ std::int32_t userId = 0;
+ std::memcpy(&errorCode, static_cast<const std::uint8_t*>(param) + 4, sizeof(errorCode));
+ std::memcpy(&userId, static_cast<const std::uint8_t*>(param) + 8, sizeof(userId));
+ APS5_HIT("ERRORDIALOG", "open: error_code=0x%08X user_id=%d", errorCode, userId);
  g_status = kStatusRunning;
  return kErrOk;
 }
