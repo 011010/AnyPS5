@@ -1102,6 +1102,15 @@ std::uint32_t AtomicDecrement(SpirvEmitterState& state, std::uint32_t old, std::
     return Select(state, TypeU32(state), wrap, limit, next);
 }
 
+std::uint32_t AtomicFloatMinMax(SpirvEmitterState& state, std::uint32_t old, std::uint32_t source, bool maxValue) {
+    return AtomicFloatBits{state, false}.minMax(old, source, maxValue);
+}
+
+std::uint32_t AtomicFloatCompareSwap(SpirvEmitterState& state, std::uint32_t old, std::uint32_t desired, std::uint32_t comparator) {
+    const AtomicFloatBits bits{state, false};
+    return bits.select(bits.equal(old, comparator), desired, old);
+}
+
 std::uint32_t EmitReadConst(SpirvValueEmitContext& ctx, const IrValue& inst) {
     auto& state = ctx.state;
     if (state.flattenedSrtVariable == 0) {

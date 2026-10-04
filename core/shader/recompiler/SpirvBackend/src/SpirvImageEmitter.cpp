@@ -655,6 +655,17 @@ void EmitAtomicOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
                 return opcode == IrOpcode::ImageAtomicInc32 ? AtomicIncrement(state, current, value) : AtomicDecrement(state, current, value);
             });
         }
+        if (opcode == IrOpcode::ImageAtomicFMin32 || opcode == IrOpcode::ImageAtomicFMax32) {
+            return AtomicUpdate(state, pointer, ResourceKind::Image, [&](std::uint32_t current) {
+                return AtomicFloatMinMax(state, current, value, opcode == IrOpcode::ImageAtomicFMax32);
+            });
+        }
+        if (opcode == IrOpcode::ImageAtomicFCmpSwap32) {
+            const auto comparator = ctx.Arg(access.inst, 3);
+            return AtomicUpdate(state, pointer, ResourceKind::Image, [&](std::uint32_t current) {
+                return AtomicFloatCompareSwap(state, current, value, comparator);
+            });
+        }
         const auto old = state.module.AllocateId();
         if (opcode == IrOpcode::ImageAtomicCmpSwap32) {
             state.module.AddFunction(spv::OpAtomicCompareExchange, TypeU32(state), old, pointer, ConstantU32(state, spv::ScopeDevice), ConstantU32(state, spv::MemorySemanticsMaskNone), ConstantU32(state, spv::MemorySemanticsMaskNone), value, ctx.Arg(access.inst, 3));
@@ -940,6 +951,9 @@ void EmitImage(SpirvValueEmitContext& ctx, const IrValue& inst) {
         case IrOpcode::ImageAtomicSMax32:
         case IrOpcode::ImageAtomicInc32:
         case IrOpcode::ImageAtomicDec32:
+        case IrOpcode::ImageAtomicFCmpSwap32:
+        case IrOpcode::ImageAtomicFMin32:
+        case IrOpcode::ImageAtomicFMax32:
             EmitAtomicOp(ctx, access);
             return;
         default:
@@ -1032,6 +1046,18 @@ void EmitImageAtomicInc32(SpirvValueEmitContext& ctx, const IrValue& inst) {
 }
 
 void EmitImageAtomicDec32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicFCmpSwap32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicFMin32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicFMax32(SpirvValueEmitContext& ctx, const IrValue& inst) {
     EmitImage(ctx, inst);
 }
 

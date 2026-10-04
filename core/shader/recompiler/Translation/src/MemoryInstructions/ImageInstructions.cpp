@@ -76,7 +76,7 @@ bool TranslationContext::imageAtomic(const RdnaInstruction& inst, IrOpcode opcod
     const IrU32 value = readU32(inst.destination);
     IrValue& exec = ir.GetExec();
     IrValue* result;
-    if (opcode == IrOpcode::ImageAtomicCmpSwap32) {
+    if (opcode == IrOpcode::ImageAtomicCmpSwap32 || opcode == IrOpcode::ImageAtomicFCmpSwap32) {
         const IrU32 comparator = readU32(offsetOperand(inst.destination, 1u));
         result = &ir.Emit(opcode, IrOpcodeType(opcode), {resource, address, &value.Value(), &comparator.Value(), &exec}, flags);
     } else {
