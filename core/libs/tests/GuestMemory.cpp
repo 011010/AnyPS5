@@ -172,6 +172,9 @@ static void CheckFixedVirtualReservation() {
     void* fixed = requested;
     Require(sceKernelReserveVirtualRange(&fixed, page * 2, 0x400010, 0) == 0);
     Require(fixed == requested);
+    void* again = requested;
+    Require(sceKernelReserveVirtualRange(&again, page * 2, 0x400010, 0) == 0);
+    Require(again == requested);
     Require(sceKernelMunmap(fixed, page * 2) == 0);
     void* pooled = nullptr;
     Require(sceKernelMemoryPoolReserve(requested, page * 2, 0, 0x10, &pooled) == 0);
