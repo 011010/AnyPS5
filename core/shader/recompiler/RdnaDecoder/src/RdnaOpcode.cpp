@@ -799,6 +799,9 @@ bool IsImageOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::ImageAtomicSmax:
         case RdnaOpcode::ImageAtomicInc:
         case RdnaOpcode::ImageAtomicDec:
+        case RdnaOpcode::ImageAtomicFcmpswap:
+        case RdnaOpcode::ImageAtomicFmin:
+        case RdnaOpcode::ImageAtomicFmax:
         case RdnaOpcode::ImageGather4Lz:
         case RdnaOpcode::ImageGather4C:
         case RdnaOpcode::ImageGather4CLz:
