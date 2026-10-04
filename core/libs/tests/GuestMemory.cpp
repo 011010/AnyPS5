@@ -175,7 +175,35 @@ static void CheckFixedVirtualReservation() {
     void* again = requested;
     Require(sceKernelReserveVirtualRange(&again, page * 2, 0x400010, 0) == 0);
     Require(again == requested);
-    Require(sceKernelMunmap(fixed, page * 2) == 0);
+    std::int64_t phys = 0;
+    Require(sceKernelAllocateDirectMemory(0, 0x7fffffffffll, page * 2, 0, 0, &phys) == 0);
+    void* mapped = requested;
+    Require(sceKernelMapDirectMemory(&mapped, page * 2, 3, 0x10, phys, 0) == 0);
+    Require(mapped == requested);
+    static_cast<unsigned char*>(mapped)[0] = 11;
+    VirtualQueryInfo before{};
+    Require(sceKernelVirtualQuery(mapped, 0, &before, sizeof(before)) == 0);
+    Require(before.is_direct);
+    void* reserved = requested;
+    Require(sceKernelReserveVirtualRange(&reserved, page * 2, 0x10, 0) == 0);
+    Require(reserved == requested);
+    VirtualQueryInfo after{};
+    Require(sceKernelVirtualQuery(reserved, 0, &after, sizeof(after)) != 0);
+    void* remapped = requested;
+    Require(sceKernelMapDirectMemory(&remapped, page * 2, 3, 0x10, phys, 0) == 0);
+    Require(remapped == requested);
+    VirtualQueryInfo revived{};
+    Require(sceKernelVirtualQuery(remapped, 0, &revived, sizeof(revived)) == 0);
+    Require(revived.is_direct);
+    bool refused = false;
+    try {
+        sceKernelReserveVirtualRange(&reserved, page * 2, 0x90, 0);
+    } catch (const std::exception&) {
+        refused = true;
+    }
+    Require(refused);
+    Require(sceKernelMunmap(reserved, page * 2) == 0);
+    Require(sceKernelReleaseDirectMemory(phys, page * 2) == 0);
     void* pooled = nullptr;
     Require(sceKernelMemoryPoolReserve(requested, page * 2, 0, 0x10, &pooled) == 0);
     Require(pooled == requested);

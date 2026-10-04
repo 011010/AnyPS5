@@ -593,7 +593,11 @@ int DoReserveVirtual(void** addr, size_t len, int flags, size_t alignment) {
     if (len == 0 || (len & (PS5_PAGE_SIZE - 1)) != 0) return SCE_KERNEL_ERROR_EINVAL;
     GuestAllocations::Mutation mutation;
     const bool fixed = *addr != nullptr && (flags & GuestMapFixedFlag) != 0;
-    if (fixed && mutation.Covers(*addr, len)) return 0;
+    if (fixed && mutation.Covers(*addr, len)) {
+        constexpr int GuestMapNoOverwrite = 0x80;
+        if ((flags & GuestMapNoOverwrite) == 0 && RemapFixedIntoRegistered(mutation, *addr, len, 0, GuestMapFixedFlag)) return 0;
+        mutation.RequireAvailable(*addr, len);
+    }
     if (fixed) mutation.RequireAvailable(*addr, len);
     constexpr int GuestMapNoCoalesce = 0x400000;
     void* mapped = MapAligned(fixed ? *addr : nullptr, len, PROT_NONE, fixed ? GuestMapFixedFlag | (flags & GuestMapNoCoalesce) : 0, alignment);
