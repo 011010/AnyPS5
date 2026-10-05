@@ -698,15 +698,12 @@ bool TranslationContext::vAlignbitB32(const RdnaInstruction& inst) {
 bool TranslationContext::vAlignbyteB32(const RdnaInstruction& inst) {
     const IrU32 hi = readU32(sourceAt(inst, 0u));
     const IrU32 lo = readU32(sourceAt(inst, 1u));
-    const IrU32 byteOffset(ir.BitwiseAnd(readU32(sourceAt(inst, 2u)).Value(), ir.Constant(31u)));
+    const IrU32 byteOffset(ir.BitwiseAnd(readU32(sourceAt(inst, 2u)).Value(), ir.Constant(3u)));
     const IrU32 bitOffset(ir.ShiftLeftLogical(byteOffset.Value(), ir.Constant(3u)));
     const IrU64 concatenated(ir.ConstructU64(lo.Value(), hi.Value()));
-    const IrU32 maskedBitOffset(ir.BitwiseAnd(bitOffset.Value(), ir.Constant(63u)));
-    const IrU64 shifted(ir.Emit(IrOpcode::ShiftRightLogical64, IrType::U64, {&concatenated.Value(), &maskedBitOffset.Value()}));
-    const IrU1 inRange(ir.ULessThan(byteOffset.Value(), ir.Constant(8u)));
+    const IrU64 shifted(ir.Emit(IrOpcode::ShiftRightLogical64, IrType::U64, {&concatenated.Value(), &bitOffset.Value()}));
     const std::array<IrU32, 2> extracted = extractU64(shifted);
-    const IrU32 result(ir.Select(inRange.Value(), extracted[0].Value(), ir.Constant(0u)));
-    writeOperand(inst.destination, &result.Value());
+    writeOperand(inst.destination, &extracted[0].Value());
     return true;
 }
 
