@@ -479,11 +479,17 @@ struct Allocations {
 
 Allocations allocations;
 
+int ActiveTextureCountLocked() {
+    return static_cast<int>(std::count_if(allocations.blocks.begin(), allocations.blocks.end(), [](const auto& allocation) {
+        return allocation.second.texture;
+    }));
+}
+
 void* Allocate(std::uint32_t alignment, std::uint32_t size, bool texture) {
     const auto aligned = static_cast<std::align_val_t>(std::max<std::uint32_t>(alignment, 16));
     {
         std::lock_guard lock(allocations.mutex);
-        if (texture && allocations.textureLimit && allocations.textures >= *allocations.textureLimit) return nullptr;
+        if (texture && allocations.textureLimit && ActiveTextureCountLocked() >= *allocations.textureLimit) return nullptr;
     }
     void* memory = ::operator new(size, aligned);
     std::lock_guard lock(allocations.mutex);
@@ -522,9 +528,7 @@ void SetTextureLimit(std::optional<int> limit) {
 
 int TextureCount() {
     std::lock_guard lock(allocations.mutex);
-    return static_cast<int>(std::count_if(allocations.blocks.begin(), allocations.blocks.end(), [](const auto& allocation) {
-        return allocation.second.texture;
-    }));
+    return ActiveTextureCountLocked();
 }
 
 struct Events {
