@@ -519,6 +519,14 @@ void EmitDirectInstruction(SpirvValueEmitContext& ctx, const IrValue& inst) {
         case IrOpcode::AddressAtomicAnd64: return Invoke(EmitAddressAtomic, ctx, inst);
         case IrOpcode::AddressAtomicOr64: return Invoke(EmitAddressAtomic, ctx, inst);
         case IrOpcode::AddressAtomicXor64: return Invoke(EmitAddressAtomic, ctx, inst);
+        case IrOpcode::AddressAtomicFCmpSwap32: return Invoke(EmitAddressAtomic, ctx, inst);
+        case IrOpcode::AddressAtomicFMin32: return Invoke(EmitAddressAtomic, ctx, inst);
+        case IrOpcode::AddressAtomicFMax32: return Invoke(EmitAddressAtomic, ctx, inst);
+        case IrOpcode::AddressAtomicFCmpSwap64: return Invoke(EmitAddressAtomic, ctx, inst);
+        case IrOpcode::AddressAtomicFMin64: return Invoke(EmitAddressAtomic, ctx, inst);
+        case IrOpcode::AddressAtomicFMax64: return Invoke(EmitAddressAtomic, ctx, inst);
+        case IrOpcode::AddressAtomicInc64: return Invoke(EmitAddressAtomic, ctx, inst);
+        case IrOpcode::AddressAtomicDec64: return Invoke(EmitAddressAtomic, ctx, inst);
         case IrOpcode::LoadBufferU8: return Invoke(EmitLoadBufferU8, ctx, inst);
         case IrOpcode::LoadBufferU16: return Invoke(EmitLoadBufferU16, ctx, inst);
         case IrOpcode::LoadBufferU32: return Invoke(EmitLoadBufferU32, ctx, inst);

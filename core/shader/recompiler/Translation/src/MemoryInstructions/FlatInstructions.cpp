@@ -148,7 +148,7 @@ bool TranslationContext::flatAtomic(const RdnaInstruction& inst, IrOpcode opcode
     const AddressOperands address = readAddressOperands(inst, 0u);
     const MemoryFlags flags = addMemoryInfo(memory, inst.programCounter);
     IrValue& active = ir.GetExec();
-    const bool compare = opcode == IrOpcode::AddressAtomicCmpSwap32 || opcode == IrOpcode::AddressAtomicCmpSwap64;
+    const bool compare = opcode == IrOpcode::AddressAtomicCmpSwap32 || opcode == IrOpcode::AddressAtomicCmpSwap64 || opcode == IrOpcode::AddressAtomicFCmpSwap32 || opcode == IrOpcode::AddressAtomicFCmpSwap64;
     IrValue* result;
     if (IrOpcodeType(opcode) == IrType::U64) {
         const IrU64 value = readU64(inst.source2);

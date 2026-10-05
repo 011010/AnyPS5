@@ -208,6 +208,14 @@ constexpr MemoryOpcodeInfo flatOpcodes[] = {
     {0x59u, RdnaOpcode::FlatAtomicAndX2, 2, 32, false, false, false},
     {0x5au, RdnaOpcode::FlatAtomicOrX2, 2, 32, false, false, false},
     {0x5bu, RdnaOpcode::FlatAtomicXorX2, 2, 32, false, false, false},
+    {0x3eu, RdnaOpcode::FlatAtomicFcmpswap, 1, 32, false, false, false},
+    {0x3fu, RdnaOpcode::FlatAtomicFmin, 1, 32, false, false, false},
+    {0x40u, RdnaOpcode::FlatAtomicFmax, 1, 32, false, false, false},
+    {0x5eu, RdnaOpcode::FlatAtomicFcmpswapX2, 2, 32, false, false, false},
+    {0x5fu, RdnaOpcode::FlatAtomicFminX2, 2, 32, false, false, false},
+    {0x60u, RdnaOpcode::FlatAtomicFmaxX2, 2, 32, false, false, false},
+    {0x5cu, RdnaOpcode::FlatAtomicIncX2, 2, 32, false, false, false},
+    {0x5du, RdnaOpcode::FlatAtomicDecX2, 2, 32, false, false, false},
 };
 
 constexpr MemoryOpcodeInfo dsOpcodes[] = {
@@ -583,6 +591,14 @@ bool isFlatAtomicOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::FlatAtomicAndX2:
         case RdnaOpcode::FlatAtomicOrX2:
         case RdnaOpcode::FlatAtomicXorX2:
+        case RdnaOpcode::FlatAtomicFcmpswap:
+        case RdnaOpcode::FlatAtomicFmin:
+        case RdnaOpcode::FlatAtomicFmax:
+        case RdnaOpcode::FlatAtomicFcmpswapX2:
+        case RdnaOpcode::FlatAtomicFminX2:
+        case RdnaOpcode::FlatAtomicFmaxX2:
+        case RdnaOpcode::FlatAtomicIncX2:
+        case RdnaOpcode::FlatAtomicDecX2:
             return true;
         default: return false;
     }

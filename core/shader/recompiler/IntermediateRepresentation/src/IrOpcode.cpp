@@ -355,6 +355,14 @@ constexpr std::array<OpcodeMeta, static_cast<std::size_t>(IrOpcode::Count)> Meta
     makeMeta("AddressAtomicAnd64", U64, AddressResource, U32, U32, U64, U1),
     makeMeta("AddressAtomicOr64", U64, AddressResource, U32, U32, U64, U1),
     makeMeta("AddressAtomicXor64", U64, AddressResource, U32, U32, U64, U1),
+    makeMeta("AddressAtomicFCmpSwap32", U32, AddressResource, U32, U32, U32, U32, U1),
+    makeMeta("AddressAtomicFMin32", U32, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicFMax32", U32, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicFCmpSwap64", U64, AddressResource, U32, U32, U64, U64, U1),
+    makeMeta("AddressAtomicFMin64", U64, AddressResource, U32, U32, U64, U1),
+    makeMeta("AddressAtomicFMax64", U64, AddressResource, U32, U32, U64, U1),
+    makeMeta("AddressAtomicInc64", U64, AddressResource, U32, U32, U64, U1),
+    makeMeta("AddressAtomicDec64", U64, AddressResource, U32, U32, U64, U1),
     makeMeta("LoadBufferU8", U8, BufferResource, U32, U32, U32, U1),
     makeMeta("LoadBufferU16", U16, BufferResource, U32, U32, U32, U1),
     makeMeta("LoadBufferU32", U32, BufferResource, U32, U32, U32, U1),
@@ -736,6 +744,9 @@ AddressOpcodeInfo AddressOpcodeInfoOf(IrOpcode opcode) {
         case IrOpcode::AddressAtomicXor32:
         case IrOpcode::AddressAtomicInc32:
         case IrOpcode::AddressAtomicDec32:
+        case IrOpcode::AddressAtomicFCmpSwap32:
+        case IrOpcode::AddressAtomicFMin32:
+        case IrOpcode::AddressAtomicFMax32:
             return {AddressAccess::Atomic, 32u};
         case IrOpcode::AddressAtomicSwap64:
         case IrOpcode::AddressAtomicCmpSwap64:
@@ -748,6 +759,11 @@ AddressOpcodeInfo AddressOpcodeInfoOf(IrOpcode opcode) {
         case IrOpcode::AddressAtomicAnd64:
         case IrOpcode::AddressAtomicOr64:
         case IrOpcode::AddressAtomicXor64:
+        case IrOpcode::AddressAtomicFCmpSwap64:
+        case IrOpcode::AddressAtomicFMin64:
+        case IrOpcode::AddressAtomicFMax64:
+        case IrOpcode::AddressAtomicInc64:
+        case IrOpcode::AddressAtomicDec64:
             return {AddressAccess::Atomic, 32u, 2u};
         default:
             return {};
