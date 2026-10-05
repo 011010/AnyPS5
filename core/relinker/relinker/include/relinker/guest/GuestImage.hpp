@@ -10,6 +10,7 @@
 
 namespace Relinker {
 
+inline constexpr char GuestSymbolSuffix[] = "#guest";
 inline constexpr char GuestModuleSuffix[] = ".guest.prx";
 
 struct GuestSymbol {
