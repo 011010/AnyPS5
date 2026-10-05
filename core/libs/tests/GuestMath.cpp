@@ -10,6 +10,7 @@ float APS5_VABI strtof_nid_postfix(const char*, char**);
 long double APS5_VABI strtold_nid_postfix(const char*, char**);
 std::int64_t APS5_VABI strtol_nid_postfix(const char*, char**, int);
 std::uint64_t APS5_VABI strtoul_nid_postfix(const char*, char**, int);
+std::intmax_t APS5_VABI strtoimax_nid_postfix(const char*, char**, int);
 int* APS5_VABI __error_nid_postfix();
 float APS5_VABI fmodf_nid_postfix(float, float);
 float APS5_VABI asinf_nid_postfix(float);
@@ -17,6 +18,7 @@ float APS5_VABI acosf_nid_postfix(float);
 float APS5_VABI atan2f_nid_postfix(float, float);
 float APS5_VABI tanf_nid_postfix(float);
 float APS5_VABI log10f_nid_postfix(float);
+float APS5_VABI logbf_nid_postfix(float);
 double APS5_VABI exp2_nid_postfix(double);
 double APS5_VABI ldexp_nid_postfix(double, int);
 double APS5_VABI scalbn_nid_postfix(double, int);
@@ -67,6 +69,12 @@ static void CheckIntegerConversions() {
         const auto value = strtol_nid_postfix(test.text, &end, test.base);
         if (value != test.value || end != test.text + test.consumed || *__error_nid_postfix() != test.error) {
             std::fprintf(stderr, "Guest strtol failed for '%s' in base %d\n", test.text, test.base);
+            std::abort();
+        }
+        *__error_nid_postfix() = 0;
+        const auto maxValue = strtoimax_nid_postfix(test.text, &end, test.base);
+        if (maxValue != test.value || end != test.text + test.consumed || *__error_nid_postfix() != test.error) {
+            std::fprintf(stderr, "Guest strtoimax failed for '%s' in base %d\n", test.text, test.base);
             std::abort();
         }
     }
@@ -134,6 +142,11 @@ int main() {
     Require(std::abs(atan2f_nid_postfix(1.f, -1.f) - 2.3561945f) < 0.000001f);
     Require(tanf_nid_postfix(0.f) == 0.f);
     Require(log10f_nid_postfix(100.f) == 2.f);
+    Require(logbf_nid_postfix(8.f) == 3.f && logbf_nid_postfix(-0.75f) == -1.f);
+    Require(logbf_nid_postfix(std::numeric_limits<float>::denorm_min()) == -149.f);
+    Require(logbf_nid_postfix(0.f) == -std::numeric_limits<float>::infinity());
+    Require(logbf_nid_postfix(-std::numeric_limits<float>::infinity()) == std::numeric_limits<float>::infinity());
+    Require(std::isnan(logbf_nid_postfix(std::numeric_limits<float>::quiet_NaN())));
     Require(exp2_nid_postfix(-3.) == 0.125);
     Require(ldexp_nid_postfix(0.75, 4) == 12.);
     Require(scalbn_nid_postfix(0.75, -2) == 0.1875);
