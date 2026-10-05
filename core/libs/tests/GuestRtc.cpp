@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <limits>
 
 extern "C" {
 int APS5_VABI sceRtcCheckValid(const RtcDateTime*);
@@ -167,6 +168,38 @@ int main() {
     source.tick = maxTick;
     Require(sceRtcTickAddTicks(&result, &source, 1) == invalidValue);
     Require(sceRtcTickAddTicks(nullptr, &source, 1) == invalidPointer);
+
+    const std::uint64_t invalidTicks[] = {maxTick + 1, std::numeric_limits<std::uint64_t>::max()};
+    for (std::uint64_t invalidTick : invalidTicks) {
+        source.tick = invalidTick;
+        result.tick = 123;
+        Require(sceRtcTickAddTicks(&result, &source, 0) == invalidValue && result.tick == 123);
+        Require(sceRtcTickAddTicks(&result, &source, 1) == invalidValue && result.tick == 123);
+        Require(sceRtcTickAddTicks(&result, &source, -1) == invalidValue && result.tick == 123);
+        Require(sceRtcTickAddSeconds(&result, &source, 0) == invalidValue && result.tick == 123);
+        Require(sceRtcTickAddDays(&result, &source, -1) == invalidValue && result.tick == 123);
+        Require(sceRtcTickAddMonths(&result, &source, 0) == invalidValue && result.tick == 123);
+        Require(sceRtcTickAddYears(&result, &source, -1) == invalidValue && result.tick == 123);
+        Require(sceRtcTickAddTicks(&source, &source, 0) == invalidValue && source.tick == invalidTick);
+        Require(sceRtcTickAddMonths(&source, &source, -1) == invalidValue && source.tick == invalidTick);
+        Require(sceRtcTickAddTicks(nullptr, &source, 0) == invalidPointer);
+        Require(sceRtcTickAddMonths(nullptr, &source, 0) == invalidPointer);
+    }
+
+    source.tick = maxTick;
+    Require(sceRtcTickAddTicks(&source, &source, 0) == 0 && source.tick == maxTick);
+    Require(sceRtcTickAddTicks(&source, &source, -1) == 0 && source.tick == maxTick - 1);
+    source.tick = maxTick;
+    Require(sceRtcTickAddMonths(&source, &source, 0) == 0 && source.tick == maxTick);
+    Require(sceRtcTickAddYears(&result, &source, -1) == 0);
+    Require(sceRtcSetTick(&converted, &result) == 0 && Equal(converted, RtcDateTime{9998, 12, 31, 23, 59, 59, 999999}));
+    result.tick = 123;
+    Require(sceRtcTickAddMonths(&result, &source, 1) == invalidValue && result.tick == 123);
+    Require(sceRtcTickAddTicks(&result, &source, std::numeric_limits<std::int64_t>::min()) == invalidValue && result.tick == 123);
+    Require(sceRtcTickAddSeconds(&result, &source, std::numeric_limits<std::int64_t>::max()) == invalidValue && result.tick == 123);
+    source.tick = 0;
+    Require(sceRtcTickAddMonths(&source, &source, 0) == 0 && source.tick == 0);
+    Require(sceRtcTickAddMonths(&result, &source, -1) == invalidValue && result.tick == 123);
 
     RtcTick now{};
     Require(sceRtcGetCurrentTick(&now) == 0 && now.tick > leapDayTick);
