@@ -188,7 +188,6 @@ PadInputState PadInput::sampleController() const {
             result.touch[finger].y = static_cast<std::uint16_t>(std::clamp(y, 0.0f, 1.0f) * 942.0f);
         }
     }
-    // View has no touch position, so use a neutral center contact when SDL reports none.
     if (viewPressed && !result.touch[0].active && !result.touch[1].active) {
         result.touch[0] = {true, 960, 471, 0};
     }
