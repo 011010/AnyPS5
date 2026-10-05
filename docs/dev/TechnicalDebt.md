@@ -56,6 +56,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceAudioOutGetLastOutputTime](../../core/libs/prx/libSceAudioOut/src/AudioOut.cpp) (libSceAudioOut) - signature and behaviour taken from the [shadPS4](https://github.com/shadps4-emu/shadPS4) and [fpPS4](https://github.com/red-prig/fpPS4) reimplementations of the PS4 library, not confirmed on a PS5 title: the time is the process time at which `sceAudioOutOutput` or `sceAudioOutOutputs` accepted the port's last block, not the time the block reached the device
 - [AOWqIYsgVHs](../../core/libs/prx/libSceContentExport/Export.cpp) (libSceContentExport) - unknown name, signature
 - [GQTObcITIXI](../../core/libs/prx/libSceShare/Export.cpp) (libSceShare) - unknown name, signature
+- [scePsmlMfsrGetContextBufferRequirement1100, scePsmlMfsrCreateContext1100, scePsmlMfsrGetDispatchMfsrPacket1100](../../core/libs/prx/libScePsml_debug/Export.cpp) (libScePsml_debug) - argument layouts unknown; only 0x8A810001 (not initialized) is returned
 - [BnMAMrsfVWo](../../core/libs/prx/libc/src/HeapDiagnostics.cpp) (libc) - unknown name, signature
 - [scePngEncEncode](../../core/libs/prx/libScePngEnc/Export.cpp) (libScePngEnc) - whether rows may stay unfiltered when `filter_type` names a subset of the filters is unknown; as in shadPS4, they may only for 0 and for the all-filters mask
 - AudioIn, NpSessionSignaling and PlayerInvitationDialog exports added without an implementation have assumed signatures
