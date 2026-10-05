@@ -212,6 +212,13 @@ int APS5_VABI sceKernelVirtualQuery(const void* addr, int flags, VirtualQueryInf
  // mapping at or above it: titles walk their mappings and check that a mapping covers a whole
  // allocation, so the answer must be the registered allocation, not a page.
  constexpr int findNext = 1;
+ std::uintptr_t reservedStart = 0;
+ std::uintptr_t reservedEnd = 0;
+ if (GuestReservation(address, &reservedStart, &reservedEnd)) {
+  info->start = reservedStart;
+  info->end = reservedEnd;
+  return 0;
+ }
  const auto lease = GuestAllocations::GuestAllocationsAcquire_nid_postfix();
  const GuestAllocations::Range* best = nullptr;
  for (const auto& range : lease) {

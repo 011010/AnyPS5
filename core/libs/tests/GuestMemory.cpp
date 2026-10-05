@@ -193,7 +193,8 @@ static void CheckFixedVirtualReservation() {
     Require(sceKernelReserveVirtualRange(&reserved, page * 2, 0x10, 0) == 0);
     Require(reserved == requested);
     VirtualQueryInfo after{};
-    Require(sceKernelVirtualQuery(reserved, 0, &after, sizeof(after)) != 0);
+    Require(sceKernelVirtualQuery(reserved, 0, &after, sizeof(after)) == 0);
+    Require(!after.is_committed && !after.is_direct && after.protection == 0);
     void* remapped = requested;
     Require(sceKernelMapDirectMemory(&remapped, page * 2, 3, 0x10, phys, 0) == 0);
     Require(remapped == requested);
@@ -213,6 +214,31 @@ static void CheckFixedVirtualReservation() {
     Require(sceKernelMemoryPoolReserve(requested, page * 2, 0, 0x10, &pooled) == 0);
     Require(pooled == requested);
     Require(sceKernelMunmap(pooled, page * 2) == 0);
+}
+
+static void CheckReservedRangeIsNotCommitted() {
+    constexpr std::size_t page = 0x4000;
+    void* reserved = nullptr;
+    Require(sceKernelReserveVirtualRange(&reserved, page * 2, 0, 0) == 0);
+    const auto start = reinterpret_cast<std::uintptr_t>(reserved);
+    VirtualQueryInfo info{};
+    Require(sceKernelVirtualQuery(reserved, 0, &info, sizeof(info)) == 0);
+    Require(!info.is_committed && !info.is_direct && !info.is_flexible && info.protection == 0);
+    Require(info.start == start && info.end == start + page * 2);
+    std::int64_t phys = 0;
+    Require(sceKernelAllocateDirectMemory(0, 0x7fffffffffll, page, 0, 0, &phys) == 0);
+    void* fixed = reserved;
+    Require(sceKernelMapDirectMemory(&fixed, page, 3, 0x10, phys, 0) == 0);
+    Require(fixed == reserved);
+    static_cast<unsigned char*>(fixed)[0] = 7;
+    Require(sceKernelVirtualQuery(reserved, 0, &info, sizeof(info)) == 0);
+    Require(info.is_committed && info.is_direct && info.protection == 3);
+    Require(info.start == start && info.end == start + page);
+    Require(sceKernelVirtualQuery(static_cast<unsigned char*>(reserved) + page, 0, &info, sizeof(info)) == 0);
+    Require(!info.is_committed && info.protection == 0);
+    Require(info.start == start + page && info.end == start + page * 2);
+    Require(sceKernelMunmap(reserved, page * 2) == 0);
+    Require(sceKernelReleaseDirectMemory(phys, page) == 0);
 }
 
 #ifdef _WIN32
@@ -669,6 +695,7 @@ int main() {
     CheckInternalNamedFlexibleMapping();
     CheckDirectMemoryFollowsPhysicalPages();
     CheckFixedVirtualReservation();
+    CheckReservedRangeIsNotCommitted();
     CheckMlock();
     CheckSharedDirectMemoryLifecycle();
     CheckHeapAfterMappingReuse();
