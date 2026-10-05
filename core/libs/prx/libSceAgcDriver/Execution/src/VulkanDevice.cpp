@@ -803,7 +803,6 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         state->capabilities.push_back(5283);
         state->spirvExtensions.push_back("SPV_EXT_mesh_shader");
     }
-    APS5_LOG_OUT("Vulkan features tessellationAvailable=%u mesh=%u depthClip=%u depthRangeUnrestricted=%u", static_cast<unsigned>(state->tessellationShader), static_cast<unsigned>(state->meshShader), static_cast<unsigned>(state->depthClipControl), static_cast<unsigned>(state->depthRangeUnrestricted));
     const float priority = 1.0f;
     VkDeviceQueueCreateInfo queueInfo{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     queueInfo.queueFamilyIndex = family;
@@ -824,6 +823,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     enabled.tessellationShader = available.tessellationShader;
     state->tessellationShader = enabled.tessellationShader == VK_TRUE;
     if (state->tessellationShader) state->capabilities.push_back(3);
+    APS5_LOG_OUT("Vulkan features tessellationAvailable=%u mesh=%u depthClip=%u depthRangeUnrestricted=%u", static_cast<unsigned>(state->tessellationShader), static_cast<unsigned>(state->meshShader), static_cast<unsigned>(state->depthClipControl), static_cast<unsigned>(state->depthRangeUnrestricted));
     require(available.samplerAnisotropy && available.textureCompressionBC, "device lacks sampler anisotropy or BC texture compression support required for texture sampling");
     enabled.samplerAnisotropy = VK_TRUE;
     enabled.textureCompressionBC = VK_TRUE;
