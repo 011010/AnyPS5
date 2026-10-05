@@ -1,7 +1,9 @@
 #include "GraphicsTests.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/TextureSwizzleEquations.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureTiling.hpp"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -20,6 +22,16 @@ void reject(TAction action, std::string_view reason) {
         return;
     }
     throw std::runtime_error(std::string("expected texture tiling rejection: ") + std::string(reason));
+}
+
+std::uint64_t equationOffset(const TextureSwizzleEquation& equation, std::uint32_t x, std::uint32_t y, std::uint32_t z) {
+    std::uint64_t offset = 0;
+    for (std::uint32_t bit = 0; bit < 16; ++bit) {
+        const auto mask = equation.bits[bit];
+        const auto selected = (x & (mask & 0xfffu)) ^ ((y << 12) & (mask & 0xfff000u)) ^ ((z << 24) & (mask & 0xff000000u));
+        offset |= static_cast<std::uint64_t>(std::popcount(selected) & 1u) << bit;
+    }
+    return offset;
 }
 
 }
@@ -147,6 +159,59 @@ void RunTextureTilingTests() {
         volume.depthOrLastArray = 7;
         volume.mipCount = 2;
         reject([&] { DescribeSurface(volume); }, "3D texture mip tails are not implemented");
+    }
+
+    {
+        // CoveredMipBytes against the XOR address equations: every element slot of a covered range
+        // holds exactly one element of the mip, and every tile block left out holds a slot no
+        // element does (the bytes a write-back must keep).
+        constexpr std::array<TextureTileMode, 4> modes{TextureTileMode::kZ64KBX, TextureTileMode::kS64KBX, TextureTileMode::kD64KBX, TextureTileMode::kR64KBX};
+        constexpr std::array<std::pair<std::uint32_t, std::uint32_t>, 6> sizes{{{200, 150}, {1920, 1080}, {2432, 1368}, {960, 540}, {256, 128}, {300, 1}}};
+        for (const auto mode : modes) {
+            for (std::uint32_t bytesPerElement = 1; bytesPerElement <= 16; bytesPerElement *= 2) {
+                const auto* equation = FindTextureSwizzleEquation(XorSwizzleMode(mode), bytesPerElement);
+                Require(equation != nullptr, "missing XOR swizzle equation");
+                const auto block = ThinBlockLayout(mode, bytesPerElement);
+                for (const auto& [width, height] : sizes) {
+                    if (static_cast<std::uint64_t>(width) * height > (1u << 20) && mode != TextureTileMode::kR64KBX) continue;
+                    const auto what = "XOR mode " + std::to_string(XorSwizzleMode(mode)) + ", " + std::to_string(bytesPerElement) + " bytes, " + std::to_string(width) + "x" + std::to_string(height);
+                    for (const auto& mip : ComputeElementMipLayout(mode, bytesPerElement, width, height, 3)) {
+                        const auto covered = CoveredMipBytes(mode, bytesPerElement, mip);
+                        if (mip.tail) {
+                            Require(covered.empty(), what + ": a tail mip has covered bytes");
+                            continue;
+                        }
+                        std::vector<std::uint8_t> held(static_cast<std::size_t>(mip.tiledSize / bytesPerElement), 0);
+                        for (std::uint32_t y = 0; y < mip.height; ++y) {
+                            for (std::uint32_t x = 0; x < mip.width; ++x) {
+                                const auto offset = (static_cast<std::uint64_t>(y / block[2]) * mip.blocksPerRow + x / block[1]) * block[0] + equationOffset(*equation, x, y, 0);
+                                Require(offset % bytesPerElement == 0 && offset < mip.tiledSize, what + ": an element lies outside the mip");
+                                held[static_cast<std::size_t>(offset / bytesPerElement)] += 1;
+                            }
+                        }
+                        std::vector<bool> inCovered(static_cast<std::size_t>(mip.tiledSize / block[0]), false);
+                        std::uint64_t previous = 0;
+                        for (const auto& [begin, end] : covered) {
+                            Require(begin >= previous && begin < end && end <= mip.tiledSize && begin % block[0] == 0 && end % block[0] == 0, what + ": covered ranges are not ascending whole blocks");
+                            previous = end;
+                            for (auto slot = begin / bytesPerElement; slot < end / bytesPerElement; ++slot) Require(held[static_cast<std::size_t>(slot)] == 1, what + ": a covered byte holds no element or several");
+                            for (auto at = begin; at < end; at += block[0]) inCovered[static_cast<std::size_t>(at / block[0])] = true;
+                        }
+                        for (std::size_t index = 0; index < inCovered.size(); ++index) {
+                            if (inCovered[index]) continue;
+                            const auto first = index * block[0] / bytesPerElement;
+                            const auto last = (index + 1) * block[0] / bytesPerElement;
+                            Require(std::any_of(held.begin() + static_cast<std::ptrdiff_t>(first), held.begin() + static_cast<std::ptrdiff_t>(last), [](std::uint8_t count) { return count == 0; }), what + ": a block every byte of which holds an element is left out");
+                        }
+                    }
+                }
+            }
+        }
+        const auto linear = ComputeElementMipLayout(TextureTileMode::kLinear, 4, 200, 3, 1).front();
+        const auto rows = CoveredMipBytes(TextureTileMode::kLinear, 4, linear);
+        Require(linear.pitchBytes > 800 && rows.size() == 3 && rows[1].first == linear.pitchBytes && rows[1].second == linear.pitchBytes + 800, "linear covered bytes are not the rows without their pitch padding");
+        const auto dense = ComputeElementMipLayout(TextureTileMode::kLinear, 4, 256, 3, 1).front();
+        Require(dense.pitchBytes == 1024 && CoveredMipBytes(TextureTileMode::kLinear, 4, dense) == std::vector<std::pair<std::uint64_t, std::uint64_t>>{{0, 3072}}, "linear rows without padding are not one range");
     }
 
     reject([] { ComputeSurfaceSize({}, 1); }, "empty mip chain");
