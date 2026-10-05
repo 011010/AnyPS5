@@ -257,21 +257,18 @@ IrU32 TranslationContext::applyBitSourceModifiers(const RdnaOperand& operand, Ir
 
 IrF32 TranslationContext::applyF32ResultModifiers(const RdnaOperand& operand, IrF32 value) {
     if (operand.omod != 0u) {
-        float multiplier = 0.5f;
-        switch (operand.omod) {
-            case 1u: multiplier = 2.0f; break;
-            case 2u: multiplier = 4.0f; break;
-            default: break;
-        }
-        const IrF32 scaled(ir.Emit(IrOpcode::FPMul32, IrType::F32, {&value.Value(), &ir.ConstantF32(multiplier)}));
         IrValue& bits = ir.BitCastU32(value.Value());
         IrValue& magnitude = ir.BitwiseAnd(bits, ir.Constant(0x7fffffffu));
-        IrValue* result = &ir.BitCastU32(scaled.Value());
+        IrValue& sign = ir.BitwiseAnd(bits, ir.Constant(0x80000000u));
+        IrValue* result = nullptr;
         if (operand.omod == 3u) {
-            result = &ir.Select(ir.ULessThan(magnitude, ir.Constant(0x01000000u)), ir.BitwiseAnd(bits, ir.Constant(0x80000000u)), *result);
+            result = &ir.Select(ir.ULessThan(magnitude, ir.Constant(0x01000000u)), sign, ir.ISub(bits, ir.Constant(0x00800000u)));
+        } else {
+            const std::uint32_t exponentStep = operand.omod == 1u ? 0x00800000u : 0x01000000u;
+            result = &ir.Select(ir.ULessThan(magnitude, ir.Constant(0x7f800000u - exponentStep)), ir.IAdd(bits, ir.Constant(exponentStep)), ir.BitwiseOr(sign, ir.Constant(0x7f800000u)));
         }
         result = &ir.Select(ir.ULessThan(magnitude, ir.Constant(0x00800000u)), ir.Constant(0u), *result);
-        result = &ir.Select(ir.UGreaterThan(magnitude, ir.Constant(0x7f800000u)), bits, *result);
+        result = &ir.Select(ir.UGreaterThan(magnitude, ir.Constant(0x7f7fffffu)), bits, *result);
         value = IrF32(ir.BitCastF32(*result));
     }
     if (operand.clamp) {
