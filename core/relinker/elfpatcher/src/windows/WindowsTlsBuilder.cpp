@@ -163,14 +163,26 @@ PeDirectory WindowsTlsBuilder::Build(const std::vector<std::uint8_t>& source, co
         patchAccess(sections, access, code.GetRva());
         code.Emit({0x48, 0x8d, 0x64, 0x24, 0x80});
         if (access.AluOpcode != 0 && access.Register == 0) {
-            code.Emit({0x52});
             code.Emit({0x51});
+            code.Emit({0x52});
+            code.Emit({0x50});
             loadPointer();
             code.Emit({0x48, 0x8b, 0x90});
             code.U32(access.Displacement);
+            code.Emit({0x58});
             code.Emit({0x48, access.AluOpcode, 0xc2});
-            code.Emit({0x59});
             code.Emit({0x5a});
+            code.Emit({0x59});
+        } else if (access.AluOpcode != 0 && access.Register == 1) {
+            code.Emit({0x51});
+            code.Emit({0x50});
+            loadPointer();
+            code.Emit({0x48, 0x8b, 0x80});
+            code.U32(access.Displacement);
+            code.Emit({0x48, 0x8b, 0x4c, 0x24, 0x08});
+            code.Emit({0x48, access.AluOpcode, 0xc8});
+            code.Emit({0x58});
+            code.Emit({0x48, 0x8d, 0x64, 0x24, 0x08});
         } else {
             const bool preserveAccumulator = access.StoreImmediate || access.Register != 0;
             const bool preserveCounter = access.Register != 1;
