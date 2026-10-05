@@ -30,12 +30,6 @@ extern "C" {
         return 0;
     }
 
-APS5_EXPORT("Pu0Ecyk-7FU", libcUnknown_Pu0Ecyk_M7FU);
-int APS5_VABI libcUnknown_Pu0Ecyk_M7FU() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
-}
-
 // Dead import of Cyberpunk 2077 (PPSA04029): no call sites, but the
 // Windows loader resolves imports strictly, so it must be present.
 APS5_EXPORT("u2tMGOLaqnE", libcUnknown_u2tMGOLaqnE);
