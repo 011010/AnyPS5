@@ -70,6 +70,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceHttpParseResponseHeader](../../core/libs/prx/libSceHttp/Export.cpp) (libSceHttp) - unknown signature
 - [sceHttp2GetMemoryPoolStats](../../core/libs/prx/libSceHttp2/Export.cpp) (libSceHttp2) - unknown signature
 - [sceNetGetMemoryPoolStats](../../core/libs/prx/libSceNet/Export.cpp) (libSceNet) - unknown signature
+- [sceHttpSetRequestStatusCallback](../../core/libs/prx/libSceHttp/Export.cpp) (libSceHttp) - no reference implements it (shadPS4 only logs and returns 0); when the callback runs and what status it gets is unknown
 - [sce::Np::CppWebApi::Common::IntrusivePtr](../../core/libs/prx/libSceNpCppWebApi/Export.cpp) (libSceNpCppWebApi) - the 0x18-byte layout (object, deleter, `LibContext*`) and the offset of the 32-bit reference count in the pointee (0x00, 0x30 for `Vector`) come from the module bundled with one title (PPSA21564); other SDK versions are not checked. The destructor throws on the last reference of a pointer without a deleter: destroying the object needs its destructor and the `LibContext` allocator, which are not implemented
 - [sceNpSessionSignalingGetMemoryInfo](../../core/libs/prx/libSceNpSessionSignaling/Export.cpp) (libSceNpSessionSignaling) - unknown signature
 - [sceNpSessionSignalingGetConnectionStatistics](../../core/libs/prx/libSceNpSessionSignaling/Export.cpp) (libSceNpSessionSignaling) - unknown signature

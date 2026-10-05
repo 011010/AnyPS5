@@ -7,6 +7,7 @@
 
 extern "C" {
 int APS5_VABI sceHttpUriParse(SceHttpUriElement*, const char*, void*, std::size_t*, std::size_t);
+int APS5_VABI sceHttpSetInflateGZIPEnabled(int, int);
 int APS5_VABI sceHttpUriBuild(char*, std::size_t*, std::size_t, const SceHttpUriElement*, std::uint32_t);
 int APS5_VABI sceHttpUriEscape(char*, std::size_t*, std::size_t, const char*);
 int APS5_VABI sceHttpCreateEpoll(int, HttpEpollHandle*);
@@ -97,6 +98,10 @@ int main() {
     Require(sceHttpReadData(1, data, sizeof(data)) == network);
 
     Require(sceHttpCreateRequest2(1, "GET", "/", 0) > 0);
+    Require(sceHttpSetInflateGZIPEnabled(1, 0) == 0);
+    Require(sceHttpSetInflateGZIPEnabled(1, 1) == 0);
+    Require(sceHttpSetInflateGZIPEnabled(1, 2) == invalidValue);
+    Require(sceHttpSetInflateGZIPEnabled(1, -1) == invalidValue);
     Require(sceHttpsEnableOption(1, 0) == 0);
     Require(sceHttpsLoadCert(1, 0, nullptr, nullptr, nullptr) == 0);
     int httpErrno = -1;
