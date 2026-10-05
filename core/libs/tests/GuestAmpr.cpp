@@ -4,7 +4,9 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <future>
 #include <string>
 #include <utility>
@@ -53,6 +55,16 @@ std::uint64_t APS5_VABI sceAmprMeasureCommandSizeWaitOnCounter_04_00(std::uint8_
 std::uint64_t APS5_VABI sceAmprMeasureCommandSizeWriteCounter_04_00(std::uint8_t, std::uint8_t, std::uint64_t, std::uint8_t);
 int APS5_VABI sceAmprCommandBufferConstructNop(Apr::CommandBufferObject*, std::int16_t, const void*, std::uint32_t, const std::uint32_t*);
 int APS5_VABI sceAmprCommandBufferConstructMarker(Apr::CommandBufferObject*, std::uint32_t, const char*, const std::uint32_t*);
+int APS5_VABI sceKernelAprResolveFilepathsToIds(const char**, std::uint32_t, std::uint32_t*, std::uint32_t*);
+int APS5_VABI sceAmprAprCommandBufferReadFile(Apr::CommandBufferObject*, std::uint64_t*, std::uint64_t*, std::uint32_t, void*, std::uint64_t, std::uint64_t);
+int APS5_VABI sceAmprAprCommandBufferReadFileGather(Apr::CommandBufferObject*, std::uint64_t*, std::uint64_t*, std::uint64_t, std::uint64_t);
+int APS5_VABI sceAmprAprCommandBufferReadFileScatter(Apr::CommandBufferObject*, std::uint64_t*, std::uint64_t*, void*, std::uint64_t);
+int APS5_VABI sceAmprAprCommandBufferReadFileGatherScatter(Apr::CommandBufferObject*, std::uint64_t*, std::uint64_t*, void*, std::uint64_t, std::uint64_t);
+int APS5_VABI sceAmprAprCommandBufferResetGatherScatterState(Apr::CommandBufferObject*);
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeReadFileGather(std::uint64_t, std::uint64_t);
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeReadFileScatter(void*, std::uint64_t);
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeReadFileGatherScatter(void*, std::uint64_t, std::uint64_t);
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeResetGatherScatterState();
 }
 
 static void Require(bool value) { if (!value) std::abort(); }
@@ -400,6 +412,90 @@ void TestConstructed() {
     Require(empty.Offset() == 0 && empty.Commands() == 0);
 }
 
+std::uint8_t FileByte(std::size_t offset) {
+    return static_cast<std::uint8_t>(offset * 7u + 3u);
+}
+
+bool MatchesFile(const std::uint8_t* data, std::size_t offset, std::size_t bytes) {
+    for (std::size_t index = 0; index < bytes; ++index) {
+        if (data[index] != FileByte(offset + index)) return false;
+    }
+    return true;
+}
+
+void TestGatherScatter() {
+    const char* path = "ampr_gather_scatter.bin";
+    {
+        std::ofstream file(path, std::ios::binary);
+        for (std::size_t offset = 0; offset < 4096; ++offset) file.put(static_cast<char>(FileByte(offset)));
+    }
+    std::uint32_t fileId = 0;
+    std::uint32_t failed = 0;
+    Require(sceKernelAprResolveFilepathsToIds(&path, 1, &fileId, &failed) == 0);
+
+    Recorder recorder;
+    auto* buffer = &recorder.buffer;
+    auto* map = &recorder.gatherState;
+    auto* state = &recorder.scatterState;
+    std::array<std::uint8_t, 64> first{};
+    std::array<std::uint8_t, 64> second{};
+    Require(sceAmprAprCommandBufferReadFileGather(buffer, map, state, 8, 0) == invalidArgument);
+    Require(sceAmprAprCommandBufferReadFileScatter(buffer, map, state, second.data(), 8) == invalidArgument);
+    Require(sceAmprAprCommandBufferReadFileGatherScatter(buffer, map, state, second.data(), 8, 0) == invalidArgument);
+    Require(recorder.Commands() == 0);
+
+    Require(sceAmprAprCommandBufferReadFile(buffer, map, state, fileId, first.data(), 16, 100) == 0);
+    auto offset = recorder.Offset();
+    auto commands = recorder.Commands();
+    Require(sceAmprAprCommandBufferReadFileGather(buffer, map, state, 8, 500) == 0);
+    RequireAppended(recorder, offset, commands, Apr::Opcode::ReadFileGather, sceAmprMeasureCommandSizeReadFileGather(8, 500));
+    offset = recorder.Offset();
+    commands = recorder.Commands();
+    Require(sceAmprAprCommandBufferReadFileScatter(buffer, map, state, second.data(), 8) == 0);
+    RequireAppended(recorder, offset, commands, Apr::Opcode::ReadFileScatter, sceAmprMeasureCommandSizeReadFileScatter(second.data(), 8));
+    offset = recorder.Offset();
+    commands = recorder.Commands();
+    Require(sceAmprAprCommandBufferReadFileGatherScatter(buffer, map, state, second.data() + 32, 4, 1000) == 0);
+    RequireAppended(recorder, offset, commands, Apr::Opcode::ReadFileGatherScatter, sceAmprMeasureCommandSizeReadFileGatherScatter(second.data() + 32, 4, 1000));
+    Require(sceAmprAprCommandBufferReadFileGather(buffer, map, state, 4, 2000) == 0);
+    Require(sceAmprAprCommandBufferReadFileScatter(buffer, map, state, first.data() + 40, 6) == 0);
+    offset = recorder.Offset();
+    commands = recorder.Commands();
+    Require(sceAmprAprCommandBufferResetGatherScatterState(buffer) == 0);
+    RequireAppended(recorder, offset, commands, Apr::Opcode::ResetGatherScatterState, sceAmprMeasureCommandSizeResetGatherScatterState());
+    Require(sceAmprAprCommandBufferReadFileGather(buffer, map, state, 8, 0) == invalidArgument);
+    Require(sceAmprAprCommandBufferReadFileScatter(buffer, map, state, second.data(), 8) == invalidArgument);
+    Require(sceAmprAprCommandBufferReadFile(buffer, map, state, fileId, second.data() + 48, 4, 3000) == 0);
+    Require(sceAmprAprCommandBufferReadFileScatter(buffer, map, state, second.data() + 56, 4) == 0);
+    Require(recorder.Commands() == 9);
+    SubmitWithin10Seconds(recorder);
+
+    Require(MatchesFile(first.data(), 100, 16) && MatchesFile(first.data() + 16, 500, 8));
+    Require(MatchesFile(second.data(), 508, 8));
+    Require(MatchesFile(second.data() + 32, 1000, 4) && MatchesFile(second.data() + 36, 2000, 4));
+    Require(MatchesFile(first.data() + 40, 2004, 6));
+    Require(MatchesFile(second.data() + 48, 3000, 4) && MatchesFile(second.data() + 56, 3004, 4));
+    Require(first[24] == 0 && first[39] == 0 && second[8] == 0 && second[31] == 0 && second[40] == 0);
+    std::remove(path);
+
+    const auto rejected = static_cast<std::uint64_t>(static_cast<std::uint32_t>(invalidArgument));
+    auto* high = reinterpret_cast<void*>(std::uintptr_t{0xF00000000000ull});
+    Recorder empty;
+    Require(sceAmprAprCommandBufferReadFile(&empty.buffer, map, state, fileId, first.data(), 0, 0) == invalidArgument);
+    Require(sceAmprAprCommandBufferReadFile(&empty.buffer, map, state, fileId, first.data(), 0x100000001ull, 0) == invalidArgument);
+    Require(sceAmprAprCommandBufferReadFile(&empty.buffer, map, state, fileId, first.data(), 4, 0x10000000000ull) == invalidArgument);
+    Require(sceAmprAprCommandBufferReadFile(&empty.buffer, map, state, fileId, high, 4, 0) == invalidArgument);
+    Require(sceAmprAprCommandBufferReadFile(nullptr, map, state, fileId, first.data(), 4, 0) == invalidArgument);
+    Require(empty.Offset() == 0 && empty.Commands() == 0);
+    Require(sceAmprMeasureCommandSizeReadFileGather(0, 0) == rejected);
+    Require(sceAmprMeasureCommandSizeReadFileGather(0x100000000ull, 0x10000000000ull - 1u) == sizeof(Apr::ReadFileCommand));
+    Require(sceAmprMeasureCommandSizeReadFileGather(4, 0x10000000000ull) == rejected);
+    Require(sceAmprMeasureCommandSizeReadFileScatter(first.data(), 0x100000001ull) == rejected);
+    Require(sceAmprMeasureCommandSizeReadFileScatter(high, 4) == rejected);
+    Require(sceAmprMeasureCommandSizeReadFileGatherScatter(first.data(), 4, 0x10000000000ull) == rejected);
+    Require(sceAmprMeasureCommandSizeReadFileGatherScatter(nullptr, 4, 0) == sizeof(Apr::ReadFileCommand));
+}
+
 }
 
 int main() {
@@ -418,5 +514,6 @@ int main() {
     TestVersionedCommands();
     TestVersionedCounters();
     TestConstructed();
+    TestGatherScatter();
     return 0;
 }

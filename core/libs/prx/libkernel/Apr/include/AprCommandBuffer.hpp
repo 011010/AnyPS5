@@ -8,7 +8,7 @@
 // The guest treats both the command buffer object and its memory as opaque, so the encoding is ours.
 namespace Apr {
 
-enum class BufferType : std::uint32_t {
+enum class BufferType : std::uint16_t {
     Generic = 0,
     Apr = 1,
 };
@@ -19,8 +19,11 @@ struct CommandBufferObject {
     std::uint32_t offset;
     std::uint32_t numCommands;
     BufferType type;
+    std::uint16_t recording;
 };
 static_assert(sizeof(CommandBufferObject) == 0x18, "guest reserves 0x18 bytes for sce::Ampr::CommandBuffer");
+
+inline constexpr std::uint16_t ScatterGatherValid = 1;
 
 enum class Opcode : std::uint32_t {
     Nop = 0,
@@ -36,6 +39,10 @@ enum class Opcode : std::uint32_t {
     PushMarker = 10,
     PopMarker = 11,
     SetMarker = 12,
+    ReadFileGather = 13,
+    ReadFileScatter = 14,
+    ReadFileGatherScatter = 15,
+    ResetGatherScatterState = 16,
 };
 
 struct CommandHeader {
@@ -50,6 +57,10 @@ struct ReadFileCommand {
     std::uint64_t destination;
     std::uint64_t size;
     std::uint64_t offset;
+};
+
+struct ResetGatherScatterStateCommand {
+    CommandHeader header;
 };
 
 struct WriteAddressCommand {
