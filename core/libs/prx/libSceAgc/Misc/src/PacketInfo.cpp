@@ -9,9 +9,12 @@
 extern "C" {
 
 uint32_t APS5_VABI sceAgcGetPacketSize(uint32_t* packet) {
- (void)packet;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    Agc::Command::CheckAddress(reinterpret_cast<std::uintptr_t>(packet), alignof(uint32_t), __func__);
+    Agc::Command::Require((packet[0] & 0xc0000000u) == 0xc0000000u, __func__, "source pointer is not a PM4 packet");
+    if ((packet[0] & 0x3fffff00u) == 0x3fff1000u) {
+        return 1;
+    }
+    return ((packet[0] >> 16u) & 0x3fffu) + 2u;
 }
 
 APS5_EXPORT("V++UgBtQhn0", sceAgcGetDataPacketPayloadAddressUnk);
