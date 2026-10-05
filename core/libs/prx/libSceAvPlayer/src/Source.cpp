@@ -32,6 +32,7 @@ constexpr std::uint32_t VideoBufferAlignment = 0x100;
 constexpr std::uint32_t AudioBufferAlignment = 0x10;
 constexpr std::uint32_t AudioChunkSamples = 1024;
 constexpr std::uint32_t AudioMaxChannels = 8;
+constexpr std::uint32_t VideoDecodeAheadFrames = 4;
 constexpr std::size_t VideoPacketLimit = 30;
 constexpr std::size_t AudioPacketLimit = 8;
 constexpr std::size_t AudioOnlyPacketLimit = 30;
@@ -604,8 +605,8 @@ private:
             pitch = AlignUp(static_cast<std::uint32_t>(decoder.context->width), VideoPitchAlignment);
             bufferHeight = AlignUp(static_cast<std::uint32_t>(decoder.context->height), VideoHeightAlignment);
             decoder.bufferSize = pitch * bufferHeight * 3 / 2;
-            count = settings.videoBuffers;
-            decoder.retained = count > 3 ? count - 3 : 0;
+            count = settings.videoBuffers + VideoDecodeAheadFrames;
+            decoder.retained = settings.videoBuffers > 3 ? settings.videoBuffers - 3 : 0;
             texture = true;
             alignment = VideoBufferAlignment;
         } else {
