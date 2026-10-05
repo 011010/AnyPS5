@@ -193,6 +193,8 @@ private:
     bool integer16Shift(const RdnaInstruction& inst, IrOpcode opcode, bool arithmetic);
     bool integer16Binary(const RdnaInstruction& inst, IrOpcode opcode, bool sign);
     bool integer16Mad(const RdnaInstruction& inst, bool sign, bool wide);
+    IrU32 saturateU16Result(const RdnaInstruction& inst, const IrU32& value, bool sign);
+    IrU32 wideAdd(const RdnaInstruction& inst, const IrU32& low, const IrU32& high, const IrU32& addend, bool sign);
     bool vAddSubNcI32(const RdnaInstruction& inst, bool subtract);
     bool integer16Ternary(const RdnaInstruction& inst, IrOpcode opcode, bool sign);
     bool vMed3I16(const RdnaInstruction& inst);

@@ -236,6 +236,38 @@ static void CheckNoOverwriteRejectsHostOccupiedMapping() {
     GuestArena::GuestArenaReset_nid_postfix(target, page);
     Require(sceKernelReleaseDirectMemory(phys, page) == 0);
 }
+
+static void CheckFixedMappingsReachTheApplicationAreaEnd() {
+    constexpr std::size_t page = 0x4000;
+    constexpr std::uintptr_t applicationAreaEnd = 0xFC00000000ull;
+    std::uintptr_t base = 0;
+    std::size_t size = 0;
+    GuestArena::GuestArenaRange_nid_postfix(&base, &size);
+    Require(base == 0x200000000ull && base + size == applicationAreaEnd);
+    std::int64_t phys = 0;
+    Require(sceKernelAllocateDirectMemory(0, 0x7fffffffffll, page * 2, 0, 0, &phys) == 0);
+    void* const requested = reinterpret_cast<void*>(applicationAreaEnd - page * 2);
+    void* mapped = requested;
+    Require(sceKernelMapDirectMemory(&mapped, page * 2, 3, 0x90, phys, 0) == 0);
+    Require(mapped == requested);
+    static_cast<volatile unsigned char*>(mapped)[page * 2 - 1] = 7;
+    void* alias = nullptr;
+    Require(sceKernelMapDirectMemory(&alias, page, 3, 0, phys + page, 0) == 0);
+    Require(static_cast<volatile unsigned char*>(alias)[page - 1] == 7);
+    VirtualQueryInfo info{};
+    Require(sceKernelVirtualQuery(mapped, 0, &info, sizeof(info)) == 0 && info.is_direct && info.end == applicationAreaEnd);
+    void* beyond = reinterpret_cast<void*>(applicationAreaEnd);
+    bool refused = false;
+    try {
+        refused = sceKernelMapDirectMemory(&beyond, page, 3, 0x10, phys, 0) != 0;
+    } catch (const std::exception&) {
+        refused = true;
+    }
+    Require(refused && beyond == reinterpret_cast<void*>(applicationAreaEnd));
+    Require(sceKernelMunmap(alias, page) == 0);
+    Require(sceKernelMunmap(mapped, page * 2) == 0);
+    Require(sceKernelReleaseDirectMemory(phys, page * 2) == 0);
+}
 #endif
 
 #if defined(__linux__)
@@ -674,6 +706,7 @@ int main() {
     CheckHeapAfterMappingReuse();
 #ifdef _WIN32
     CheckNoOverwriteRejectsHostOccupiedMapping();
+    CheckFixedMappingsReachTheApplicationAreaEnd();
 #endif
     CheckSharedWriteTracking();
     CheckReadsIntoSharedWriteTracking();

@@ -344,6 +344,7 @@ constexpr std::array<OpcodeMeta, static_cast<std::size_t>(IrOpcode::Count)> Meta
     makeMeta("AddressAtomicXor32", U32, AddressResource, U32, U32, U32, U1),
     makeMeta("AddressAtomicInc32", U32, AddressResource, U32, U32, U32, U1),
     makeMeta("AddressAtomicDec32", U32, AddressResource, U32, U32, U32, U1),
+    makeMeta("AddressAtomicUSubSat32", U32, AddressResource, U32, U32, U32, U1),
     makeMeta("AddressAtomicSwap64", U64, AddressResource, U32, U32, U64, U1),
     makeMeta("AddressAtomicCmpSwap64", U64, AddressResource, U32, U32, U64, U64, U1),
     makeMeta("AddressAtomicIAdd64", U64, AddressResource, U32, U32, U64, U1),
@@ -744,6 +745,7 @@ AddressOpcodeInfo AddressOpcodeInfoOf(IrOpcode opcode) {
         case IrOpcode::AddressAtomicXor32:
         case IrOpcode::AddressAtomicInc32:
         case IrOpcode::AddressAtomicDec32:
+        case IrOpcode::AddressAtomicUSubSat32:
         case IrOpcode::AddressAtomicFCmpSwap32:
         case IrOpcode::AddressAtomicFMin32:
         case IrOpcode::AddressAtomicFMax32:

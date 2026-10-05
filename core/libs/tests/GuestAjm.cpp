@@ -321,6 +321,24 @@ void TestCodecInfo(std::uint32_t context) {
     Require(sceAjmInstanceDestroy(context, instance) == 0);
 }
 
+void TestBatchWaitRelease(std::uint32_t context) {
+    constexpr int invalidBatch = static_cast<int>(0x80930004);
+    std::vector<std::uint8_t> batch(64);
+    AjmBatchInfo info{};
+    AjmBatchError error{};
+    std::uint32_t first = 0;
+    std::uint32_t second = 0;
+    Require(sceAjmBatchInitialize(batch.data(), batch.size(), &info) == 0);
+    Require(sceAjmBatchStart(context, &info, 0, &error, &first) == 0);
+    Require(sceAjmBatchStart(context, &info, 0, &error, &second) == 0 && second != first);
+    Require(sceAjmBatchWait(context, second, 0, &error) == 0);
+    Require(sceAjmBatchWait(context, first, 0, &error) == 0);
+    Require(sceAjmBatchWait(context, first, 0, &error) == invalidBatch);
+    Require(sceAjmBatchWait(context, second, 0, &error) == invalidBatch);
+    Require(sceAjmBatchWait(context, 0, 0, &error) == invalidBatch);
+    Require(sceAjmBatchWait(context, second + 1, 0, &error) == invalidBatch);
+}
+
 }
 
 int main() {
@@ -343,5 +361,6 @@ int main() {
     TestDecodeSingle(context);
     TestGaplessDecode(context);
     TestCodecInfo(context);
+    TestBatchWaitRelease(context);
     Require(sceAjmFinalize(context) == 0);
 }

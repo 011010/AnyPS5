@@ -508,6 +508,7 @@ void EmitDirectInstruction(SpirvValueEmitContext& ctx, const IrValue& inst) {
         case IrOpcode::AddressAtomicXor32: return Invoke(EmitAddressAtomic, ctx, inst);
         case IrOpcode::AddressAtomicInc32: return Invoke(EmitAddressAtomic, ctx, inst);
         case IrOpcode::AddressAtomicDec32: return Invoke(EmitAddressAtomic, ctx, inst);
+        case IrOpcode::AddressAtomicUSubSat32: return Invoke(EmitAddressAtomic, ctx, inst);
         case IrOpcode::AddressAtomicSwap64: return Invoke(EmitAddressAtomic, ctx, inst);
         case IrOpcode::AddressAtomicCmpSwap64: return Invoke(EmitAddressAtomic, ctx, inst);
         case IrOpcode::AddressAtomicIAdd64: return Invoke(EmitAddressAtomic, ctx, inst);

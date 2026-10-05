@@ -190,6 +190,7 @@ constexpr MemoryOpcodeInfo flatOpcodes[] = {
     {0x31u, RdnaOpcode::FlatAtomicCmpswap, 1, 32, false, false, false},
     {0x32u, RdnaOpcode::FlatAtomicAdd, 1, 32, false, false, false},
     {0x33u, RdnaOpcode::FlatAtomicSub, 1, 32, false, false, false},
+    {0x34u, RdnaOpcode::GlobalAtomicCsub, 1, 32, false, false, false},
     {0x35u, RdnaOpcode::FlatAtomicSmin, 1, 32, false, false, false},
     {0x36u, RdnaOpcode::FlatAtomicUmin, 1, 32, false, false, false},
     {0x37u, RdnaOpcode::FlatAtomicSmax, 1, 32, false, false, false},
@@ -602,6 +603,7 @@ bool isFlatAtomicOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::FlatAtomicFmaxX2:
         case RdnaOpcode::FlatAtomicIncX2:
         case RdnaOpcode::FlatAtomicDecX2:
+        case RdnaOpcode::GlobalAtomicCsub:
             return true;
         default: return false;
     }
@@ -819,6 +821,9 @@ RdnaInstruction DecodeRdnaFlat(std::uint32_t programCounter, std::span<const std
     const bool atomic = isFlatAtomicOpcode(info.opcode);
     if (lds != 0u || (atomic && seg == 1u) || seg == 3u) {
         throw std::runtime_error("unsupported FLAT modifiers or segment");
+    }
+    if (info.opcode == RdnaOpcode::GlobalAtomicCsub && seg != 2u) {
+        throw std::runtime_error("global_atomic_csub is available only in the global segment");
     }
 
     RdnaInstruction instruction{};
