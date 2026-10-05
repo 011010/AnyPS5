@@ -407,6 +407,12 @@ bool TranslationContext::emitScalar(const RdnaInstruction& inst) {
     case RdnaOpcode::SDecperflevel:
         emitControlNop();
         return true;
+    case RdnaOpcode::SRoundMode:
+        if (inst.source0.value != 0u) {
+            throw std::runtime_error("s_round_mode " + std::to_string(inst.source0.value) + " at pc " + std::to_string(inst.programCounter) + " selects a rounding mode other than round to nearest even");
+        }
+        emitControlNop();
+        return true;
     case RdnaOpcode::SDenormMode:
         throw std::runtime_error("s_denorm_mode " + std::to_string(inst.source0.value) + " at pc " + std::to_string(inst.programCounter) + ": the recompiler does not model denormal modes");
     case RdnaOpcode::SWaitcntDepctr:
