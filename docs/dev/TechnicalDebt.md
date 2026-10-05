@@ -97,6 +97,8 @@ Throughout the project, every function at every stage either **does exactly what
 
 ### Functional
 
+- [sceKernelInstallExceptionHandler](../../core/libs/prx/libkernel/System/src/Exception.cpp) records the handler but nothing delivers to it: a host fault still ends the process, and `sceKernelRaiseException` is not implemented. PPSA12544's PS5Util module (Unity) installs a SIGUSR1 handler that reads `uc_mcontext.mc_rsp` (offset 0xf8 of the context) and raises SIGUSR1 on other threads to stop them for garbage collection, so delivery must run the handler on the target thread with a FreeBSD `ucontext`
+
 - [libSceUlt queues](../../core/libs/prx/libSceUlt/Export.cpp) use preallocated host storage instead of the supplied guest work area; its existing size formula and the 512-byte object layouts remain unverified. Waiting-queue pool thread limits and waiter priority ordering are not implemented. Finalization wakes blocked queue callers with `ULT_ERROR_STATE`.
 - [MIMG `tfe` and `lwe`](../../core/shader/recompiler/RdnaDecoder/src/RdnaImageOpDecoder.cpp) never write the status VGPR after the data. On hardware it is written only when a texel fetch hits an unmapped page of a partially resident texture, or, for `lwe` on sample/gather, when the LOD is below the T# `MIN_LOD_WARN`; texture memory is always resident here, and `lwe` on sample, gather and `image_get_lod` throws.
 - [Image atomics](../../core/shader/recompiler/Optimization/src/ResourceMaterializer.cpp) on 32_SINT and 32_FLOAT surfaces act on the raw dword through an R32_UINT storage view; their float results are assumed to match those measured on 32_UINT surfaces. Other formats throw.
