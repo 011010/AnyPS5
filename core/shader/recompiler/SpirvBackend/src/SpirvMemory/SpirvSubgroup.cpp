@@ -50,9 +50,8 @@ namespace ShaderRecompiler
         return result;
     }
 
-    DppTargetLane EmitDppQuadPermTargetLane(SpirvEmitterState& state, std::uint32_t subid, std::uint32_t control) {
-        constexpr std::uint32_t laneBits = 2u;
-        constexpr std::uint32_t laneMask = (1u << laneBits) - 1u;
+    DppTargetLane EmitDppGroupPermTargetLane(SpirvEmitterState& state, std::uint32_t subid, std::uint32_t control, std::uint32_t laneBits) {
+        const std::uint32_t laneMask = (1u << laneBits) - 1u;
         const auto groupBase = state.module.AllocateId();
         const auto lane = state.module.AllocateId();
         const auto shift = state.module.AllocateId();
@@ -121,8 +120,11 @@ namespace ShaderRecompiler
 
     DppTargetLane EmitDppTargetLane(SpirvEmitterState& state, std::uint32_t control) {
         const auto subid = EmitSubgroupLocalInvocationId(state);
+        if ((control & DppMoveFlags::Lanes8) != 0u) {
+            return EmitDppGroupPermTargetLane(state, subid, control & ~DppMoveFlags::Lanes8, 3u);
+        }
         if (control <= 0xffu) {
-            return EmitDppQuadPermTargetLane(state, subid, control);
+            return EmitDppGroupPermTargetLane(state, subid, control, 2u);
         }
         if (control >= 0x101u && control <= 0x10fu) {
             return EmitDppRowShiftTargetLane(state, subid, control & 0xfu, true);

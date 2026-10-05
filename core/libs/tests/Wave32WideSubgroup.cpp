@@ -150,7 +150,7 @@ void Check(std::uint32_t size, const Value& masks) {
     const auto readFirst = EmitReadFirstLane(context, first);
     const auto readLane = EmitReadLane(context, read);
     const auto active = EmitBallotLaneActiveBool(state, ballot, requestedId);
-    const auto quad = EmitDppQuadPermTargetLane(state, logicalId, 0x1bu);
+    const auto quad = EmitDppGroupPermTargetLane(state, logicalId, 0x1bu, 2u);
     const auto quadValue = context.Shuffle(read, 0, quad.lane);
     const auto hardwareActive = EmitSubgroupLaneActiveBool(state, requestedId);
     const auto swizzled = EmitSwizzleU32(context, swizzle);

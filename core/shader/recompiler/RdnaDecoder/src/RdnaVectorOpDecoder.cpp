@@ -701,6 +701,38 @@ bool isPermlaneOpcode(RdnaOpcode opcode) {
     return opcode == RdnaOpcode::VPermlane16B32 || opcode == RdnaOpcode::VPermlanex16B32;
 }
 
+bool acceptsDpp8(RdnaOpcode opcode) {
+    switch (opcode) {
+        case RdnaOpcode::VReadfirstlaneB32:
+        case RdnaOpcode::VCvtI32F64:
+        case RdnaOpcode::VCvtF64I32:
+        case RdnaOpcode::VCvtF32F64:
+        case RdnaOpcode::VCvtF64F32:
+        case RdnaOpcode::VCvtU32F64:
+        case RdnaOpcode::VCvtF64U32:
+        case RdnaOpcode::VTruncF64:
+        case RdnaOpcode::VCeilF64:
+        case RdnaOpcode::VRndneF64:
+        case RdnaOpcode::VFloorF64:
+        case RdnaOpcode::VFrexpExpI32F64:
+        case RdnaOpcode::VFrexpMantF64:
+        case RdnaOpcode::VFractF64:
+        case RdnaOpcode::VSwapB32:
+        case RdnaOpcode::VSwaprelB32:
+        case RdnaOpcode::VMacLegacyF32:
+        case RdnaOpcode::VMadmkF32:
+        case RdnaOpcode::VMadakF32:
+        case RdnaOpcode::VFmamkF16:
+        case RdnaOpcode::VFmaakF16:
+        case RdnaOpcode::VPkFmacF16:
+        case RdnaOpcode::VMovrelsB32:
+        case RdnaOpcode::VMovrelsdB32:
+        case RdnaOpcode::VMovrelsd2B32:
+            return false;
+        default: return true;
+    }
+}
+
 bool isNativeVop3F16TernaryOpcode(RdnaOpcode opcode) {
     return opcode == RdnaOpcode::VMin3F16 || opcode == RdnaOpcode::VMax3F16 || opcode == RdnaOpcode::VMed3F16 ||
         opcode == RdnaOpcode::VDivFixupF16 ||
@@ -1168,7 +1200,14 @@ void applyDppModifier(RdnaOperand& operand, std::uint32_t modifier) {
     operand.dppRowMask = (modifier >> 28u) & 0xfu;
 }
 
-void decodeVop1Dpp(std::uint32_t programCounter, std::span<const std::uint32_t> code, std::uint32_t wordIndex, std::uint32_t vdst, RdnaInstruction& instruction) {
+void applyDpp8Modifier(RdnaOperand& operand, std::uint32_t modifier, bool fetchInactive) {
+    operand.dpp = true;
+    operand.dpp8 = true;
+    operand.dppCtrl = modifier >> 8u;
+    operand.dppFetchInactive = fetchInactive;
+}
+
+void decodeVop1Dpp(std::uint32_t programCounter, std::span<const std::uint32_t> code, std::uint32_t wordIndex, std::uint32_t form, std::uint32_t vdst, RdnaInstruction& instruction) {
     if (static_cast<std::size_t>(wordIndex) + 1u >= code.size()) {
         throw std::out_of_range("truncated VOP1 DPP instruction");
     }
@@ -1180,7 +1219,13 @@ void decodeVop1Dpp(std::uint32_t programCounter, std::span<const std::uint32_t> 
         ? DecodeRdnaScalarDestination(vdst, programCounter)
         : DecodeRdnaVectorGpr(vdst);
     instruction.source0 = DecodeRdnaScalarSource(src0 + 256u, programCounter);
-    applyDppModifier(instruction.source0, modifier);
+    if (form == 250u) {
+        applyDppModifier(instruction.source0, modifier);
+    } else if (acceptsDpp8(instruction.op)) {
+        applyDpp8Modifier(instruction.source0, modifier, form == 234u);
+    } else {
+        throw std::invalid_argument("DPP8 modifier is not supported for opcode");
+    }
     instruction.sourceCount = 1;
 
     if (!isVop1FloatSourceOpcode(instruction.op) && (instruction.source0.negate || instruction.source0.absolute)) {
@@ -1362,7 +1407,7 @@ void decodeVop2Sdwa(std::uint32_t programCounter, std::span<const std::uint32_t>
     finalizeVop2Instruction(code, wordIndex, instruction);
 }
 
-void decodeVop2Dpp(std::uint32_t programCounter, std::span<const std::uint32_t> code, std::uint32_t wordIndex, std::uint32_t opcode, std::uint32_t vdst, std::uint32_t vsrc1, RdnaInstruction& instruction) {
+void decodeVop2Dpp(std::uint32_t programCounter, std::span<const std::uint32_t> code, std::uint32_t wordIndex, std::uint32_t form, std::uint32_t vdst, std::uint32_t vsrc1, RdnaInstruction& instruction) {
     if (static_cast<std::size_t>(wordIndex) + 1u >= code.size()) {
         throw std::out_of_range("truncated VOP2 DPP instruction");
     }
@@ -1373,9 +1418,15 @@ void decodeVop2Dpp(std::uint32_t programCounter, std::span<const std::uint32_t> 
     instruction.destination = DecodeRdnaVectorGpr(vdst);
     instruction.source1 = DecodeRdnaVectorGpr(vsrc1);
     instruction.source0 = DecodeRdnaScalarSource(src0 + 256u, programCounter);
-    applyDppModifier(instruction.source0, modifier);
-    instruction.source1.negate = ((modifier >> 22u) & 0x1u) != 0u;
-    instruction.source1.absolute = ((modifier >> 23u) & 0x1u) != 0u;
+    if (form == 250u) {
+        applyDppModifier(instruction.source0, modifier);
+        instruction.source1.negate = ((modifier >> 22u) & 0x1u) != 0u;
+        instruction.source1.absolute = ((modifier >> 23u) & 0x1u) != 0u;
+    } else if (acceptsDpp8(instruction.op)) {
+        applyDpp8Modifier(instruction.source0, modifier, form == 234u);
+    } else {
+        throw std::invalid_argument("DPP8 modifier is not supported for opcode");
+    }
     const bool packedFmac = instruction.op == RdnaOpcode::VPkFmacF16;
     if (packedFmac) {
         instruction.source0.negateHi = instruction.source0.negate;
@@ -1977,8 +2028,8 @@ RdnaInstruction DecodeRdnaVop1(std::uint32_t programCounter, std::span<const std
         decodeVop1Sdwa(programCounter, code, wordIndex, vdst, instruction);
         return instruction;
     }
-    if (src0 == 250u) {
-        decodeVop1Dpp(programCounter, code, wordIndex, vdst, instruction);
+    if (src0 == 250u || src0 == 233u || src0 == 234u) {
+        decodeVop1Dpp(programCounter, code, wordIndex, src0, vdst, instruction);
         return instruction;
     }
 
@@ -2009,8 +2060,8 @@ RdnaInstruction DecodeRdnaVop2(std::uint32_t programCounter, std::span<const std
         decodeVop2Sdwa(programCounter, code, wordIndex, opcode, vdst, vsrc1, instruction);
         return instruction;
     }
-    if (src0 == 250u) {
-        decodeVop2Dpp(programCounter, code, wordIndex, opcode, vdst, vsrc1, instruction);
+    if (src0 == 250u || src0 == 233u || src0 == 234u) {
+        decodeVop2Dpp(programCounter, code, wordIndex, src0, vdst, vsrc1, instruction);
         return instruction;
     }
 
