@@ -21,6 +21,9 @@ std::uint32_t APS5_VABI sceAgcDcbSetUcRegistersIndirectGetSize(std::uint32_t);
 int APS5_VABI sceAgcSetCxRegIndirectPatchSetNumRegisters(std::uint32_t*, std::uint32_t);
 int APS5_VABI sceAgcSetShRegIndirectPatchSetNumRegisters(std::uint32_t*, std::uint32_t);
 int APS5_VABI sceAgcSetUcRegIndirectPatchSetNumRegisters(std::uint32_t*, std::uint32_t);
+int APS5_VABI sceAgcSetCxRegIndirectPatchSetAddress(std::uint32_t*, const volatile ShaderRegister*);
+int APS5_VABI sceAgcSetShRegIndirectPatchSetAddress(std::uint32_t*, const volatile ShaderRegister*);
+int APS5_VABI sceAgcSetUcRegIndirectPatchSetAddress(std::uint32_t*, const volatile ShaderRegister*);
 std::uint32_t* APS5_VABI sceAgcCbSetShRegistersDirect(CommandBuffer*, const volatile ShaderRegister*, std::uint32_t);
 std::uint32_t* APS5_VABI sceAgcCbSetUcRegistersDirect(CommandBuffer*, const volatile ShaderRegister*, std::uint32_t);
 std::uint32_t APS5_VABI sceAgcCbSetShRegistersDirectGetSize(std::uint32_t);
@@ -105,6 +108,26 @@ void testIndirect() {
     }
 }
 
+void testIndirectPlaceholder() {
+    const std::array writers{sceAgcDcbSetCxRegistersIndirect, sceAgcDcbSetShRegistersIndirect, sceAgcDcbSetUcRegistersIndirect};
+    const std::array addressSetters{sceAgcSetCxRegIndirectPatchSetAddress, sceAgcSetShRegIndirectPatchSetAddress, sceAgcSetUcRegIndirectPatchSetAddress};
+    const std::array countSetters{sceAgcSetCxRegIndirectPatchSetNumRegisters, sceAgcSetShRegIndirectPatchSetNumRegisters, sceAgcSetUcRegIndirectPatchSetNumRegisters};
+    const std::array headers{0xc0039f00u, 0xc0036300u, 0xc0036400u};
+    const std::array<ShaderRegister, 2> registers{{{0x10u, 7}, {0x11u, 8}}};
+    for (std::size_t i = 0; i < writers.size(); ++i) {
+        Storage storage;
+        auto* packet = writers[i](&storage.buffer, nullptr, 0);
+        check(packet[0] == headers[i] && packet[1] == 0 && packet[2] == 0 && packet[3] == 0x80000000u && packet[4] == 0, "placeholder packet mismatch");
+        check(storage.buffer.cursor_up == packet + 5, "placeholder cursor mismatch");
+        const auto before = storage.words;
+        expectFailure([&] { writers[i](&storage.buffer, nullptr, 1); });
+        check(storage.words == before && storage.buffer.cursor_up == packet + 5, "null register list with a count modified the buffer");
+        check(addressSetters[i](packet, registers.data()) == 0 && countSetters[i](packet, 2) == 0, "placeholder was not patched");
+        const auto address = reinterpret_cast<std::uintptr_t>(registers.data());
+        check(packet[1] == static_cast<std::uint32_t>(address) && packet[2] == static_cast<std::uint32_t>(address >> 32u) && packet[4] == 2, "patched placeholder mismatch");
+    }
+}
+
 void testDirectList() {
     constexpr std::uint32_t sentinel = 0xabcdef01u;
     constexpr std::uint32_t wordSize = sizeof(std::uint32_t);
@@ -158,6 +181,7 @@ int main() {
     try {
         testDirect();
         testIndirect();
+        testIndirectPlaceholder();
         testDirectList();
         std::puts("AGC register command tests passed");
         return 0;
