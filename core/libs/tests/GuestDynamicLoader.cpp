@@ -1,5 +1,7 @@
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <thread>
 extern "C" {
 void* APS5_VABI dlopen_nid_postfix(const char*, int);
@@ -37,4 +39,20 @@ int main(int argc, char** argv) {
     Require(add && add(2, 3) == 5);
     Require(dlclose_nid_postfix(second) == 0);
     Require(dlclose_nid_postfix(second) == -1);
+
+    const std::filesystem::path guest = "anyps5-relinked-module-for-test.prx";
+    auto relinked = guest;
+    relinked += ".guest.prx";
+    {
+        std::ofstream elf(guest, std::ios::binary);
+        elf.write("\x7f" "ELF", 4);
+    }
+    std::filesystem::copy_file(argv[1], relinked, std::filesystem::copy_options::overwrite_existing);
+    void* redirected = dlopen_nid_postfix(guest.string().c_str(), 2);
+    Require(redirected != nullptr);
+    add = reinterpret_cast<Add>(dlsym_nid_postfix(redirected, "GuestModuleAdd"));
+    Require(add && add(40, 2) == 42);
+    Require(dlclose_nid_postfix(redirected) == 0);
+    std::filesystem::remove(guest);
+    std::filesystem::remove(relinked);
 }
