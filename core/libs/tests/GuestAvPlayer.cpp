@@ -500,7 +500,6 @@ void Release(void* memory, bool texture) {
         if (found == allocations.blocks.end() || found->second.texture != texture) std::abort();
         aligned = found->second.alignment;
         allocations.blocks.erase(found);
-        if (texture) --allocations.textures;
     }
     ::operator delete(memory, aligned);
 }
@@ -523,7 +522,9 @@ void SetTextureLimit(std::optional<int> limit) {
 
 int TextureCount() {
     std::lock_guard lock(allocations.mutex);
-    return allocations.textures;
+    return static_cast<int>(std::count_if(allocations.blocks.begin(), allocations.blocks.end(), [](const auto& allocation) {
+        return allocation.second.texture;
+    }));
 }
 
 struct Events {
