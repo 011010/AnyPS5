@@ -5,6 +5,7 @@
 #include "prx/libSceAgcDriver/Execution/include/BdaFeatures.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PresentationScaler.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/DepthSurface.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/DccMetadata.hpp"
 #include "prx/libSceAgcDriver/Execution/include/DisplayFormat.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureDetiler.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/GpuColorTransfer.hpp"
@@ -1822,6 +1823,41 @@ std::shared_ptr<Graphics::StorageTexture> PresentableResident(const Graphics::Co
     return resident;
 }
 
+Graphics::DccKeys DisplayKeys(const DisplayBuffer& buffer, std::size_t bytes) {
+    const auto keys = Graphics::CurrentDccKeys(buffer.dccAddress, bytes);
+    if (keys != Graphics::DccKeys::Uncompressed && !Graphics::IsDccClear(keys)) {
+        char message[256];
+        std::snprintf(message, sizeof(message), "VideoOut: display buffer 0x%llx reads %s DCC keys at 0x%llx: presenting DCC metadata that is not uniformly uncompressed or fast-cleared is not implemented", static_cast<unsigned long long>(buffer.address), Graphics::DccKeysName(keys), static_cast<unsigned long long>(buffer.dccAddress));
+        throw std::runtime_error(message);
+    }
+    return keys;
+}
+
+bool ResidentServesDisplay(const Graphics::StorageTexture& resident, const DisplayBuffer& buffer, std::size_t bytes) {
+    const auto keys = DisplayKeys(buffer, bytes);
+    if (keys == Graphics::DccKeys::ClearRegister) {
+        char message[320];
+        std::snprintf(message, sizeof(message), "VideoOut: display buffer 0x%llx reads register-clear DCC keys at 0x%llx over the pending image 0x%llx (DCC 0x%llx, filled keys %s): whether its results precede the clear is not modeled", static_cast<unsigned long long>(buffer.address), static_cast<unsigned long long>(buffer.dccAddress), static_cast<unsigned long long>(resident.Descriptor().baseAddress), static_cast<unsigned long long>(resident.Descriptor().dccAddress), Graphics::DccKeysName(resident.FilledKeys()));
+        throw std::runtime_error(message);
+    }
+    if (Graphics::IsDccClear(resident.FilledKeys()) && resident.FilledKeys() == keys) return false;
+    return Graphics::StorageImageServesKeys(resident, buffer.dccAddress);
+}
+
+bool ResidentKeysMoved(const Graphics::StorageTexture& resident) {
+    const auto& own = resident.Descriptor();
+    if (own.dccAddress == 0) return false;
+    GuestMemory::CollectWritesUncached(own.dccAddress, Graphics::DccKeyBytes(resident.GuestBytes()));
+    return Graphics::ProvedClearKeys(own, resident.GuestBytes(), resident.KeyProof()) != resident.UploadedKeys();
+}
+
+std::optional<std::array<std::byte, 4>> CompressedClearPixel(const DisplayBuffer& buffer, std::size_t bytes) {
+    GuestMemory::FlushGpuWrites(buffer.address, bytes);
+    const auto keys = DisplayKeys(buffer, bytes);
+    if (keys == Graphics::DccKeys::Uncompressed) return std::nullopt;
+    return DisplayBufferClearPixel(buffer, keys);
+}
+
 // Debug aid: APS5_NO_RESIDENT_PRESENT=1 always presents through guest memory.
 bool NoResidentPresent() {
     static const bool no = std::getenv("APS5_NO_RESIDENT_PRESENT") != nullptr;
@@ -1871,6 +1907,10 @@ bool VulkanDevice::PresentDisplayBuffer(const DisplayBuffer& buffer) {
     if (!NoResidentPresent()) {
         bool pending = false;
         resident = PresentableResident(graphicsContext(), buffer, filter, pending, convert);
+        if (resident != nullptr && buffer.dccAddress != 0 && !ResidentServesDisplay(*resident, buffer, bytes)) {
+            resident.reset();
+            convert = false;
+        }
         if (!pending) {
             ++notPending;
         } else if (resident == nullptr) {
@@ -1882,18 +1922,20 @@ bool VulkanDevice::PresentDisplayBuffer(const DisplayBuffer& buffer) {
             // walk: the collect memo is per worker packet, so on this thread a memoized answer could
             // miss a CPU write that landed after a worker's walk of the same range.
             GuestMemory::CollectWritesUncached(buffer.address, bytes);
-            if (!GuestMemory::UnchangedSince(buffer.address, bytes, resident->Generation())) {
+            if (!GuestMemory::UnchangedSince(buffer.address, bytes, resident->Generation()) || (buffer.dccAddress != 0 && ResidentKeysMoved(*resident))) {
                 resident->Refresh();
                 ++refreshedPresents;
             }
             ++residentPresents;
         }
     }
+    const auto cleared = buffer.dccAddress != 0 && resident == nullptr ? CompressedClearPixel(buffer, bytes) : std::nullopt;
     auto& dumps = Dumps();
     bool dumpFrame = false;
     if (dumps.dumped < dumps.limit && ++dumps.presents % static_cast<std::uint64_t>(dumps.every) == 0) {
         if (dumps.cpu) {
-            const auto full = ReadDisplayBuffer(buffer);
+            auto full = cleared ? std::vector<std::byte>(static_cast<std::size_t>(buffer.width) * buffer.height * cleared->size()) : ReadDisplayBuffer(buffer);
+            for (std::size_t offset = 0; cleared && offset < full.size(); offset += cleared->size()) std::memcpy(full.data() + offset, cleared->data(), cleared->size());
             WriteFrameBmp(dumps.dumped++, buffer.width, buffer.height, full, DumpScale());
         } else {
             state->nextDumpIndex = dumps.dumped++;
@@ -1906,7 +1948,12 @@ bool VulkanDevice::PresentDisplayBuffer(const DisplayBuffer& buffer) {
         std::fprintf(stderr, "[flip] %llu presents from the resident image (%llu refreshed first), through guest memory: %llu not pending, %llu unsuitable; %llu GPU frame dumps\n", static_cast<unsigned long long>(residentPresents), static_cast<unsigned long long>(refreshedPresents), static_cast<unsigned long long>(notPending), static_cast<unsigned long long>(unsuitable), static_cast<unsigned long long>(gpuDumps));
     }
     CaptureTrace::Log("present dump=%d address=%llx width=%u height=%u resident=%d generation=%llu", dumpFrame ? state->nextDumpIndex : -1, static_cast<unsigned long long>(buffer.address), buffer.width, buffer.height, resident != nullptr, static_cast<unsigned long long>(resident ? resident->Generation() : 0));
-    if (!present(buffer.width, buffer.height, true, {}, &buffer, resident, filter, dumpFrame, convert)) {
+    VkClearColorValue uniform{};
+    if (cleared) {
+        const auto channel = [&](std::size_t index) { return static_cast<float>(std::to_integer<unsigned>((*cleared)[index])) / 255.0f; };
+        uniform = {{channel(2), channel(1), channel(0), channel(3)}};
+    }
+    if (!present(buffer.width, buffer.height, true, {}, cleared ? nullptr : &buffer, resident, filter, dumpFrame, convert, cleared ? &uniform : nullptr)) {
         // A dropped frame (swapchain out of date) keeps the dump numbering contiguous.
         if (dumpFrame) --dumps.dumped;
         return false;
@@ -1951,7 +1998,7 @@ bool VulkanDevice::AcquireImage() {
     return true;
 }
 
-bool VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaque, std::span<const std::byte> pixels, const DisplayBuffer* display, const std::shared_ptr<Graphics::StorageTexture>& resident, VkFilter residentFilter, bool dumpFrame, bool residentConvert) {
+bool VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaque, std::span<const std::byte> pixels, const DisplayBuffer* display, const std::shared_ptr<Graphics::StorageTexture>& resident, VkFilter residentFilter, bool dumpFrame, bool residentConvert, const VkClearColorValue* uniform) {
     PerformanceTimer timing("Vulkan.Present");
     APS5_LOG_OUT_DEBUG("present begin width=%u height=%u opaque=%u pixels=%zu", width, height, static_cast<unsigned>(opaque), pixels.size());
     require(state->swapchain != VK_NULL_HANDLE, "device has no swapchain");
@@ -1965,8 +2012,9 @@ bool VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
     const auto index = state->acquiredIndex;
     require(index < state->images.size() && index < state->rendered.size(), "acquired image index is out of range");
     auto& rendered = state->rendered[index];
-    const bool clearOnly = pixels.empty() && display == nullptr;
+    const bool clearOnly = pixels.empty() && display == nullptr && uniform == nullptr;
     require(!residentConvert || (resident != nullptr && display != nullptr), "a converted resident presentation needs its image and display buffer");
+    require(uniform == nullptr || (pixels.empty() && display == nullptr && resident == nullptr), "a uniform presentation has no other source");
     const bool direct = resident != nullptr && !residentConvert;
     // The scaler's source image, the color transfer's staging and the upload buffer are single
     // objects an in-flight blit through them may still read: the paths using or re-creating them
@@ -2024,7 +2072,7 @@ bool VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
     auto pipelineBarrier = state->DeviceFunction<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier");
     pipelineBarrier(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     Graphics::Recorder::CountBarriers(CommandClass::PresentBlit);
-    if (pixels.empty() && display == nullptr) {
+    if (clearOnly) {
         APS5_LOG_OUT_DEBUG("Recording swapchain clear opaque=%u image=%p", static_cast<unsigned>(opaque), reinterpret_cast<void*>(barrier.image));
         VkClearColorValue clear{};
         clear.float32[3] = opaque ? 1.0f : 0.0f;
@@ -2056,7 +2104,8 @@ bool VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
             if (display != nullptr) {
                 state->colorTransfer->Detile(commands, DisplayRedLow(display->pixelFormat), DisplayTenBit(display->pixelFormat));
             }
-            state->scaler->RecordUpload(commands, display != nullptr ? state->colorTransfer->LinearBuffer() : state->uploadBuffer);
+            if (uniform != nullptr) state->scaler->RecordClear(commands, *uniform);
+            else state->scaler->RecordUpload(commands, display != nullptr ? state->colorTransfer->LinearBuffer() : state->uploadBuffer);
         }
         VkClearColorValue letterbox{};
         letterbox.float32[3] = 1.0f;
