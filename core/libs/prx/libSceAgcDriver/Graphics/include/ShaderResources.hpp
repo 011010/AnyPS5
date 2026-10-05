@@ -412,6 +412,7 @@ private:
     std::vector<bool> storageFirstLayer;
     std::vector<bool> storageWritten;
     std::vector<std::shared_ptr<Sampler>> samplers;
+    std::shared_ptr<Sampler> paddingSampler;
     bool reusable = false;
     std::vector<DirectRegion> directRegions;
     std::vector<ValidatedSurface> validatedTextures;
