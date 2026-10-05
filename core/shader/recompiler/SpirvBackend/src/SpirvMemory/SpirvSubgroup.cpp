@@ -17,15 +17,37 @@ namespace ShaderRecompiler
             throw std::runtime_error("SPIR-V module emission failed: " + reason);
         }
 
+        std::uint32_t HostInvocationId(SpirvEmitterState& state) {
+            if (state.subgroupLocalInvocationIdVariable == 0) {
+                FailEmit("SubgroupLocalInvocationId was not declared before function emission");
+            }
+            const auto value = state.module.AllocateId();
+            state.module.AddFunction(spv::OpLoad, TypeU32(state), value, state.subgroupLocalInvocationIdVariable);
+            return value;
+        }
+
     }
 
     std::uint32_t EmitSubgroupLocalInvocationId(SpirvEmitterState& state) {
-        if (state.subgroupLocalInvocationIdVariable == 0) {
-            FailEmit("SubgroupLocalInvocationId was not declared before function emission");
-        }
-        const auto value = state.module.AllocateId();
-        state.module.AddFunction(spv::OpLoad, TypeU32(state), value, state.subgroupLocalInvocationIdVariable);
+        const auto value = HostInvocationId(state);
+        if (state.splitSubgroup) return EmitBinaryU32(state, spv::OpBitwiseAnd, value, ConstantU32(state, 31u));
         return state.laneHalf == 0 ? value : EmitAddU32(state, value, ConstantU32(state, 32));
+    }
+
+    std::uint32_t EmitHostSubgroupLane(SpirvEmitterState& state, std::uint32_t lane) {
+        if (!state.splitSubgroup) return lane;
+        const auto base = EmitBinaryU32(state, spv::OpBitwiseAnd, HostInvocationId(state), ConstantU32(state, ~31u));
+        return EmitAddU32(state, base, lane);
+    }
+
+    std::uint32_t EmitWaveBallot(SpirvEmitterState& state, std::uint32_t ballot) {
+        if (!state.splitSubgroup) return ballot;
+        const auto word = EmitBinaryU32(state, spv::OpShiftRightLogical, HostInvocationId(state), ConstantU32(state, 5u));
+        const auto mask = state.module.AllocateId();
+        const auto result = state.module.AllocateId();
+        state.module.AddFunction(spv::OpVectorExtractDynamic, TypeU32(state), mask, ballot, word);
+        state.module.AddFunction(spv::OpCompositeConstruct, TypeU32Vector(state, 4u), result, mask, ConstantU32(state, 0u), ConstantU32(state, 0u), ConstantU32(state, 0u));
+        return result;
     }
 
     DppTargetLane EmitDppQuadPermTargetLane(SpirvEmitterState& state, std::uint32_t subid, std::uint32_t control) {
@@ -157,6 +179,6 @@ namespace ShaderRecompiler
     std::uint32_t EmitSubgroupLaneActiveBool(SpirvEmitterState& state, std::uint32_t lane) {
         const auto activeBallot = state.module.AllocateId();
         state.module.AddFunction(spv::OpGroupNonUniformBallot, TypeU32Vector(state, 4), activeBallot, ConstantU32(state, spv::ScopeSubgroup), ConstantBool(state, true));
-        return EmitBallotLaneActiveBool(state, activeBallot, lane);
+        return EmitBallotLaneActiveBool(state, EmitWaveBallot(state, activeBallot), lane);
     }
 }

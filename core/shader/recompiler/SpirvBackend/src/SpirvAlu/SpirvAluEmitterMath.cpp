@@ -1,4 +1,5 @@
 #include "SpirvBackend/SpirvEmitterInstructions.hpp"
+#include "SpirvBackend/SpirvMemory/SpirvSubgroup.hpp"
 #include "IntermediateRepresentation/IrValue.hpp"
 #include <spirv/unified1/GLSL.std.450.h>
 #include <spirv/unified1/spirv.hpp>
@@ -201,10 +202,11 @@ std::uint32_t EmitDsMaskedLaneRead(SpirvEmitterState& state, std::uint32_t sourc
     if (state.laneCount == 2) {
         lane = Binary(state, spv::OpBitwiseAnd, TypeU32(state), lane, ConstantU32(state, 31u));
     }
+    const auto physicalLane = EmitHostSubgroupLane(state, lane);
     const auto shuffled = state.module.AllocateId();
-    state.module.AddFunction(spv::OpGroupNonUniformShuffle, TypeU32(state), shuffled, ConstantU32(state, spv::ScopeSubgroup), source, lane);
+    state.module.AddFunction(spv::OpGroupNonUniformShuffle, TypeU32(state), shuffled, ConstantU32(state, spv::ScopeSubgroup), source, physicalLane);
     const auto sourceExec = state.module.AllocateId();
-    state.module.AddFunction(spv::OpGroupNonUniformShuffle, TypeBool(state), sourceExec, ConstantU32(state, spv::ScopeSubgroup), exec, lane);
+    state.module.AddFunction(spv::OpGroupNonUniformShuffle, TypeBool(state), sourceExec, ConstantU32(state, spv::ScopeSubgroup), exec, physicalLane);
     const auto sourceActive = Binary(state, spv::OpLogicalAnd, TypeBool(state), sourceExec, EmitSubgroupLaneActiveBool(state, lane));
     return Select(state, TypeU32(state), sourceActive, shuffled, ConstantU32(state, 0u));
 }
