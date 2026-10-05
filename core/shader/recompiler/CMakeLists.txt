@@ -217,6 +217,7 @@ function(add_shader_recompiler target runtimeTarget)
             RecompileResult
             ResolveSource
             ResourceMaterializer::SpecializationNanoseconds
+            RuntimeAbi::RequireVersion
             SetDebugProbeActive
             ShaderCacheDirectory
             ThreadOwned
