@@ -662,7 +662,10 @@ void TestAmm() {
     Require(sceAmprAmmCommandBufferUnmap(&exact.buffer, start, page) == 0);
     Require(sceAmprAmmCommandBufferUnmap(&exact.buffer, start, page) == busy);
     Require(sceAmprAmmCommandBufferMap(&exact.buffer, start, page, 0, cpuReadWrite) == busy);
-    Require(sceAmprAmmSubmitCommandBuffer(nullptr, 0, 0) == invalidArgument);
+    Require(sceAmprAmmSubmitCommandBuffer(nullptr, 0, 0) == permissionDenied);
+    Require(sceAmprAmmSubmitCommandBuffer(exact.memory.data(), 0, 3) == invalidArgument);
+    Require(sceAmprAmmSubmitCommandBuffer3(nullptr, 0, 3, nullptr) == invalidArgument);
+    Require(sceAmprAmmSubmitCommandBuffer(exact.memory.data(), 0, 2) == 0);
 
     Require(sceAmprAmmMeasureAmmCommandSizeMap(start, page, 0, 0x04) == ammRejected);
     Require(sceAmprAmmMeasureAmmCommandSizeMapWithGpuMaskId(start + 8, page, 0, cpuReadWrite, 0) == ammRejected);

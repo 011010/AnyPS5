@@ -725,15 +725,15 @@ int APS5_VABI sceAmprAmmGetVirtualAddressRanges(std::uint64_t* start, std::uint6
 }
 
 int APS5_VABI sceAmprAmmSubmitCommandBuffer(void* base, std::uint32_t offset, std::uint32_t priority) {
-    (void)priority;
-    if (!base) return SCE_KERNEL_ERROR_EINVAL;
+    if (priority > 2u) return SCE_KERNEL_ERROR_EINVAL;
+    if (!base) return SCE_KERNEL_ERROR_EPERM;
     AmmSubmit_nid_no_patch(base, offset);
     return 0;
 }
 
 int APS5_VABI sceAmprAmmSubmitCommandBuffer2(void* base, std::uint32_t offset, std::uint32_t priority, AmmSubmitResult* result, std::uint32_t* id) {
-    (void)priority;
-    if (!base) return SCE_KERNEL_ERROR_EINVAL;
+    if (priority > 2u) return SCE_KERNEL_ERROR_EINVAL;
+    if (!base) return SCE_KERNEL_ERROR_EPERM;
     const auto submitted = AmmSubmit_nid_no_patch(base, offset);
     if (result) *result = {0, 0};
     if (id) *id = submitted;
@@ -741,8 +741,8 @@ int APS5_VABI sceAmprAmmSubmitCommandBuffer2(void* base, std::uint32_t offset, s
 }
 
 int APS5_VABI sceAmprAmmSubmitCommandBuffer3(void* base, std::uint32_t offset, std::uint32_t priority, std::uint32_t* id) {
-    (void)priority;
-    if (!base) return SCE_KERNEL_ERROR_EINVAL;
+    if (priority > 2u) return SCE_KERNEL_ERROR_EINVAL;
+    if (!base) return SCE_KERNEL_ERROR_EPERM;
     const auto submitted = AmmSubmit_nid_no_patch(base, offset);
     if (id) *id = submitted;
     return 0;
