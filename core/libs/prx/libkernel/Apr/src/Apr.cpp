@@ -239,8 +239,27 @@ TCommand _read(const Apr::CommandBufferObject& buffer, std::uint32_t cursor) {
     return command;
 }
 
+struct ReadCursor {
+    bool valid = false;
+    std::uint32_t fileId = 0;
+    std::uint64_t nextDestination = 0;
+    std::uint64_t nextOffset = 0;
+};
+
+void _readResolved(Apr::Opcode opcode, Apr::ReadFileCommand command, ReadCursor& read) {
+    if (opcode != Apr::Opcode::ReadFile) {
+        if (!read.valid) throw std::runtime_error("APR: gather or scatter read without a preceding read");
+        command.fileId = read.fileId;
+        if (opcode == Apr::Opcode::ReadFileGather) command.destination = read.nextDestination;
+        if (opcode == Apr::Opcode::ReadFileScatter) command.offset = read.nextOffset;
+    }
+    _readFile(command);
+    read = {true, command.fileId, command.destination + command.size, command.offset + command.size};
+}
+
 void _execute(const Apr::CommandBufferObject& buffer) {
     std::uint32_t cursor = 0;
+    ReadCursor read;
     for (std::uint32_t index = 0; index < buffer.numCommands; ++index) {
         if (cursor + sizeof(Apr::CommandHeader) > buffer.offset) throw std::runtime_error("APR: truncated command buffer");
         Apr::CommandHeader header;
@@ -252,12 +271,15 @@ void _execute(const Apr::CommandBufferObject& buffer) {
         case Apr::Opcode::PopMarker:
         case Apr::Opcode::SetMarker:
             break;
-        case Apr::Opcode::ReadFile: {
-            Apr::ReadFileCommand command;
-            std::memcpy(&command, buffer.base + cursor, sizeof(command));
-            _readFile(command);
+        case Apr::Opcode::ReadFile:
+        case Apr::Opcode::ReadFileGather:
+        case Apr::Opcode::ReadFileScatter:
+        case Apr::Opcode::ReadFileGatherScatter:
+            _readResolved(header.opcode, _read<Apr::ReadFileCommand>(buffer, cursor), read);
             break;
-        }
+        case Apr::Opcode::ResetGatherScatterState:
+            read = {};
+            break;
         case Apr::Opcode::WriteAddress: {
             Apr::WriteAddressCommand command;
             std::memcpy(&command, buffer.base + cursor, sizeof(command));
