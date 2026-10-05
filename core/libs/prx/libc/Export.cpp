@@ -38,15 +38,6 @@ int APS5_VABI libcUnknown_u2tMGOLaqnE() {
  return 0;
 }
 
-// Live float->float import of Cyberpunk 2077 (unnamed); callers pass one
-// float in xmm0 and consume the result, so return 0.0f instead of integer 0.
-APS5_EXPORT("DQbtGaBKlaw", libcCyberUnknown17);
-float APS5_VABI libcCyberUnknown17(float x) {
- (void)x;
- NotImplemented_nid_no_patch("DQbtGaBKlaw");
- return 0.0f;
-}
-
 // Live Cyberpunk 2077 import used in an fopen/fseek/ftell-like file-size
 // idiom as (handle, 0, 2); returning 0 reports success.
 APS5_EXPORT("rWSuTWY2JN0", libcCyberUnknown18);
