@@ -25,6 +25,7 @@ int APS5_VABI sceAjmBatchJobGetGaplessDecode(AjmBatchInfo*, std::uint32_t, void*
 int APS5_VABI sceAjmBatchJobGetCodecInfo(AjmBatchInfo*, std::uint32_t, void*, std::size_t);
 int APS5_VABI sceAjmBatchStart(std::uint32_t, const AjmBatchInfo*, int, AjmBatchError*, std::uint32_t*);
 int APS5_VABI sceAjmBatchWait(std::uint32_t, std::uint32_t, std::uint32_t, AjmBatchError*);
+int APS5_VABI sceAjmBatchCancel(std::uint32_t, std::uint32_t);
 }
 
 static void Require(bool value) { if (!value) std::abort(); }
@@ -339,6 +340,25 @@ void TestBatchWaitRelease(std::uint32_t context) {
     Require(sceAjmBatchWait(context, second + 1, 0, &error) == invalidBatch);
 }
 
+void TestBatchCancel(std::uint32_t context) {
+    constexpr int invalidContext = static_cast<int>(0x80930002);
+    constexpr int invalidBatch = static_cast<int>(0x80930004);
+    std::vector<std::uint8_t> batch(64);
+    AjmBatchInfo info{};
+    AjmBatchError error{};
+    std::uint32_t id = 0;
+    Require(sceAjmBatchInitialize(batch.data(), batch.size(), &info) == 0);
+    Require(sceAjmBatchStart(context, &info, 0, &error, &id) == 0);
+    Require(sceAjmBatchCancel(context, id) == 0);
+    Require(sceAjmBatchCancel(context, id) == 0);
+    Require(sceAjmBatchCancel(0, id) == invalidContext);
+    Require(sceAjmBatchCancel(context + 1, id) == invalidContext);
+    Require(sceAjmBatchWait(context, id, 0, &error) == 0);
+    Require(sceAjmBatchCancel(context, id) == invalidBatch);
+    Require(sceAjmBatchCancel(context, 0) == invalidBatch);
+    Require(sceAjmBatchCancel(context, id + 1) == invalidBatch);
+}
+
 }
 
 int main() {
@@ -362,5 +382,6 @@ int main() {
     TestGaplessDecode(context);
     TestCodecInfo(context);
     TestBatchWaitRelease(context);
+    TestBatchCancel(context);
     Require(sceAjmFinalize(context) == 0);
 }

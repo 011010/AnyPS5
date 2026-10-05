@@ -26,6 +26,7 @@ extern "C" {
 // memory follow the SDK layouts.
 namespace {
 
+constexpr int SCE_AJM_ERROR_INVALID_CONTEXT = static_cast<int>(0x80930002);
 constexpr int SCE_AJM_ERROR_INVALID_INSTANCE = static_cast<int>(0x80930003);
 constexpr int SCE_AJM_ERROR_INVALID_BATCH = static_cast<int>(0x80930004);
 constexpr int SCE_AJM_ERROR_INVALID_PARAMETER = static_cast<int>(0x80930005);
@@ -1007,6 +1008,12 @@ int APS5_VABI sceAjmBatchWait(uint32_t context, uint32_t batch, uint32_t timeout
     }
     if (error) std::memset(error, 0, sizeof(*error));
     return 0;
+}
+
+int APS5_VABI sceAjmBatchCancel(uint32_t context, uint32_t batch) {
+    if (context == 0 || context >= g_nextContext.load(std::memory_order_relaxed)) return SCE_AJM_ERROR_INVALID_CONTEXT;
+    std::lock_guard lock(g_batchLock);
+    return g_batches.contains(batch) ? 0 : SCE_AJM_ERROR_INVALID_BATCH;
 }
 
 int APS5_VABI sceAjmBatchErrorDump(const AjmBatchInfo* info, AjmBatchError* error) {
