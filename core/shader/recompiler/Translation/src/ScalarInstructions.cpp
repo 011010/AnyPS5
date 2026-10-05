@@ -66,6 +66,16 @@ bool TranslationContext::emitScalar(const RdnaInstruction& inst) {
         emitControlNop();
         return true;
     }
+    case RdnaOpcode::SGetregB32: {
+        const std::uint32_t field = inst.source0.value;
+        const std::uint32_t offset = (field >> 6u) & 0x1fu;
+        const std::uint32_t size = ((field >> 11u) & 0x1fu) + 1u;
+        if ((field & 0x3fu) != 1u || offset + size > 4u) {
+            throw std::runtime_error("s_getreg_b32 at pc " + std::to_string(inst.programCounter) + " reads hardware register " + std::to_string(field & 0x3fu) + " bits " + std::to_string(offset) + ".." + std::to_string(offset + size - 1u) + ": only the MODE round mode fields are modeled");
+        }
+        writeRawU32(inst.destination, IrU32(ir.Constant(0u)));
+        return true;
+    }
     case RdnaOpcode::SCmovkI32: {
         const IrU32 previous = readU32(inst.destination);
         writeRawU32(inst.destination, IrU32(ir.Select(ir.GetScc(), ir.Constant(inst.source0.value), previous.Value())));

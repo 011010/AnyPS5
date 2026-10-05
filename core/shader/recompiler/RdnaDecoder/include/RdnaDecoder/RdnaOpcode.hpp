@@ -934,6 +934,7 @@ enum class RdnaOpcode : std::uint16_t {
     VInterpMovF32,
     SWaitcntDepctr,
     SSendmsg,
+    SGetregB32,
     SSetregB32,
     SSetregImm32B32,
     SCmovkI32,
