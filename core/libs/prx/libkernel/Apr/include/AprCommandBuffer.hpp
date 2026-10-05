@@ -60,10 +60,32 @@ struct WriteAddressCommand {
     std::uint32_t reserved;
 };
 
+enum class CounterAccess : std::uint8_t {
+    Size8 = 0,
+    Size4 = 1,
+    Size2Offset0 = 2,
+    Size2Offset1 = 3,
+    Size1Offset0 = 4,
+    Size1Offset1 = 5,
+    Size1Offset2 = 6,
+    Size1Offset3 = 7,
+};
+
+enum class CounterOperation : std::uint8_t {
+    Store = 0,
+    AtomicOr = 1,
+    AtomicAndComplement = 2,
+    AtomicXor = 3,
+    AtomicAdd = 4,
+};
+
 struct WriteCounterCommand {
     CommandHeader header;
     std::uint32_t counter;
-    std::uint32_t value;
+    CounterAccess access;
+    CounterOperation operation;
+    std::uint16_t reserved;
+    std::uint64_t value;
 };
 
 struct WaitCommand {
@@ -72,7 +94,9 @@ struct WaitCommand {
     std::uint64_t reference;
     std::uint64_t mask;
     std::uint32_t counter;
-    std::uint32_t compare;
+    std::uint8_t compare;
+    CounterAccess access;
+    std::uint16_t reserved;
 };
 
 struct WriteKernelEventQueueCommand {
