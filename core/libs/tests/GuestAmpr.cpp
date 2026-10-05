@@ -90,6 +90,12 @@ std::uint64_t APS5_VABI sceAmprMeasureCommandSizeMapBegin(std::uint64_t, std::ui
 std::uint64_t APS5_VABI sceAmprMeasureCommandSizeMapDirectBegin(std::uint64_t, std::uint64_t, std::uint64_t, std::uint32_t, std::uint32_t);
 std::uint64_t APS5_VABI sceAmprMeasureCommandSizeMapEnd();
 int APS5_VABI sceKernelQueryMemoryProtection(void*, void**, void**, int*);
+int APS5_VABI sceAmprAmmCommandBufferMapAsPrt(Apr::CommandBufferObject*, std::uint64_t, std::uint64_t);
+int APS5_VABI sceAmprAmmCommandBufferAllocatePaForPrt(Apr::CommandBufferObject*, std::uint64_t, std::uint64_t, std::int32_t, std::int32_t);
+int APS5_VABI sceAmprAmmCommandBufferRemapIntoPrt(Apr::CommandBufferObject*, std::uint64_t, std::uint64_t, std::uint64_t, std::int32_t, std::uint32_t);
+int APS5_VABI sceAmprAmmCommandBufferUnmapToPrt(Apr::CommandBufferObject*, std::uint64_t, std::uint64_t);
+std::int64_t APS5_VABI sceAmprAmmMeasureAmmCommandSizeMapAsPrt(std::uint64_t, std::uint64_t);
+std::int64_t APS5_VABI sceAmprAmmMeasureAmmCommandSizeAllocatePaForPrt(std::uint64_t, std::uint64_t, std::int32_t, std::int32_t);
 int APS5_VABI sceAmprAmmCommandBufferRemap(Apr::CommandBufferObject*, std::uint64_t, std::uint64_t, std::uint64_t, std::int32_t);
 int APS5_VABI sceAmprAmmCommandBufferRemapWithGpuMaskId(Apr::CommandBufferObject*, std::uint64_t, std::uint64_t, std::uint64_t, std::int32_t, std::uint8_t);
 int APS5_VABI sceAmprAmmCommandBufferMultiMap(Apr::CommandBufferObject*, std::uint64_t, std::uint64_t, std::uint64_t, std::int32_t);
@@ -801,6 +807,84 @@ void TestAmmRemapAndProtect() {
     Require(sceAmprAmmMeasureAmmCommandSizeModifyMtypeProtect(returned, page, 0, 0x08, 0x03) == ammRejected);
 }
 
+void TestAmmPrt() {
+    std::uint64_t start = 0;
+    std::uint64_t end = 0;
+    std::uint64_t multimapStart = 0;
+    std::uint64_t multimapEnd = 0;
+    Require(sceAmprAmmGetVirtualAddressRanges(&start, &end, &multimapStart, &multimapEnd) == 0);
+    std::int64_t pool = -1;
+    Require(sceAmprAmmGiveDirectMemory(0, static_cast<std::int64_t>(sceKernelGetDirectMemorySize()), 4 * page, page, 1, &pool) == 0);
+
+    const std::uint64_t prt = start + 0x300000;
+    const std::uint64_t source = start + 0x380000;
+
+    Recorder reserve;
+    auto offset = reserve.Offset();
+    auto commands = reserve.Commands();
+    Require(sceAmprAmmCommandBufferMapAsPrt(&reserve.buffer, prt, 4 * page) == 0);
+    RequireAppended(reserve, offset, commands, Apr::Opcode::AmmMapAsPrt, sceAmprAmmMeasureAmmCommandSizeMapAsPrt(prt, 4 * page));
+    Require(sceAmprAmmCommandBufferMap(&reserve.buffer, source, page, 0, cpuReadWrite) == 0);
+    SubmitAmm(reserve);
+    Require(Protection(prt) == 0x10 && Protection(prt + 3 * page) == 0x10);
+    Require(At(prt) == 0 && At(prt + 4 * page - 8) == 0);
+    At(source) = 0x88;
+
+    Recorder back;
+    offset = back.Offset();
+    commands = back.Commands();
+    Require(sceAmprAmmCommandBufferAllocatePaForPrt(&back.buffer, prt + page, 2 * page, 0, cpuReadWrite) == 0);
+    RequireAppended(back, offset, commands, Apr::Opcode::AmmAllocatePaForPrt, sceAmprAmmMeasureAmmCommandSizeAllocatePaForPrt(prt + page, 2 * page, 0, cpuReadWrite));
+    Require(sceAmprAmmCommandBufferAllocatePaForPrt(&back.buffer, prt + 2 * page, page, 2, cpuGpuReadWrite) == 0);
+    Require(sceAmprAmmCommandBufferRemapIntoPrt(&back.buffer, prt + 3 * page, source, page, cpuReadWrite, 0) == 0);
+    SubmitAmm(back);
+    Require(Protection(prt) == 0x10 && Protection(prt + page) == 0x03 && Protection(prt + 2 * page) == 0x33 && Protection(prt + 3 * page) == 0x03);
+    At(prt + page) = 0x71;
+    At(prt + 2 * page) = 0x72;
+    Require(At(prt + page) == 0x71 && At(prt + 2 * page) == 0x72 && At(prt + 3 * page) == 0x88 && At(prt) == 0);
+
+    Recorder release;
+    offset = release.Offset();
+    commands = release.Commands();
+    Require(sceAmprAmmCommandBufferUnmapToPrt(&release.buffer, prt + page, 2 * page) == 0);
+    RequireAppended(release, offset, commands, Apr::Opcode::AmmUnmapToPrt, sceAmprAmmMeasureAmmCommandSizeUnmap(prt + page, 2 * page));
+    SubmitAmm(release);
+    Require(Protection(prt + page) == 0x10 && At(prt + page) == 0 && At(prt + 2 * page) == 0 && At(prt + 3 * page) == 0x88);
+
+    Recorder rebuild;
+    Require(sceAmprAmmCommandBufferAllocatePaForPrt(&rebuild.buffer, prt, 3 * page, 0, cpuReadWrite) == 0);
+    SubmitAmm(rebuild);
+    for (std::uint64_t index = 0; index < 3; ++index) {
+        Require(Protection(prt + index * page) == 0x03);
+        At(prt + index * page) = 0x90 + index;
+    }
+    Require(At(prt) == 0x90 && At(prt + page) == 0x91 && At(prt + 2 * page) == 0x92 && At(prt + 3 * page) == 0x88);
+
+    const std::int64_t ammRejected = invalidArgument;
+    Recorder empty;
+    Require(sceAmprAmmCommandBufferMapAsPrt(&empty.buffer, prt + 8, page) == invalidArgument);
+    Require(sceAmprAmmCommandBufferMapAsPrt(nullptr, prt, page) == invalidArgument);
+    Require(sceAmprAmmCommandBufferAllocatePaForPrt(&empty.buffer, prt, page, 0, 0x04) == invalidArgument);
+    Require(sceAmprAmmCommandBufferAllocatePaForPrt(nullptr, prt, page, 0, 0x404) == invalidArgument);
+    Require(sceAmprAmmCommandBufferAllocatePaForPrt(&empty.buffer, prt, 0, 0, cpuReadWrite) == invalidArgument);
+    Require(sceAmprAmmCommandBufferRemapIntoPrt(&empty.buffer, prt, source + 8, page, cpuReadWrite, 0) == invalidArgument);
+    Require(sceAmprAmmCommandBufferRemapIntoPrt(&empty.buffer, prt, source, page, 0x04, 0) == invalidArgument);
+    Require(sceAmprAmmCommandBufferUnmapToPrt(&empty.buffer, prt, page + 8) == invalidArgument);
+    Require(empty.Offset() == 0 && empty.Commands() == 0);
+    Apr::CommandBufferObject unbound{};
+    Require(sceAmprCommandBufferConstructor(&unbound) == 0);
+    Require(sceAmprAmmCommandBufferMapAsPrt(&unbound, prt, page) == busy);
+    Require(sceAmprAmmCommandBufferAllocatePaForPrt(&unbound, prt, page, 0, cpuReadWrite) == busy);
+    Require(sceAmprAmmCommandBufferRemapIntoPrt(&unbound, prt, source, page, cpuReadWrite, 0) == permissionDenied);
+    Require(sceAmprAmmCommandBufferUnmapToPrt(&unbound, prt, page) == permissionDenied);
+    std::array<std::uint8_t, 64> loose{};
+    Apr::CommandBufferObject sized{nullptr, static_cast<std::uint32_t>(loose.size()), 0, 0, Apr::BufferType::Generic, 0};
+    Require(sceAmprAmmCommandBufferMapAsPrt(&sized, prt, page) == permissionDenied);
+    Require(sceAmprAmmMeasureAmmCommandSizeMapAsPrt(prt, 0) == ammRejected);
+    Require(sceAmprAmmMeasureAmmCommandSizeAllocatePaForPrt(prt, page, 0, 0x08) == ammRejected);
+    Require(sceAmprAmmMeasureAmmCommandSizeAllocatePaForPrt(prt + 8, page, 0, cpuReadWrite) == ammRejected);
+}
+
 }
 
 int main() {
@@ -822,5 +906,6 @@ int main() {
     TestGatherScatter();
     TestAmm();
     TestAmmRemapAndProtect();
+    TestAmmPrt();
     return 0;
 }

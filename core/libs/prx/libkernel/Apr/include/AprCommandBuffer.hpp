@@ -52,6 +52,10 @@ enum class Opcode : std::uint32_t {
     AmmMultiMap = 22,
     AmmModifyProtect = 23,
     AmmModifyMtypeProtect = 24,
+    AmmMapAsPrt = 25,
+    AmmAllocatePaForPrt = 26,
+    AmmRemapIntoPrt = 27,
+    AmmUnmapToPrt = 28,
 };
 
 struct CommandHeader {
