@@ -203,6 +203,41 @@ constexpr MemoryOpcodeInfo dsOpcodes[] = {
     {0x33u, RdnaOpcode::DsMaxRtnF32, 1, 32, false, false, false},
     {0x34u, RdnaOpcode::DsWrapRtnB32, 1, 32, false, false, false},
     {0x55u, RdnaOpcode::DsAddRtnF32, 1, 32, false, false, false},
+    {0x40u, RdnaOpcode::DsAddU64, 2, 32, false, false, false},
+    {0x41u, RdnaOpcode::DsSubU64, 2, 32, false, false, false},
+    {0x42u, RdnaOpcode::DsRsubU64, 2, 32, false, false, false},
+    {0x43u, RdnaOpcode::DsIncU64, 2, 32, false, false, false},
+    {0x44u, RdnaOpcode::DsDecU64, 2, 32, false, false, false},
+    {0x45u, RdnaOpcode::DsMinI64, 2, 32, false, false, false},
+    {0x46u, RdnaOpcode::DsMaxI64, 2, 32, false, false, false},
+    {0x47u, RdnaOpcode::DsMinU64, 2, 32, false, false, false},
+    {0x48u, RdnaOpcode::DsMaxU64, 2, 32, false, false, false},
+    {0x49u, RdnaOpcode::DsAndB64, 2, 32, false, false, false},
+    {0x4au, RdnaOpcode::DsOrB64, 2, 32, false, false, false},
+    {0x4bu, RdnaOpcode::DsXorB64, 2, 32, false, false, false},
+    {0x4cu, RdnaOpcode::DsMskorB64, 2, 32, false, false, false},
+    {0x50u, RdnaOpcode::DsCmpstB64, 2, 32, false, false, false},
+    {0x51u, RdnaOpcode::DsCmpstF64, 2, 32, false, false, false},
+    {0x52u, RdnaOpcode::DsMinF64, 2, 32, false, false, false},
+    {0x53u, RdnaOpcode::DsMaxF64, 2, 32, false, false, false},
+    {0x60u, RdnaOpcode::DsAddRtnU64, 2, 32, false, false, false},
+    {0x61u, RdnaOpcode::DsSubRtnU64, 2, 32, false, false, false},
+    {0x62u, RdnaOpcode::DsRsubRtnU64, 2, 32, false, false, false},
+    {0x63u, RdnaOpcode::DsIncRtnU64, 2, 32, false, false, false},
+    {0x64u, RdnaOpcode::DsDecRtnU64, 2, 32, false, false, false},
+    {0x65u, RdnaOpcode::DsMinRtnI64, 2, 32, false, false, false},
+    {0x66u, RdnaOpcode::DsMaxRtnI64, 2, 32, false, false, false},
+    {0x67u, RdnaOpcode::DsMinRtnU64, 2, 32, false, false, false},
+    {0x68u, RdnaOpcode::DsMaxRtnU64, 2, 32, false, false, false},
+    {0x69u, RdnaOpcode::DsAndRtnB64, 2, 32, false, false, false},
+    {0x6au, RdnaOpcode::DsOrRtnB64, 2, 32, false, false, false},
+    {0x6bu, RdnaOpcode::DsXorRtnB64, 2, 32, false, false, false},
+    {0x6cu, RdnaOpcode::DsMskorRtnB64, 2, 32, false, false, false},
+    {0x6du, RdnaOpcode::DsWrxchgRtnB64, 2, 32, false, false, false},
+    {0x70u, RdnaOpcode::DsCmpstRtnB64, 2, 32, false, false, false},
+    {0x71u, RdnaOpcode::DsCmpstRtnF64, 2, 32, false, false, false},
+    {0x72u, RdnaOpcode::DsMinRtnF64, 2, 32, false, false, false},
+    {0x73u, RdnaOpcode::DsMaxRtnF64, 2, 32, false, false, false},
     {0x01u, RdnaOpcode::DsSubU32, 1, 32, false, false, false},
     {0x05u, RdnaOpcode::DsMinI32, 1, 32, false, false, false},
     {0x06u, RdnaOpcode::DsMaxI32, 1, 32, false, false, false},
@@ -418,6 +453,35 @@ bool isDsAtomicOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::DsMinRtnF32:
         case RdnaOpcode::DsMaxRtnF32:
         case RdnaOpcode::DsAddRtnF32:
+        case RdnaOpcode::DsAddU64:
+        case RdnaOpcode::DsSubU64:
+        case RdnaOpcode::DsRsubU64:
+        case RdnaOpcode::DsIncU64:
+        case RdnaOpcode::DsDecU64:
+        case RdnaOpcode::DsMinI64:
+        case RdnaOpcode::DsMaxI64:
+        case RdnaOpcode::DsMinU64:
+        case RdnaOpcode::DsMaxU64:
+        case RdnaOpcode::DsAndB64:
+        case RdnaOpcode::DsOrB64:
+        case RdnaOpcode::DsXorB64:
+        case RdnaOpcode::DsMinF64:
+        case RdnaOpcode::DsMaxF64:
+        case RdnaOpcode::DsAddRtnU64:
+        case RdnaOpcode::DsSubRtnU64:
+        case RdnaOpcode::DsRsubRtnU64:
+        case RdnaOpcode::DsIncRtnU64:
+        case RdnaOpcode::DsDecRtnU64:
+        case RdnaOpcode::DsMinRtnI64:
+        case RdnaOpcode::DsMaxRtnI64:
+        case RdnaOpcode::DsMinRtnU64:
+        case RdnaOpcode::DsMaxRtnU64:
+        case RdnaOpcode::DsAndRtnB64:
+        case RdnaOpcode::DsOrRtnB64:
+        case RdnaOpcode::DsXorRtnB64:
+        case RdnaOpcode::DsWrxchgRtnB64:
+        case RdnaOpcode::DsMinRtnF64:
+        case RdnaOpcode::DsMaxRtnF64:
             return true;
         default: return false;
     }
@@ -435,7 +499,13 @@ std::uint32_t dsSourceCount(RdnaOpcode opcode) {
         case RdnaOpcode::DsMskorRtnB32:
         case RdnaOpcode::DsCmpstRtnB32:
         case RdnaOpcode::DsCmpstRtnF32:
-        case RdnaOpcode::DsWrapRtnB32: return 3u;
+        case RdnaOpcode::DsWrapRtnB32:
+        case RdnaOpcode::DsMskorB64:
+        case RdnaOpcode::DsCmpstB64:
+        case RdnaOpcode::DsCmpstF64:
+        case RdnaOpcode::DsMskorRtnB64:
+        case RdnaOpcode::DsCmpstRtnB64:
+        case RdnaOpcode::DsCmpstRtnF64: return 3u;
         case RdnaOpcode::DsMinF32:
         case RdnaOpcode::DsMaxF32: return 2u;
         case RdnaOpcode::DsNop: return 0u;

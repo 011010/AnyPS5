@@ -405,6 +405,24 @@ constexpr std::array<OpcodeMeta, static_cast<std::size_t>(IrOpcode::Count)> Meta
     makeMeta("SharedAtomicCmpstF32", U32, U32, U32, U32, U1),
     makeMeta("SharedAtomicMskor32", U32, U32, U32, U32, U1),
     makeMeta("SharedAtomicWrap32", U32, U32, U32, U32, U1),
+    makeMeta("SharedAtomicSwap64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicIAdd64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicISub64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicRsub64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicInc64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicDec64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicSMin64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicUMin64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicSMax64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicUMax64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicAnd64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicOr64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicXor64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicFMin64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicFMax64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicCmpst64", U64, U32, U64, U64, U1),
+    makeMeta("SharedAtomicCmpstF64", U64, U32, U64, U64, U1),
+    makeMeta("SharedAtomicMskor64", U64, U32, U64, U64, U1),
     makeMeta("DataAppend", U32, U32, U1, U32, U32),
     makeMeta("DataConsume", U32, U32, U1, U32, U32),
     makeMeta("SwizzleU32", U32, U32, U32, U1),
@@ -595,6 +613,24 @@ SharedAccess SharedAccessOf(IrOpcode opcode) {
         case IrOpcode::SharedAtomicCmpstF32:
         case IrOpcode::SharedAtomicMskor32:
         case IrOpcode::SharedAtomicWrap32:
+        case IrOpcode::SharedAtomicSwap64:
+        case IrOpcode::SharedAtomicIAdd64:
+        case IrOpcode::SharedAtomicISub64:
+        case IrOpcode::SharedAtomicRsub64:
+        case IrOpcode::SharedAtomicInc64:
+        case IrOpcode::SharedAtomicDec64:
+        case IrOpcode::SharedAtomicSMin64:
+        case IrOpcode::SharedAtomicUMin64:
+        case IrOpcode::SharedAtomicSMax64:
+        case IrOpcode::SharedAtomicUMax64:
+        case IrOpcode::SharedAtomicAnd64:
+        case IrOpcode::SharedAtomicOr64:
+        case IrOpcode::SharedAtomicXor64:
+        case IrOpcode::SharedAtomicFMin64:
+        case IrOpcode::SharedAtomicFMax64:
+        case IrOpcode::SharedAtomicCmpst64:
+        case IrOpcode::SharedAtomicCmpstF64:
+        case IrOpcode::SharedAtomicMskor64:
             return SharedAccess::Atomic;
         case IrOpcode::DataAppend:
             return SharedAccess::Append;
@@ -609,6 +645,24 @@ std::uint32_t SharedComponentCount(IrOpcode opcode) {
     switch (opcode) {
         case IrOpcode::LoadSharedU32x2:
         case IrOpcode::WriteSharedU32x2:
+        case IrOpcode::SharedAtomicSwap64:
+        case IrOpcode::SharedAtomicIAdd64:
+        case IrOpcode::SharedAtomicISub64:
+        case IrOpcode::SharedAtomicRsub64:
+        case IrOpcode::SharedAtomicInc64:
+        case IrOpcode::SharedAtomicDec64:
+        case IrOpcode::SharedAtomicSMin64:
+        case IrOpcode::SharedAtomicUMin64:
+        case IrOpcode::SharedAtomicSMax64:
+        case IrOpcode::SharedAtomicUMax64:
+        case IrOpcode::SharedAtomicAnd64:
+        case IrOpcode::SharedAtomicOr64:
+        case IrOpcode::SharedAtomicXor64:
+        case IrOpcode::SharedAtomicFMin64:
+        case IrOpcode::SharedAtomicFMax64:
+        case IrOpcode::SharedAtomicCmpst64:
+        case IrOpcode::SharedAtomicCmpstF64:
+        case IrOpcode::SharedAtomicMskor64:
             return 2u;
         case IrOpcode::LoadSharedU32x3:
         case IrOpcode::WriteSharedU32x3:
