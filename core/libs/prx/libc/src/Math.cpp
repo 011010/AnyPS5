@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <stdexcept>
 
 #include "prx/libc/include/General.hpp"
 
@@ -79,6 +81,22 @@ double APS5_VABI tanh_nid_postfix(double x) { return std::tanh(x); }
 float APS5_VABI tanhf_nid_postfix(float x) { return std::tanh(x); }
 float APS5_VABI _FSinh_nid_postfix(float x, float y) { return y * std::sinh(x); }
 float APS5_VABI _FCosh_nid_postfix(float x, float y) { return y * std::cosh(x); }
+
+struct alignas(16) LibcFloatConstant { std::uint32_t bits[4]; };
+LibcFloatConstant _FInf_nid_postfix {{0x7f800000u, 0, 0, 0}};
+LibcFloatConstant _FNan_nid_postfix {{0x7fc00000u, 0, 0, 0}};
+
+short APS5_VABI _FDtest_nid_postfix(const float* value) {
+    constexpr short Denormal = -2, Finite = -1, Zero = 0, Infinite = 1, NotANumber = 2;
+    if (value == nullptr) throw std::invalid_argument("_FDtest: null value");
+    std::uint32_t bits;
+    std::memcpy(&bits, value, sizeof(bits));
+    const auto exponent = bits & 0x7f800000u;
+    const auto fraction = bits & 0x007fffffu;
+    if (exponent == 0x7f800000u) return fraction != 0 ? NotANumber : Infinite;
+    if (exponent == 0) return fraction != 0 ? Denormal : Zero;
+    return Finite;
+}
 int APS5_VABI __isnanf_nid_postfix(float x) { return std::isnan(x) ? 1 : 0; }
 int APS5_VABI __signbitf_nid_postfix(float x) { return std::signbit(x) ? 1 : 0; }
 
