@@ -358,6 +358,7 @@ constexpr std::array<OpcodeMeta, static_cast<std::size_t>(IrOpcode::Count)> Meta
     makeMeta("BufferAtomicFMax32", U32, BufferResource, U32, U32, U32, U32, U1),
     makeMeta("BufferAtomicInc32", U32, BufferResource, U32, U32, U32, U32, U1),
     makeMeta("BufferAtomicDec32", U32, BufferResource, U32, U32, U32, U32, U1),
+    makeMeta("BufferAtomicUSubSat32", U32, BufferResource, U32, U32, U32, U32, U1),
     makeMeta("BufferAtomicIAdd64", U64, BufferResource, U32, U32, U32, U64, U1),
     makeMeta("BufferAtomicISub64", U64, BufferResource, U32, U32, U32, U64, U1),
     makeMeta("BufferAtomicSMin64", U64, BufferResource, U32, U32, U32, U64, U1),
@@ -504,6 +505,7 @@ BufferAccess BufferAccessOf(IrOpcode opcode) {
         case IrOpcode::BufferAtomicFMax32:
         case IrOpcode::BufferAtomicInc32:
         case IrOpcode::BufferAtomicDec32:
+        case IrOpcode::BufferAtomicUSubSat32:
         case IrOpcode::BufferAtomicIAdd64:
         case IrOpcode::BufferAtomicISub64:
         case IrOpcode::BufferAtomicSMin64:

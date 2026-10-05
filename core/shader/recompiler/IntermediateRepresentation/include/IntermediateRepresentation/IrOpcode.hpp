@@ -317,6 +317,7 @@ enum class IrOpcode : std::uint16_t {
     BufferAtomicFMax32,
     BufferAtomicInc32,
     BufferAtomicDec32,
+    BufferAtomicUSubSat32,
     BufferAtomicIAdd64,
     BufferAtomicISub64,
     BufferAtomicSMin64,

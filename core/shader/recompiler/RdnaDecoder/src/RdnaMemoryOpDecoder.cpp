@@ -102,6 +102,7 @@ constexpr MemoryOpcodeInfo mubufOpcodes[] = {
     {0x31u, RdnaOpcode::BufferAtomicCmpswap, 1, 32, false, false, false},
     {0x32u, RdnaOpcode::BufferAtomicAdd, 1, 32, false, false, false},
     {0x33u, RdnaOpcode::BufferAtomicSub, 1, 32, false, false, false},
+    {0x34u, RdnaOpcode::BufferAtomicCsub, 1, 32, false, false, false},
     {0x35u, RdnaOpcode::BufferAtomicSmin, 1, 32, false, false, false},
     {0x36u, RdnaOpcode::BufferAtomicUmin, 1, 32, false, false, false},
     {0x37u, RdnaOpcode::BufferAtomicSmax, 1, 32, false, false, false},

@@ -744,6 +744,7 @@ enum class RdnaOpcode : std::uint16_t {
     BufferAtomicXor,
     BufferAtomicFmin,
     BufferAtomicFmax,
+    BufferAtomicCsub,
     FlatLoadUbyte,
     FlatLoadSbyte,
     FlatLoadUshort,
