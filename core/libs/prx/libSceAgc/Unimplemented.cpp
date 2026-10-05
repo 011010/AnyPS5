@@ -150,4 +150,16 @@ int APS5_VABI sceAgcUnknown_y5K5tPktiL8() {
  return 0;
 }
 
+APS5_EXPORT("dbOlWdppb4o", sceAgcUnknown_dbOlWdppb4o);
+int APS5_VABI sceAgcUnknown_dbOlWdppb4o(void) {
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+APS5_EXPORT("vieBRwlh1Lw", sceAgcUnknown_vieBRwlh1Lw);
+int APS5_VABI sceAgcUnknown_vieBRwlh1Lw(void) {
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
 }

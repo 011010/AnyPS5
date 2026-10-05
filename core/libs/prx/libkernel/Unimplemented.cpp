@@ -30,4 +30,46 @@ int APS5_VABI sceKernelUnknown02(void) {
     NotImplemented_nid_no_patch("0D4-FVvEikw");
     return 0;
 }
+APS5_EXPORT("B2n8aDorSH4", sceKernelUnknown_B2n8aDorSH4);
+int APS5_VABI sceKernelUnknown_B2n8aDorSH4(void) {
+    NotImplemented_nid_no_patch("B2n8aDorSH4");
+    return 0;
+}
+
+APS5_EXPORT("NH6xARDOVv8", sceKernelUnknown_NH6xARDOVv8);
+int APS5_VABI sceKernelUnknown_NH6xARDOVv8(void) {
+    NotImplemented_nid_no_patch("NH6xARDOVv8");
+    return 0;
+}
+
+APS5_EXPORT("PZQhiiLXRFs", sceKernelUnknown_PZQhiiLXRFs);
+int APS5_VABI sceKernelUnknown_PZQhiiLXRFs(void) {
+    NotImplemented_nid_no_patch("PZQhiiLXRFs");
+    return 0;
+}
+
+int APS5_VABI sceKernelFchmod(void) {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+int APS5_VABI fchmod_nid_postfix(void) {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+int APS5_VABI futimes_nid_postfix(void) {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+int APS5_VABI recvmsg_nid_postfix(void) {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+int APS5_VABI sendmsg_nid_postfix(void) {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
 }

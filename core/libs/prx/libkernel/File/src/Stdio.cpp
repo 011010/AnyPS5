@@ -487,4 +487,14 @@ int APS5_VABI sceKernelUtimes_nid_postfix(const char* path, const KernelTimeval*
     return 0;
 }
 
+int APS5_VABI utimes_nid_postfix(const char* path, const KernelTimeval* times) {
+    if (const int error = PathError(path)) return PosixFailure(error);
+    return PosixResult(sceKernelUtimes_nid_postfix(path, times));
+}
+
+int APS5_VABI fsync_nid_postfix(int fd) {
+    if (sceKernelFsync(fd) != 0) return PosixFailure(errno);
+    return 0;
+}
+
 }

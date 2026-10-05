@@ -48,6 +48,14 @@ int APS5_VABI sceUserServiceGetAccessibilityZoomEnabled(int user_id, int32_t* zo
  return USER_SERVICE_OK;
 }
 
+int APS5_VABI sceUserServiceGetAccessibilityZoomFollowFocus(int user_id, int32_t* zoom_follow_focus) {
+ if (zoom_follow_focus == nullptr || user_id != USER_SERVICE_INITIAL_USER_ID) {
+  return USER_SERVICE_ERROR_INVALID_ARGUMENT;
+ }
+ *zoom_follow_focus = 0;
+ return USER_SERVICE_OK;
+}
+
 int APS5_VABI sceUserServiceGetAgeLevel(int user_id, uint32_t* age_level) {
  (void)user_id;
  (void)age_level;

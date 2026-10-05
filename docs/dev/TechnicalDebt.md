@@ -60,6 +60,11 @@ Throughout the project, every function at every stage either **does exactly what
 - [BnMAMrsfVWo](../../core/libs/prx/libc/src/HeapDiagnostics.cpp) (libc) - unknown name, signature
 - [scePngEncEncode](../../core/libs/prx/libScePngEnc/Export.cpp) (libScePngEnc) - whether rows may stay unfiltered when `filter_type` names a subset of the filters is unknown; as in shadPS4, they may only for 0 and for the all-filters mask
 - AudioIn, NpSessionSignaling and PlayerInvitationDialog exports added without an implementation have assumed signatures
+- [dbOlWdppb4o, vieBRwlh1Lw](../../core/libs/prx/libSceAgc/Unimplemented.cpp) (libSceAgc) - unknown name, signature
+- [OQ-dzhlnM28, qBS714-Jr3g, tB59hFLH3SA](../../core/libs/prx/libc/src/HeapDiagnostics.cpp) (libSceLibcInternalExt, implemented in libc) - unknown name, signature
+- [fCWdlnmB1Ks](../../core/libs/prx/libScePad/Export.cpp) (libScePad) - unknown name, signature
+- [B2n8aDorSH4, NH6xARDOVv8, PZQhiiLXRFs](../../core/libs/prx/libkernel/Unimplemented.cpp) (libkernel) - unknown name, signature
+- Font, Http2, Net, Ssl, SystemService and libkernel exports imported by PPSA12544 and added without an implementation have unknown signatures
 - [libSceAudioPropagation](../../core/libs/prx/libSceAudioPropagation/Export.cpp) (libSceAudioPropagation) - signatures and struct descriptors recovered from PPSA21567's calls (#481), not from documentation. The system options layout is unknown (only checked for non-null); the fourth argument of `sceAudioPropagationSourceCalculateAudioPaths` is unknown; `sceAudioPropagationSourceGetAudioPath` is assumed to output an 8-byte path handle. The meaning of the `RenderInfo` word at +0x28 is unknown (PPSA21567 and PPSA21564 pass 2); only 2 is accepted. Both titles pass one `RenderInfo` per call: a count of 0 throws, and larger counts are handled element by element without proof. No error code is known, so invalid input throws instead of returning one
 - [sceAvPlayerStartEx](../../core/libs/prx/libSceAvPlayer/Export.cpp) (libSceAvPlayer) - start info layout unknown; it is ignored and playback starts as with `sceAvPlayerStart`
 - [sceAvPlayerInit / sceAvPlayerInitEx](../../core/libs/prx/libSceAvPlayer/src/Player.cpp) (libSceAvPlayer) - behaviour without a memory replacement unknown; frame and sample buffers then come from the guest heap

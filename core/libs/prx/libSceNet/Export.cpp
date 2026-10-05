@@ -911,4 +911,10 @@ int APS5_VABI sceNetResolverStartAton(int rid, const void* addr, char* hostname,
     }
     return 0;
 }
+
+int APS5_VABI sceNetResolverGetError(void) {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
 }
