@@ -1,6 +1,7 @@
 #include "SpirvBackend/SpirvFlowEmitter.hpp"
 #include "SpirvBackend/SpirvBda.hpp"
 #include "SpirvBackend/SpirvEmitterInstructions.hpp"
+#include "SpirvBackend/SpirvMemory/SpirvSubgroup.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -119,8 +120,38 @@ bool IsContinueTarget(const IrProgram& program, std::uint32_t block) {
     return false;
 }
 
+std::uint32_t EmitWaveAny(SpirvEmitterState& state, std::uint32_t predicate) {
+    const auto ballot = state.module.AllocateId();
+    state.module.AddFunction(spv::OpGroupNonUniformBallot, TypeU32Vector(state, 4u), ballot, ConstantU32(state, spv::ScopeSubgroup), predicate);
+    const auto wave = EmitWaveBallot(state, ballot);
+    const auto low = state.module.AllocateId();
+    const auto high = state.module.AllocateId();
+    const auto result = state.module.AllocateId();
+    state.module.AddFunction(spv::OpCompositeExtract, TypeU32(state), low, wave, 0u);
+    state.module.AddFunction(spv::OpCompositeExtract, TypeU32(state), high, wave, 1u);
+    state.module.AddFunction(spv::OpINotEqual, TypeBool(state), result, EmitBinaryU32(state, spv::OpBitwiseOr, low, high), ConstantU32(state, 0u));
+    return result;
+}
+
+std::uint32_t EmitWaveMaskBranchCondition(SpirvValueEmitContext& ctx, const BlockInfo& info) {
+    auto& state = ctx.state;
+    const auto kind = info.terminator.condition;
+    if (kind == BranchCondition::ExecNonZero || kind == BranchCondition::VccNonZero) {
+        return EmitWaveAny(state, ctx.Def(info.condition));
+    }
+    const auto clear = state.module.AllocateId();
+    const auto result = state.module.AllocateId();
+    state.module.AddFunction(spv::OpLogicalNot, TypeBool(state), clear, ctx.Def(info.condition));
+    state.module.AddFunction(spv::OpLogicalNot, TypeBool(state), result, EmitWaveAny(state, clear));
+    return result;
+}
+
 std::uint32_t EmitBranchCondition(SpirvValueEmitContext& ctx, const BlockInfo& info) {
-    if (ctx.otherHalf == nullptr || info.terminator.condition == BranchCondition::ScalarInstruction || info.terminator.condition == BranchCondition::GotoVariable || info.terminator.condition == BranchCondition::IndirectTarget) {
+    const auto condition = info.terminator.condition;
+    if (ctx.otherHalf == nullptr && IsWaveMaskBranch(condition)) {
+        return EmitWaveMaskBranchCondition(ctx, info);
+    }
+    if (ctx.otherHalf == nullptr || condition == BranchCondition::ScalarInstruction || condition == BranchCondition::GotoVariable || condition == BranchCondition::IndirectTarget) {
         return ctx.Def(info.condition);
     }
     auto& state = ctx.state;
