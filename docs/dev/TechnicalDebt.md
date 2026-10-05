@@ -70,7 +70,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceSystemServiceDisableMediaPlay](../../core/libs/prx/libSceSystemService/Export.cpp) (libSceSystemService) - unknown signature
 - [sceSystemServiceReenableMediaPlay](../../core/libs/prx/libSceSystemService/Export.cpp) (libSceSystemService) - unknown signature
 - [sceVoiceSetMuteFlag](../../core/libs/prx/libSceVoice/Export.cpp) (libSceVoice) - unknown signature
-- [snwprintf_s](../../core/libs/prx/libc/src/RuntimeSupport.cpp) (libc) - unknown signature
+- [snwprintf_s](../../core/libs/prx/libc/src/FormattingWide.cpp) (libc) - follows C11 K.3.9.1.3 with `RSIZE_MAX` assumed to be `SIZE_MAX >> 1`. A runtime-constraint violation only returns a negative value: `set_constraint_handler_s` is not exported and the console's default handler is unknown. An invalid multibyte `%s` argument is copied byte by byte instead of being reported as an encoding error, as in `vswprintf`
 - [libSceUlt queues](../../core/libs/prx/libSceUlt/Export.cpp) - the added `sceUltQueuePop`, `sceUltQueueTryPush`, `sceUltQueueDestroy` and `sceUltQueueDataResourcePoolDestroy` signatures are inferred from the existing push/pop and object APIs. Queue destruction is assumed to reject blocked callers with `ULT_ERROR_BUSY` and otherwise discard queued data; pool exhaustion returns `ULT_ERROR_AGAIN`. These rules, alignment checks and shared slot limits have not been confirmed on PS5 hardware or a title. Non-null queue and data-pool option parameters throw because their layouts are unknown.
 
 ### Functional
