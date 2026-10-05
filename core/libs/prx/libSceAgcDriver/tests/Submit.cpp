@@ -63,6 +63,14 @@ void testEvents() {
     expectFailure([&] { sceAgcDriverGetEqEventType(&event); });
     expectFailure([] { sceAgcDriverGetEqEventType(nullptr); });
     expectFailure([&] { sceAgcDriverGetEqEventType(reinterpret_cast<const KernelEvent*>(reinterpret_cast<const std::byte*>(&event) + 1)); });
+    event.ident = 0x29;
+    check(sceAgcDriverGetEqContextId(&event) == 0x29, "graphics event context id uses wrong field");
+    event.ident = std::numeric_limits<std::uintptr_t>::max();
+    expectFailure([&] { sceAgcDriverGetEqContextId(&event); });
+    event.ident = 1;
+    event.filter = -1;
+    expectFailure([&] { sceAgcDriverGetEqContextId(&event); });
+    expectFailure([] { sceAgcDriverGetEqContextId(nullptr); });
 }
 
 void testValidation() {
