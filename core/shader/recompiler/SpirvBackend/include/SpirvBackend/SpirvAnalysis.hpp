@@ -29,6 +29,7 @@ struct SpirvRequirements {
 
 [[nodiscard]] SpirvRequirements AnalyzeProgramRequirements(const IrProgram& program);
 [[nodiscard]] std::unordered_set<const IrValue*> WaveUniformValues(const IrProgram& program);
+[[nodiscard]] bool IsWaveMaskBranch(BranchCondition condition);
 
 }
 

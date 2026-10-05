@@ -194,7 +194,16 @@ SpirvRequirements AnalyzeProgramRequirements(const IrProgram& program) {
             }
         }
     }
+    for (const auto& info : program.Metadata().blockInfo) {
+        if (info.terminator.kind == TerminatorKind::ConditionalBranch && IsWaveMaskBranch(info.terminator.condition)) {
+            requirements.subgroupBallot = true;
+        }
+    }
     return requirements;
+}
+
+bool IsWaveMaskBranch(BranchCondition condition) {
+    return condition == BranchCondition::ExecZero || condition == BranchCondition::ExecNonZero || condition == BranchCondition::VccZero || condition == BranchCondition::VccNonZero;
 }
 
 std::unordered_set<const IrValue*> WaveUniformValues(const IrProgram& program) {
