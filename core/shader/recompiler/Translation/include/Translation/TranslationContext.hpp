@@ -121,6 +121,7 @@ private:
     IrF32 selectF32(IrU1 condition, IrF32 trueValue, IrF32 falseValue);
     IrU32 convertF32ToU32Saturated(IrF32 value, float upperBound, float safeUpper, std::uint32_t highResult);
     IrU32 convertF32ToI32Saturated(IrF32 value, float lowerBound, float upperBound, float safeUpper, std::uint32_t lowerResult, std::uint32_t upperResult);
+    IrU32 convertFlooredF32ToI32(IrF32 source, IrF32 floored);
     IrU32 packU16Lanes(IrU32 low, IrU32 high);
     void emitCompareResult(const RdnaInstruction& inst, IrU1 value, bool scalar, bool cmpx);
     void emitCompareConstant(const RdnaInstruction& inst, bool value, bool scalar, bool cmpx);
