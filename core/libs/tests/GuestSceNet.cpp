@@ -1,9 +1,11 @@
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include "SceTypes.hpp"
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <thread>
 
 extern "C" {
 int APS5_VABI sceNetInit_nid_postfix(void);
@@ -71,6 +73,12 @@ int main() {
     Require(std::strcmp(request, response) == 0);
     Require(sceNetEpollDestroy(epoll) == 0);
     Require(sceNetSocketClose(accepted) == 0);
+    bool send_failed = false;
+    for (int attempt = 0; attempt < 100 && !send_failed; ++attempt) {
+        send_failed = sceNetSend(client, request, sizeof(request), 0) < 0;
+        if (!send_failed) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    Require(send_failed);
     Require(sceNetSocketClose(client) == 0);
     Require(sceNetSocketClose(listener) == 0);
 
