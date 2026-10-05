@@ -48,19 +48,90 @@ bool TranslationContext::packedFloat16(const RdnaInstruction& inst, IrOpcode opc
     return true;
 }
 
-bool TranslationContext::float16Unary(const RdnaInstruction& inst, IrOpcode opcode, bool invalidNegative) {
-    const IrF32 argument = readF16AsF32(sourceAt(inst, 0u));
-    const IrF32 result(ir.Emit(opcode, IrType::F32, {&argument.Value()}));
-    if (!invalidNegative) {
-        writeF16(inst.destination, result);
-        return true;
+bool TranslationContext::float16Unary(const RdnaInstruction& inst, IrOpcode opcode) {
+    const RdnaOperand& operand = sourceAt(inst, 0u);
+    const IrF32 argument = readF16AsF32(operand);
+    const auto [result, invalid] = unaryFloatSpecials(opcode, argument, IrF32(ir.Emit(opcode, IrType::F32, {&argument.Value()})));
+    IrU32 bits = packHalf2x16(applyF16ResultModifiers(inst.destination, result), IrF32(ir.ConstantF32(0.0f)));
+    if (opcode == IrOpcode::FPFract32) {
+        bits = IrU32(ir.Select(ir.IEqual(bits.Value(), ir.Constant(0x3c00u)), ir.Constant(0x3bffu), bits.Value()));
     }
-    const IrU1 negative(ir.Emit(IrOpcode::FPOrdLessThan32, IrType::U1, {&argument.Value(), &ir.ConstantF32(0.0f)}));
-    const IrF32 modified = applyF16ResultModifiers(inst.destination, result);
-    const IrU32 bits = packHalf2x16(modified, IrF32(ir.ConstantF32(0.0f)));
-    const IrU32 invalid(ir.Constant(inst.destination.clamp ? 0u : 0xfe00u));
-    write16Bits(inst.destination, IrU32(ir.Select(negative.Value(), invalid.Value(), bits.Value())));
+    const IrU32 half = readF16Bits(operand);
+    const IrU1 nan(ir.UGreaterThan(ir.BitwiseAnd(half.Value(), ir.Constant(0x7fffu)), ir.Constant(0x7c00u)));
+    const IrU32 special(ir.Select(nan.Value(), ir.BitwiseOr(half.Value(), ir.Constant(0x0200u)), ir.Constant(0xfe00u)));
+    const IrU32 value(ir.Select(ir.LogicalOr(nan.Value(), invalid.Value()), inst.destination.clamp ? ir.Constant(0u) : special.Value(), bits.Value()));
+    write16Bits(inst.destination, value);
     return true;
+}
+
+std::pair<IrF32, IrU1> TranslationContext::unaryFloatSpecials(IrOpcode opcode, IrF32 argument, IrF32 result) {
+    const IrU32 bits(ir.BitCastU32(argument.Value()));
+    const IrU32 magnitude(ir.BitwiseAnd(bits.Value(), ir.Constant(0x7fffffffu)));
+    const IrU32 sign(ir.BitwiseAnd(bits.Value(), ir.Constant(0x80000000u)));
+    const bool flushes = opcode == IrOpcode::FPRecip32 || opcode == IrOpcode::FPRecipIFlag32 || opcode == IrOpcode::FPRecipSqrt32 || opcode == IrOpcode::FPSqrt || opcode == IrOpcode::FPLog2 || opcode == IrOpcode::FPExp2;
+    const IrU1 zero(flushes ? ir.ULessThan(magnitude.Value(), ir.Constant(0x00800000u)) : ir.IEqual(magnitude.Value(), ir.Constant(0u)));
+    const IrU1 infinite(ir.IEqual(magnitude.Value(), ir.Constant(0x7f800000u)));
+    const IrU1 negative(ir.LogicalAnd(ir.INotEqual(sign.Value(), ir.Constant(0u)), ir.LogicalNot(zero.Value())));
+    const IrU32 signedInfinity(ir.BitwiseOr(sign.Value(), ir.Constant(0x7f800000u)));
+    const auto pick = [&](IrU1 condition, IrValue& value, IrU32 current) { return IrU32(ir.Select(condition.Value(), value, current.Value())); };
+    IrU32 value(ir.BitCastU32(result.Value()));
+    IrU1 invalid(ir.ConstantBool(false));
+    switch (opcode) {
+    case IrOpcode::FPRecip32:
+    case IrOpcode::FPRecipIFlag32:
+        value = pick(infinite, sign.Value(), value);
+        value = pick(zero, signedInfinity.Value(), value);
+        break;
+    case IrOpcode::FPRecipSqrt32:
+        value = pick(infinite, ir.Constant(0u), value);
+        value = pick(zero, signedInfinity.Value(), value);
+        invalid = negative;
+        break;
+    case IrOpcode::FPSqrt:
+        value = pick(infinite, bits.Value(), value);
+        value = pick(zero, sign.Value(), value);
+        invalid = negative;
+        break;
+    case IrOpcode::FPLog2:
+        value = pick(infinite, bits.Value(), value);
+        value = pick(IrU1(ir.IEqual(bits.Value(), ir.Constant(0x3f800000u))), ir.Constant(0u), value);
+        value = pick(zero, ir.Constant(0xff800000u), value);
+        invalid = negative;
+        break;
+    case IrOpcode::FPExp2: {
+        const IrU1 overflow(ir.LogicalAnd(ir.IEqual(sign.Value(), ir.Constant(0u)), ir.UGreaterThan(magnitude.Value(), ir.Constant(0x42ffffffu))));
+        const IrU1 underflow(ir.LogicalAnd(negative.Value(), ir.UGreaterThan(magnitude.Value(), ir.Constant(0x42fc0000u))));
+        value = pick(overflow, ir.Constant(0x7f800000u), value);
+        value = pick(underflow, ir.Constant(0u), value);
+        value = pick(zero, ir.Constant(0x3f800000u), value);
+        break;
+    }
+    case IrOpcode::FPFract32: {
+        const IrU32 unsignedValue(ir.BitwiseAnd(value.Value(), ir.Constant(0x7fffffffu)));
+        value = pick(IrU1(ir.UGreaterThan(unsignedValue.Value(), ir.Constant(0x3f7fffffu))), ir.Constant(0x3f7fffffu), unsignedValue);
+        invalid = infinite;
+        break;
+    }
+    case IrOpcode::FPSin:
+    case IrOpcode::FPCos: {
+        const IrF32 whole(ir.Emit(IrOpcode::FPTrunc32, IrType::F32, {&argument.Value()}));
+        const IrF32 difference(ir.Emit(IrOpcode::FPSub32, IrType::F32, {&argument.Value(), &whole.Value()}));
+        const IrF32 fraction(ir.Emit(IrOpcode::FPAbs32, IrType::F32, {&difference.Value()}));
+        const auto fractionIs = [&](float cycle) { return IrU1(ir.Emit(IrOpcode::FPOrdEqual32, IrType::U1, {&fraction.Value(), &ir.ConstantF32(cycle)})); };
+        if (opcode == IrOpcode::FPSin) {
+            const IrU1 cardinal(ir.LogicalOr(fractionIs(0.0f).Value(), fractionIs(0.5f).Value()));
+            value = pick(cardinal, ir.Constant(0u), value);
+            value = pick(zero, bits.Value(), value);
+        } else {
+            value = pick(IrU1(ir.LogicalOr(fractionIs(0.25f).Value(), fractionIs(0.75f).Value())), ir.Constant(0u), value);
+        }
+        invalid = infinite;
+        break;
+    }
+    default:
+        break;
+    }
+    return {IrF32(ir.BitCastF32(value.Value())), invalid};
 }
 
 bool TranslationContext::vDivFixupF16(const RdnaInstruction& inst) {
@@ -92,33 +163,6 @@ bool TranslationContext::vDivFixupF16(const RdnaInstruction& inst) {
     result = IrU32(ir.Select(isNan(1u).Value(), ir.BitwiseOr(bits[1].Value(), ir.Constant(0x0200u)), result.Value()));
     result = IrU32(ir.Select(isNan(2u).Value(), ir.BitwiseOr(bits[2].Value(), ir.Constant(0x0200u)), result.Value()));
     write16Bits(inst.destination, result);
-    return true;
-}
-
-bool TranslationContext::float16Trig(const RdnaInstruction& inst, IrOpcode opcode) {
-    const IrF32 argument = readF16AsF32(sourceAt(inst, 0u));
-    const IrU32 magnitude(ir.BitwiseAnd(ir.BitCastU32(argument.Value()), ir.Constant(0x7fffffffu)));
-    const IrF32 raw(ir.Emit(opcode, IrType::F32, {&argument.Value()}));
-    const IrF32 fraction(ir.Emit(IrOpcode::FPFract32, IrType::F32, {&argument.Value()}));
-    const IrF32 zero(ir.ConstantF32(0.0f));
-    IrF32 result = raw;
-    if (opcode == IrOpcode::FPSin) {
-        const IrU1 whole(ir.Emit(IrOpcode::FPOrdEqual32, IrType::U1, {&fraction.Value(), &zero.Value()}));
-        const IrU1 half(ir.Emit(IrOpcode::FPOrdEqual32, IrType::U1, {&fraction.Value(), &ir.ConstantF32(0.5f)}));
-        const IrU1 nonzero(ir.INotEqual(magnitude.Value(), ir.Constant(0u)));
-        const IrU1 cardinal(ir.LogicalOr(ir.LogicalAnd(whole.Value(), nonzero.Value()), half.Value()));
-        result = selectF32(cardinal, zero, raw);
-    } else {
-        const IrU1 quarter(ir.Emit(IrOpcode::FPOrdEqual32, IrType::U1, {&fraction.Value(), &ir.ConstantF32(0.25f)}));
-        const IrU1 threeQuarters(ir.Emit(IrOpcode::FPOrdEqual32, IrType::U1, {&fraction.Value(), &ir.ConstantF32(0.75f)}));
-        const IrU1 quarterCycle(ir.LogicalOr(quarter.Value(), threeQuarters.Value()));
-        result = selectF32(quarterCycle, zero, raw);
-    }
-    const IrU1 infinite(ir.IEqual(magnitude.Value(), ir.Constant(0x7f800000u)));
-    const IrF32 modified = applyF16ResultModifiers(inst.destination, result);
-    const IrU32 bits = packHalf2x16(modified, zero);
-    const IrU32 invalid(ir.Constant(inst.destination.clamp ? 0u : 0xfe00u));
-    write16Bits(inst.destination, IrU32(ir.Select(infinite.Value(), invalid.Value(), bits.Value())));
     return true;
 }
 
@@ -365,9 +409,13 @@ bool TranslationContext::vDivFixupF32(const RdnaInstruction& inst) {
 }
 
 bool TranslationContext::floatUnary(const RdnaInstruction& inst, IrOpcode opcode) {
-    IrValue* argument = readOperand(sourceAt(inst, 0u), IrOpcodeArgumentType(opcode, 0u));
-    IrValue& result = ir.Emit(opcode, IrOpcodeType(opcode), {argument});
-    writeOperand(inst.destination, &result);
+    const IrU32 bits = readU32(sourceAt(inst, 0u));
+    const IrF32 argument(ir.BitCastF32(bits.Value()));
+    const auto [result, invalid] = unaryFloatSpecials(opcode, argument, IrF32(ir.Emit(opcode, IrType::F32, {&argument.Value()})));
+    const IrU1 nan(ir.UGreaterThan(ir.BitwiseAnd(bits.Value(), ir.Constant(0x7fffffffu)), ir.Constant(0x7f800000u)));
+    const IrU32 special(ir.Select(nan.Value(), ir.BitwiseOr(bits.Value(), ir.Constant(0x00400000u)), ir.Constant(0xffc00000u)));
+    const IrF32 value(ir.Select(ir.LogicalOr(nan.Value(), invalid.Value()), ir.BitCastF32(special.Value()), result.Value()));
+    writeOperand(inst.destination, &value.Value());
     return true;
 }
 
@@ -421,7 +469,8 @@ bool TranslationContext::vFrexpMantF32(const RdnaInstruction& inst) {
     const IrU32 zeroOrSubnormal(ir.Select(zero.Value(), bits.Value(), subnormal.Value()));
     const IrU32 finite(ir.Select(exponentNonZero.Value(), normal.Value(), zeroOrSubnormal.Value()));
     const IrU1 exponentAllOnes(ir.IEqual(exponent.Value(), ir.Constant(0xffu)));
-    const IrU32 result(ir.Select(exponentAllOnes.Value(), bits.Value(), finite.Value()));
+    const IrU32 special(ir.Select(zero.Value(), bits.Value(), ir.BitwiseOr(bits.Value(), ir.Constant(0x00400000u))));
+    const IrU32 result(ir.Select(exponentAllOnes.Value(), special.Value(), finite.Value()));
     writeOperand(inst.destination, &ir.BitCastF32(result.Value()));
     return true;
 }

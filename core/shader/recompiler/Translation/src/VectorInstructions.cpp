@@ -816,29 +816,29 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
     case RdnaOpcode::VMadMixhiF16:
         return float16Ternary(inst, IrOpcode::FPFma32, false, true);
     case RdnaOpcode::VRcpF16:
-        return float16Unary(inst, IrOpcode::FPRecip32, false);
+        return float16Unary(inst, IrOpcode::FPRecip32);
     case RdnaOpcode::VSqrtF16:
-        return float16Unary(inst, IrOpcode::FPSqrt, true);
+        return float16Unary(inst, IrOpcode::FPSqrt);
     case RdnaOpcode::VRsqF16:
-        return float16Unary(inst, IrOpcode::FPRecipSqrt32, true);
+        return float16Unary(inst, IrOpcode::FPRecipSqrt32);
     case RdnaOpcode::VLogF16:
-        return float16Unary(inst, IrOpcode::FPLog2, true);
+        return float16Unary(inst, IrOpcode::FPLog2);
     case RdnaOpcode::VExpF16:
-        return float16Unary(inst, IrOpcode::FPExp2, false);
+        return float16Unary(inst, IrOpcode::FPExp2);
     case RdnaOpcode::VFloorF16:
-        return float16Unary(inst, IrOpcode::FPFloor32, false);
+        return float16Unary(inst, IrOpcode::FPFloor32);
     case RdnaOpcode::VCeilF16:
-        return float16Unary(inst, IrOpcode::FPCeil32, false);
+        return float16Unary(inst, IrOpcode::FPCeil32);
     case RdnaOpcode::VTruncF16:
-        return float16Unary(inst, IrOpcode::FPTrunc32, false);
+        return float16Unary(inst, IrOpcode::FPTrunc32);
     case RdnaOpcode::VRndneF16:
-        return float16Unary(inst, IrOpcode::FPRoundEven32, false);
+        return float16Unary(inst, IrOpcode::FPRoundEven32);
     case RdnaOpcode::VFractF16:
-        return float16Unary(inst, IrOpcode::FPFract32, false);
+        return float16Unary(inst, IrOpcode::FPFract32);
     case RdnaOpcode::VSinF16:
-        return float16Trig(inst, IrOpcode::FPSin);
+        return float16Unary(inst, IrOpcode::FPSin);
     case RdnaOpcode::VCosF16:
-        return float16Trig(inst, IrOpcode::FPCos);
+        return float16Unary(inst, IrOpcode::FPCos);
     case RdnaOpcode::VMin3F16:
         return float16Ternary(inst, IrOpcode::FPMinTri32, false, false);
     case RdnaOpcode::VMax3F16:

@@ -4,6 +4,7 @@
 #include "Translation/InstructionTranslator.hpp"
 #include <array>
 #include <cstdint>
+#include <utility>
 
 namespace ShaderRecompiler {
 
@@ -150,8 +151,8 @@ private:
     void vCvtPkU8F32(const RdnaInstruction& inst);
     void vPackB32F16(const RdnaInstruction& inst);
     bool packedFloat16(const RdnaInstruction& inst, IrOpcode opcode, bool accumulator, bool quietSnan);
-    bool float16Unary(const RdnaInstruction& inst, IrOpcode opcode, bool invalidNegative);
-    bool float16Trig(const RdnaInstruction& inst, IrOpcode opcode);
+    bool float16Unary(const RdnaInstruction& inst, IrOpcode opcode);
+    std::pair<IrF32, IrU1> unaryFloatSpecials(IrOpcode opcode, IrF32 argument, IrF32 result);
     bool vDivFixupF16(const RdnaInstruction& inst);
     bool float16Binary(const RdnaInstruction& inst, IrOpcode opcode, bool reverse);
     bool float16Ternary(const RdnaInstruction& inst, IrOpcode opcode, bool accumulator, bool mix);
