@@ -30,6 +30,13 @@ def fs_load(register, displacement):
     return bytes([0x64, 0x48 | (register >> 3) << 2, 0x8b, 0x04 | (register & 7) << 3, 0x25]) + struct.pack("<i", displacement)
 
 
+ALU_READ = {"add": 0x03, "or": 0x0b, "adc": 0x13, "sbb": 0x1b, "and": 0x23, "sub": 0x2b, "xor": 0x33, "cmp": 0x3b}
+
+
+def fs_alu(opcode, register, displacement):
+    return bytes([0x64, 0x48 | (register >> 3) << 2, opcode, 0x04 | (register & 7) << 3, 0x25]) + struct.pack("<i", displacement)
+
+
 def displacement_load(register, displacement, flags, round_trip=False):
     saved = (3, 5, 6, 7, 12, 13, 14, 15)
     code = bytearray()
@@ -276,17 +283,36 @@ def main():
             convert(name, image, tls_address=address, displacement=displacement)
         for name, image, error in displacement_bounds_cases():
             convert(name, image, error, error_offset=0x1240)
+        for name, opcode in ALU_READ.items():
+            for register in (0, 3, 8, 13):
+                for displacement in (0, 40, -8):
+                    body = fs_alu(opcode, register, displacement) + b"\xc3"
+                    case = f"alu-{name}-{register}-{displacement}"
+                    image = make_image("register", "unwind", body=body)
+                    source = work / (case + ".elf")
+                    output = source.with_suffix(".exe")
+                    source.write_bytes(image)
+                    result = subprocess.run([str(relinker), "--skip-sce-module", "--windows", str(source), str(output)],
+                                            capture_output=True, text=True, timeout=30)
+                    assert result.returncode == 0, (case, result.stderr)
+                    pe = output.read_bytes()
+                    patched_address = 0x10000 + 0x1240
+                    patched = pe_bytes_at(pe, patched_address, 5)
+                    assert patched[0] == 0xe9, case
+                    stub_address = patched_address + 5 + struct.unpack_from("<i", patched, 1)[0]
+                    stub = pe_bytes_at(pe, stub_address, 96)
+                    value_load = bytes.fromhex("48 8b 80" if register else "48 8b 90") + struct.pack("<i", displacement)
+                    operation = bytes([0x48 | (register >> 3) << 2, opcode, 0xc0 | (register & 7) << 3]) if register else bytes([0x48, opcode, 0xc2])
+                    assert value_load in stub, (case, stub.hex())
+                    assert operation in stub, (case, stub.hex())
         rejected = {
             "rsp-displacement": fs_load(4, 40),
+            "rsp-alu": fs_alu(0x33, 4, 40),
             "dword-load": bytes.fromhex("64 8b 04 25 28 00 00 00"),
             "register-address": bytes.fromhex("64 48 8b 00"),
             "gs-load": bytes.fromhex("65 48 8b 04 25 28 00 00 00"),
             "rex-b-load": bytes.fromhex("64 49 8b 04 25 28 00 00 00"),
             "rex-x-load": bytes.fromhex("64 4a 8b 04 25 28 00 00 00"),
-            "compare": bytes.fromhex("64 48 3b 04 25 28 00 00 00"),
-            "subtract": bytes.fromhex("64 48 2b 04 25 28 00 00 00"),
-            "add": bytes.fromhex("64 48 03 04 25 28 00 00 00"),
-            "xor": bytes.fromhex("64 48 33 04 25 28 00 00 00"),
         }
         for name, instruction in rejected.items():
             convert(name, make_image("register", "unwind", body=instruction + b"\xc3"),
