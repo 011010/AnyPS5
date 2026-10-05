@@ -394,6 +394,17 @@ bool TranslationContext::floatTernary(const RdnaInstruction& inst, IrOpcode opco
     return true;
 }
 
+bool TranslationContext::vFmaLegacyF32(const RdnaInstruction& inst) {
+    IrValue* lhs = readOperand(sourceAt(inst, 0u), IrType::F32);
+    IrValue* rhs = readOperand(sourceAt(inst, 1u), IrType::F32);
+    IrValue* addend = readOperand(sourceAt(inst, 2u), IrType::F32);
+    const auto isZero = [&](IrValue* value) { return IrU1(ir.IEqual(ir.BitwiseAnd(ir.BitCastU32(*value), ir.Constant(0x7fffffffu)), ir.Constant(0u))); };
+    const IrU1 zero(ir.LogicalOr(isZero(lhs).Value(), isZero(rhs).Value()));
+    const auto factor = [&](IrValue* value) { return &ir.Emit(IrOpcode::SelectF32, IrType::F32, {&zero.Value(), &ir.ConstantF32(0.0f), value}); };
+    writeOperand(inst.destination, &ir.Emit(IrOpcode::FPFma32, IrType::F32, {factor(lhs), factor(rhs), addend}));
+    return true;
+}
+
 bool TranslationContext::vFrexpMantF32(const RdnaInstruction& inst) {
     const IrU32 bits = readU32(sourceAt(inst, 0u));
     const IrU32 exponent(ir.Emit(IrOpcode::BitFieldUExtract, IrType::U32, {&bits.Value(), &ir.Constant(23u), &ir.Constant(8u)}));

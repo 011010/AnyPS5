@@ -161,6 +161,7 @@ private:
     bool vDivFmasF32(const RdnaInstruction& inst);
     bool vDivFixupF32(const RdnaInstruction& inst);
     bool vFrexpMantF32(const RdnaInstruction& inst);
+    bool vFmaLegacyF32(const RdnaInstruction& inst);
     IrU32 readF16Bits(const RdnaOperand& operand);
     IrU32 normF16(IrU32 bits, bool signedValue);
     bool vLdexpF16(const RdnaInstruction& inst);
