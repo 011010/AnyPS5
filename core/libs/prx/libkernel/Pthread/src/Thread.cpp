@@ -96,6 +96,7 @@ static void RunThread(std::unique_ptr<ThreadArgs> args) {
     const auto entry = args->entry;
     void* arg = args->arg;
     PthreadPrivate* self = args->self;
+    self->waitState = TimedWait::ThreadWaitState();
     currentThread = self;
     args.reset();
     finishThread(self, entry(arg));
@@ -327,6 +328,7 @@ Pthread APS5_VABI scePthreadSelf() {
         adopted->threadId = std::this_thread::get_id();
         adopted->_detached = true;
         adopted->references.store(1, std::memory_order_relaxed);
+        adopted->waitState = TimedWait::ThreadWaitState();
         currentThread = adopted.release();
     }
 #else
