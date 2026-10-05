@@ -752,8 +752,26 @@ bool isNativeVop3AlignOpcode(RdnaOpcode opcode) {
     return opcode == RdnaOpcode::VAlignbitB32 || opcode == RdnaOpcode::VAlignbyteB32;
 }
 
-bool usesSignedSaturateClamp(RdnaOpcode opcode) {
-    return opcode == RdnaOpcode::VAddNcI32 || opcode == RdnaOpcode::VSubNcI32;
+bool usesIntegerSaturateClamp(RdnaOpcode opcode) {
+    switch (opcode) {
+        case RdnaOpcode::VAddNcI32:
+        case RdnaOpcode::VSubNcI32:
+        case RdnaOpcode::VMadU32U24:
+        case RdnaOpcode::VMadI32I24:
+        case RdnaOpcode::VMadU16:
+        case RdnaOpcode::VMadI16:
+        case RdnaOpcode::VMadU32U16:
+        case RdnaOpcode::VMadI32I16:
+        case RdnaOpcode::VSadU8:
+        case RdnaOpcode::VSadHiU8:
+        case RdnaOpcode::VSadU16:
+        case RdnaOpcode::VSadU32:
+        case RdnaOpcode::VMsadU8:
+        case RdnaOpcode::VQsadPkU16U8:
+        case RdnaOpcode::VMqsadPkU16U8:
+        case RdnaOpcode::VMqsadU32U8: return true;
+        default: return false;
+    }
 }
 
 bool isCubeOpcode(RdnaOpcode opcode) {
@@ -1941,7 +1959,7 @@ bool isF32DivisionStepOpcode(RdnaOpcode opcode) {
 }
 
 bool supportsNativeVop3Clamp(RdnaOpcode opcode) {
-    return supportsNativeVop3ResultModifiers(opcode) || usesInexactClampControl(opcode) || usesSignedSaturateClamp(opcode) ||
+    return supportsNativeVop3ResultModifiers(opcode) || usesInexactClampControl(opcode) || usesIntegerSaturateClamp(opcode) ||
         isF32DivisionStepOpcode(opcode) || isCubeOpcode(opcode);
 }
 
@@ -1959,13 +1977,13 @@ void checkNativeVop3Modifiers(RdnaOpcode opcode, bool permlane, bool carryInOut,
         return;
     }
     if (isNativeVop3I16TernaryOpcode(opcode)) {
-        if (abs != 0u || clamp != 0u || omod != 0u || neg != 0u) {
+        if (abs != 0u || omod != 0u || neg != 0u) {
             throw std::invalid_argument("VOP3 source modifiers are not implemented");
         }
         return;
     }
     if (isNativeVop3AlignOpcode(opcode)) {
-        if (abs != 0u || clamp != 0u || omod != 0u || neg != 0u) {
+        if (abs != 0u || omod != 0u || neg != 0u) {
             throw std::invalid_argument("VOP3 source modifiers are not implemented");
         }
         return;
@@ -1983,7 +2001,7 @@ void checkNativeVop3Modifiers(RdnaOpcode opcode, bool permlane, bool carryInOut,
         }
         return;
     }
-    if (usesSignedSaturateClamp(opcode)) {
+    if (usesIntegerSaturateClamp(opcode)) {
         if (abs != 0u || opSel != 0u || omod != 0u || neg != 0u) {
             throw std::invalid_argument("VOP3 source modifiers are not implemented");
         }
