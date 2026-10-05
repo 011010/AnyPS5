@@ -200,3 +200,23 @@ if(BUILD_TESTING)
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()
+
+add_test_executable(agc_cond_exec_patch_tests EXCLUDE_FROM_ALL
+        tests/CondExecPatch.cpp
+        Command/src/Packet.cpp
+        Command/src/Memory.cpp
+        Command/src/Control.cpp
+        DcbFlow/src/Sync.cpp
+        Patch/src/CondExec.cpp
+)
+target_include_directories(agc_cond_exec_patch_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_cond_exec_patch_tests PRIVATE libc)
+configure_windows_unwind(agc_cond_exec_patch_tests)
+if(BUILD_TESTING)
+    set_target_properties(agc_cond_exec_patch_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME agc_cond_exec_patch_tests COMMAND agc_cond_exec_patch_tests)
+    if(WIN32)
+        set_tests_properties(agc_cond_exec_patch_tests PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
