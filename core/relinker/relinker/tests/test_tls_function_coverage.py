@@ -197,6 +197,12 @@ def pe_bytes_at(pe, rva, size):
     raise AssertionError(f"Unmapped PE RVA {rva:#x}")
 
 
+def add_alias(image, size):
+    struct.pack_into("<IBBHQQ", image, 0x650, 0, 0x12, 0, 1, 0x1200, size)
+    struct.pack_into("<IIIII", image, 0x680, 1, 3, 1, 0, 0)
+    return image
+
+
 def main():
     relinker = Path(sys.argv[1]).resolve()
     with tempfile.TemporaryDirectory(prefix="anyps5-tls-coverage-") as directory:
@@ -232,6 +238,17 @@ def main():
                 convert(metadata + "-" + transfer, make_image(transfer, metadata))
             convert(metadata + "-truncated", make_image("register", metadata, 0x46), "Code analysis:")
             convert(metadata + "-outside", make_image("register", metadata, 0x1000), "Code analysis: function exceeds executable segment")
+        for first, second in ((0x47, 0x51), (0x51, 0x47), (0, 0x51), (0x51, 0)):
+            convert(f"symbol-alias-{first:x}-{second:x}",
+                    add_alias(make_image("register", "symbol", first), second))
+        for first, second in ((0x47, 0x1000), (0x1000, 0x47)):
+            convert(f"symbol-alias-outside-{first:x}-{second:x}",
+                    add_alias(make_image("register", "symbol", first), second),
+                    "Code analysis: function exceeds executable segment")
+        alias_tail = add_alias(make_image("register", "symbol", 0x51), 0x60)
+        alias_tail[0x1258:0x1260] = bytes.fromhex("64 8b 04 25 28 00 00 00")
+        convert("symbol-alias-unreachable-tls-tail", alias_tail,
+                "Unsupported Windows guest TLS instruction", error_offset=0x1258)
         overlapping = make_image("register", "unwind")
         overlapping[0x1200:0x1205] = b"\xe9" + struct.pack("<i", 0x1245 - 0x1205)
         convert("overlapping-entry", overlapping, "Code analysis: overlapping instruction boundaries")
