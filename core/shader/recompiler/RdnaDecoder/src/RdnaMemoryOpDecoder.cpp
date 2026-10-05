@@ -3,6 +3,7 @@
 #include <bit>
 #include <limits>
 #include <stdexcept>
+#include <string>
 
 namespace ShaderRecompiler {
 
@@ -170,6 +171,7 @@ constexpr MemoryOpcodeInfo flatOpcodes[] = {
     {0x0eu, RdnaOpcode::FlatLoadDwordx4, 4, 32, false, false, false},
     {0x0fu, RdnaOpcode::FlatLoadDwordx3, 3, 32, false, false, false},
     {0x16u, RdnaOpcode::GlobalLoadDwordAddtid, 1, 32, false, false, false},
+    {0x17u, RdnaOpcode::GlobalStoreDwordAddtid, 1, 32, false, false, false},
     {0x18u, RdnaOpcode::FlatStoreByte, 1, 8, false, false, false},
     {0x1au, RdnaOpcode::FlatStoreShort, 1, 16, false, false, false},
     {0x1cu, RdnaOpcode::FlatStoreDword, 1, 32, false, false, false},
@@ -560,7 +562,8 @@ bool isFlatStoreOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::FlatStoreDword:
         case RdnaOpcode::FlatStoreDwordx2:
         case RdnaOpcode::FlatStoreDwordx3:
-        case RdnaOpcode::FlatStoreDwordx4: return true;
+        case RdnaOpcode::FlatStoreDwordx4:
+        case RdnaOpcode::GlobalStoreDwordAddtid: return true;
         default: return false;
     }
 }
@@ -831,11 +834,12 @@ RdnaInstruction DecodeRdnaFlat(std::uint32_t programCounter, std::span<const std
     setRawWords(instruction, code, wordIndex, 2u);
 
     instruction.destination = d16Half(vectorRegister(isFlatStoreOpcode(instruction.op) ? data : vdst), instruction.op);
-    if (instruction.op == RdnaOpcode::GlobalLoadDwordAddtid) {
+    if (instruction.op == RdnaOpcode::GlobalLoadDwordAddtid || instruction.op == RdnaOpcode::GlobalStoreDwordAddtid) {
+        const std::string name = instruction.op == RdnaOpcode::GlobalLoadDwordAddtid ? "global_load_dword_addtid" : "global_store_dword_addtid";
         if (seg != 2u) {
-            throw std::runtime_error("global_load_dword_addtid is available only in the global segment");
+            throw std::runtime_error(name + " is available only in the global segment");
         }
-        instruction.source0 = scalarDescriptorBase(saddr, 2u, "global_load_dword_addtid supports only an SGPR pair as base address");
+        instruction.source0 = scalarDescriptorBase(saddr, 2u, (name + " supports only an SGPR pair as base address").c_str());
         instruction.sourceCount = 1;
         return instruction;
     }
