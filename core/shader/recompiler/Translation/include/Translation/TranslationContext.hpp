@@ -172,6 +172,7 @@ private:
     bool vMulLegacyF32(const RdnaInstruction& inst, bool accumulate);
     void emitFloat16ClassCompare(const RdnaInstruction& inst, bool cmpx);
     bool float64Operation(const RdnaInstruction& inst, IrOpcode opcode);
+    void writeF64Result(const RdnaOperand& operand, IrValue& value);
     bool vDivScaleF64(const RdnaInstruction& inst);
     bool vDivFmasF64(const RdnaInstruction& inst);
     bool vDivFixupF64(const RdnaInstruction& inst);

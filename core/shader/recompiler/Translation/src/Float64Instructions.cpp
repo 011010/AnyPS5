@@ -22,13 +22,24 @@ bool TranslationContext::float64Operation(const RdnaInstruction& inst, IrOpcode 
     }
     const IrType type = IrOpcodeType(opcode);
     IrValue* result = count == 1u ? &ir.Emit(opcode, type, {args[0]}) : count == 2u ? &ir.Emit(opcode, type, {args[0], args[1]}) : &ir.Emit(opcode, type, {args[0], args[1], args[2]});
+    if (type == IrType::U64) {
+        writeF64Result(inst.destination, *result);
+        return true;
+    }
     RdnaOperand destination = inst.destination;
     destination.omod = 0u;
-    if (type == IrType::U64 && destination.clamp) {
+    writeOperand(destination, result);
+    return true;
+}
+
+void TranslationContext::writeF64Result(const RdnaOperand& operand, IrValue& value) {
+    RdnaOperand destination = operand;
+    destination.omod = 0u;
+    IrValue* result = &value;
+    if (destination.clamp) {
         result = &ir.Emit(IrOpcode::FPSaturate64, IrType::U64, {result});
     }
     writeOperand(destination, result);
-    return true;
 }
 
 bool TranslationContext::vDivScaleF64(const RdnaInstruction& inst) {
@@ -88,7 +99,7 @@ bool TranslationContext::vDivFmasF64(const RdnaInstruction& inst) {
     IrValue& power = ir.Select(scale.Value(), ir.Select(up.Value(), ir.Constant(128u), ir.Constant(static_cast<std::uint32_t>(-128))), ir.Constant(0u));
     IrValue& result = ir.Emit(IrOpcode::FPFmaScale64, IrType::U64,
         {&readF64(sourceAt(inst, 0u)).Value(), &readF64(sourceAt(inst, 1u)).Value(), &ir.ConstructU64(addend[0].Value(), addend[1].Value()), &power});
-    writeOperand(inst.destination, &result);
+    writeF64Result(inst.destination, result);
     return true;
 }
 
@@ -131,7 +142,7 @@ bool TranslationContext::vDivFixupF64(const RdnaInstruction& inst) {
     choose(IrU1(ir.LogicalOr(ir.LogicalAnd(isZero(denominator).Value(), isZero(numerator).Value()), ir.LogicalAnd(isInf(denominator).Value(), isInf(numerator).Value()))), defaultNan);
     choose(isNan(denominator), quiet(denominator));
     choose(isNan(numerator), quiet(numerator));
-    writeOperand(inst.destination, &ir.ConstructU64(result[0].Value(), result[1].Value()));
+    writeF64Result(inst.destination, ir.ConstructU64(result[0].Value(), result[1].Value()));
     return true;
 }
 
