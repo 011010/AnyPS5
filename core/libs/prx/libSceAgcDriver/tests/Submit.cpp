@@ -1,5 +1,6 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
 #include "prx/libSceAgcDriver/Execution/include/QueueState.hpp"
+#include "prx/libSceAgcDriver/Execution/include/Driver/Shaders/ShaderRegistry.hpp"
 #include "prx/libc/include/Shutdown.hpp"
 #include "prx/libSceAgcDriver/Submit/include/Dcb.hpp"
 #include "prx/libSceAgcDriver/Submit/include/Acb.hpp"
@@ -7,6 +8,7 @@
 #include "prx/libSceAgcDriver/Eq/include/Event.hpp"
 #include "prx/libkernel/Equeue/Equeue.hpp"
 #include <array>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -15,6 +17,9 @@
 #include <string>
 #include <thread>
 #include <vector>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 extern "C" int APS5_VABI sceKernelCreateEqueue(KernelEqueue* eq, const char* name);
 extern "C" int APS5_VABI sceKernelDeleteEqueue(KernelEqueue eq);
@@ -362,6 +367,36 @@ void testWorkerFailure() {
 
 int main() {
     try {
+        alignas(256) std::array<std::uint32_t, 64> rawCode{};
+        rawCode.fill(0xbf800000);
+        rawCode[0] = 0xbe8003ff;
+        rawCode[1] = 0xbf810000;
+        rawCode[2] = 0xbf810000;
+        const auto rawAddress = reinterpret_cast<std::uintptr_t>(rawCode.data());
+        const auto literal = AgcDriver::DriverDetail::ReadRawComputeShader(rawAddress);
+        check(literal->code.size() == 3 && literal->header.empty(), "raw compute stopped at an instruction literal");
+        rawCode[0] = 0xbf820002;
+        rawCode[1] = 0xbf810000;
+        rawCode[2] = 0xbf800000;
+        rawCode[3] = 0xbf810000;
+        const auto branched = AgcDriver::DriverDetail::ReadRawComputeShader(rawAddress);
+        check(branched->code.size() == 4 && literal->code[0] == 0xbe8003ff, "raw compute lost branch targets or modified an earlier snapshot");
+        check(!expectFailure([&] { AgcDriver::DriverDetail::ReadRawComputeShader(rawAddress + 4); }).empty(), "raw compute accepted a misaligned entry");
+        check(!expectFailure([] { AgcDriver::DriverDetail::ReadRawComputeShader(0); }).empty(), "raw compute accepted an unmapped entry");
+#ifdef _WIN32
+        auto* mapping = static_cast<std::uint32_t*>(VirtualAlloc(nullptr, 8192, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        check(mapping != nullptr, "cannot allocate raw compute boundary test");
+        DWORD protection = 0;
+        check(VirtualProtect(mapping + 1024, 4096, PAGE_NOACCESS, &protection) != 0, "cannot protect raw compute boundary");
+        auto* boundedCode = mapping + 1024 - 64;
+        std::fill_n(boundedCode, 64, 0xbf800000u);
+        const auto boundedAddress = reinterpret_cast<std::uintptr_t>(boundedCode);
+        const auto unterminated = expectFailure([&] { AgcDriver::DriverDetail::ReadRawComputeShader(boundedAddress); });
+        boundedCode[63] = 0xbf810000;
+        const auto bounded = AgcDriver::DriverDetail::ReadRawComputeShader(boundedAddress);
+        check(VirtualFree(mapping, 0, MEM_RELEASE) != 0, "cannot release raw compute boundary test");
+        check(!unterminated.empty() && bounded->code.size() == 64, "raw compute crossed inaccessible memory or missed its last instruction");
+#endif
         testEvents();
         testValidation();
         testClearState();
