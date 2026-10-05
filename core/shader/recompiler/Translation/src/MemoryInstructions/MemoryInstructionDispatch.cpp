@@ -217,6 +217,11 @@ bool TranslationContext::emitMemory(const RdnaInstruction& inst) {
         return flatAtomic(inst, IrOpcode::AddressAtomicIAdd32);
     case RdnaOpcode::FlatAtomicSub:
         return flatAtomic(inst, IrOpcode::AddressAtomicISub32);
+    case RdnaOpcode::GlobalAtomicCsub:
+        if (!inst.glc) {
+            throw std::runtime_error("global_atomic_csub without glc is not supported, at pc " + std::to_string(inst.programCounter));
+        }
+        return flatAtomic(inst, IrOpcode::AddressAtomicUSubSat32);
     case RdnaOpcode::FlatAtomicSmin:
         return flatAtomic(inst, IrOpcode::AddressAtomicSMin32);
     case RdnaOpcode::FlatAtomicUmin:
