@@ -109,6 +109,7 @@ std::int64_t localOffsetSeconds(std::uint64_t utcTick) {
 
 int addTicks(RtcTick* dst, const RtcTick* src, std::int64_t count, std::int64_t unit) {
     if (!dst || !src) return SCE_RTC_ERROR_INVALID_POINTER;
+    if (src->tick > MAX_TICK) return SCE_RTC_ERROR_INVALID_VALUE;
     if (count != 0 && (count > std::numeric_limits<std::int64_t>::max() / unit || count < std::numeric_limits<std::int64_t>::min() / unit)) return SCE_RTC_ERROR_INVALID_VALUE;
     const std::int64_t delta = count * unit;
     if (delta < 0 ? src->tick < static_cast<std::uint64_t>(-(delta + 1)) + 1 : MAX_TICK - src->tick < static_cast<std::uint64_t>(delta)) return SCE_RTC_ERROR_INVALID_VALUE;
@@ -118,6 +119,7 @@ int addTicks(RtcTick* dst, const RtcTick* src, std::int64_t count, std::int64_t 
 
 int addMonths(RtcTick* dst, const RtcTick* src, std::int64_t months) {
     if (!dst || !src) return SCE_RTC_ERROR_INVALID_POINTER;
+    if (src->tick > MAX_TICK) return SCE_RTC_ERROR_INVALID_VALUE;
     RtcDateTime time = fromTick(src->tick);
     const std::int64_t monthIndex = time.year * 12 + (time.month - 1) + months;
     const std::int64_t year = monthIndex / 12;
@@ -270,6 +272,7 @@ int APS5_VABI sceRtcSetWin32FileTime(RtcDateTime* time, uint64_t win32_time) {
 
 int APS5_VABI sceRtcFormatRFC3339(char* date_time, const RtcTick* utc, int time_zone_minutes) {
     if (!date_time || !utc) return SCE_RTC_ERROR_INVALID_POINTER;
+    if (time_zone_minutes < -1439 || time_zone_minutes > 1439) return SCE_RTC_ERROR_INVALID_VALUE;
     RtcTick local{};
     if (const int result = addTicks(&local, utc, time_zone_minutes, TICKS_PER_MINUTE); result != 0) return result;
     const RtcDateTime time = fromTick(local.tick);
