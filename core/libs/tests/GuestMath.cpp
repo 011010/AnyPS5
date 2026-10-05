@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 extern "C" {
 double APS5_VABI atof_nid_postfix(const char*);
@@ -11,6 +12,10 @@ long double APS5_VABI strtold_nid_postfix(const char*, char**);
 std::int64_t APS5_VABI strtol_nid_postfix(const char*, char**, int);
 std::uint64_t APS5_VABI strtoul_nid_postfix(const char*, char**, int);
 int* APS5_VABI __error_nid_postfix();
+struct LibcFloatConstant { std::uint32_t bits[4]; };
+extern LibcFloatConstant _FInf_nid_postfix;
+extern LibcFloatConstant _FNan_nid_postfix;
+short APS5_VABI _FDtest_nid_postfix(const float*);
 float APS5_VABI fmodf_nid_postfix(float, float);
 float APS5_VABI asinf_nid_postfix(float);
 float APS5_VABI acosf_nid_postfix(float);
@@ -113,7 +118,28 @@ static void CheckIntegerConversions() {
     *__error_nid_postfix() = 0;
 }
 
+static void CheckFloatClassification() {
+    Require(_FInf_nid_postfix.bits[0] == 0x7f800000u && _FNan_nid_postfix.bits[0] == 0x7fc00000u);
+    for (int word = 1; word < 4; ++word) Require(_FInf_nid_postfix.bits[word] == 0 && _FNan_nid_postfix.bits[word] == 0);
+    const struct { std::uint32_t bits; short code; } cases[] = {
+        {0x00000000u, 0}, {0x80000000u, 0}, {0x00000001u, -2}, {0x807fffffu, -2}, {0x00800000u, -1},
+        {0xbf800000u, -1}, {0x7f7fffffu, -1}, {0x7f800000u, 1}, {0xff800000u, 1}, {0x7f800001u, 2},
+        {0x7fc00000u, 2}, {0xff810000u, 2}, {0x7f810000u, 2},
+    };
+    for (const auto& test : cases) {
+        float value;
+        std::memcpy(&value, &test.bits, sizeof(value));
+        if (_FDtest_nid_postfix(&value) != test.code) {
+            std::fprintf(stderr, "Guest _FDtest failed for %08x\n", test.bits);
+            std::abort();
+        }
+    }
+    Require(_FDtest_nid_postfix(reinterpret_cast<const float*>(&_FInf_nid_postfix)) == 1);
+    Require(_FDtest_nid_postfix(reinterpret_cast<const float*>(&_FNan_nid_postfix)) == 2);
+}
+
 int main() {
+    CheckFloatClassification();
     CheckIntegerConversions();
     Require(atof_nid_postfix(" -12.5tail") == -12.5);
     char* end = nullptr;
