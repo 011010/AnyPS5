@@ -590,7 +590,7 @@ std::uint32_t EmitPermlane16U32(SpirvValueEmitContext& ctx, const IrValue& inst)
     }
     const auto sourceExec = ctx.Shuffle(inst, 3, target);
     const auto result = state.module.AllocateId();
-    state.module.AddFunction(spv::OpSelect, TypeU32(state), result, sourceExec, shuffled, ConstantU32(state, 0u));
+    state.module.AddFunction(spv::OpSelect, TypeU32(state), result, sourceExec, shuffled, flags.boundControl ? ConstantU32(state, 0u) : ctx.Arg(inst, 4));
     return result;
 }
 
