@@ -434,6 +434,9 @@ RdnaOperand scalarDestination(std::uint32_t code) {
 
 RdnaOperand scalarDescriptorBase(std::uint32_t reg, std::uint32_t registerCount, const char* reason) {
     const auto operand = scalarSource(reg);
+    if (registerCount == 2u && operand.kind == RdnaOperandKind::VccLo) {
+        return operand;
+    }
     if (operand.kind != RdnaOperandKind::ScalarRegister || reg + (registerCount - 1u) > 105u) {
         throw std::runtime_error(reason);
     }
