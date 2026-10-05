@@ -184,6 +184,30 @@ constexpr MemoryOpcodeInfo flatOpcodes[] = {
     {0x25u, RdnaOpcode::FlatLoadShortD16Hi, 1, 16, false, false, false},
     {0x19u, RdnaOpcode::FlatStoreByteD16Hi, 1, 8, false, false, false},
     {0x1bu, RdnaOpcode::FlatStoreShortD16Hi, 1, 16, false, false, false},
+    {0x30u, RdnaOpcode::FlatAtomicSwap, 1, 32, false, false, false},
+    {0x31u, RdnaOpcode::FlatAtomicCmpswap, 1, 32, false, false, false},
+    {0x32u, RdnaOpcode::FlatAtomicAdd, 1, 32, false, false, false},
+    {0x33u, RdnaOpcode::FlatAtomicSub, 1, 32, false, false, false},
+    {0x35u, RdnaOpcode::FlatAtomicSmin, 1, 32, false, false, false},
+    {0x36u, RdnaOpcode::FlatAtomicUmin, 1, 32, false, false, false},
+    {0x37u, RdnaOpcode::FlatAtomicSmax, 1, 32, false, false, false},
+    {0x38u, RdnaOpcode::FlatAtomicUmax, 1, 32, false, false, false},
+    {0x39u, RdnaOpcode::FlatAtomicAnd, 1, 32, false, false, false},
+    {0x3au, RdnaOpcode::FlatAtomicOr, 1, 32, false, false, false},
+    {0x3bu, RdnaOpcode::FlatAtomicXor, 1, 32, false, false, false},
+    {0x3cu, RdnaOpcode::FlatAtomicInc, 1, 32, false, false, false},
+    {0x3du, RdnaOpcode::FlatAtomicDec, 1, 32, false, false, false},
+    {0x50u, RdnaOpcode::FlatAtomicSwapX2, 2, 32, false, false, false},
+    {0x51u, RdnaOpcode::FlatAtomicCmpswapX2, 2, 32, false, false, false},
+    {0x52u, RdnaOpcode::FlatAtomicAddX2, 2, 32, false, false, false},
+    {0x53u, RdnaOpcode::FlatAtomicSubX2, 2, 32, false, false, false},
+    {0x55u, RdnaOpcode::FlatAtomicSminX2, 2, 32, false, false, false},
+    {0x56u, RdnaOpcode::FlatAtomicUminX2, 2, 32, false, false, false},
+    {0x57u, RdnaOpcode::FlatAtomicSmaxX2, 2, 32, false, false, false},
+    {0x58u, RdnaOpcode::FlatAtomicUmaxX2, 2, 32, false, false, false},
+    {0x59u, RdnaOpcode::FlatAtomicAndX2, 2, 32, false, false, false},
+    {0x5au, RdnaOpcode::FlatAtomicOrX2, 2, 32, false, false, false},
+    {0x5bu, RdnaOpcode::FlatAtomicXorX2, 2, 32, false, false, false},
 };
 
 constexpr MemoryOpcodeInfo dsOpcodes[] = {
@@ -533,6 +557,37 @@ bool isFlatStoreOpcode(RdnaOpcode opcode) {
     }
 }
 
+bool isFlatAtomicOpcode(RdnaOpcode opcode) {
+    switch (opcode) {
+        case RdnaOpcode::FlatAtomicSwap:
+        case RdnaOpcode::FlatAtomicCmpswap:
+        case RdnaOpcode::FlatAtomicAdd:
+        case RdnaOpcode::FlatAtomicSub:
+        case RdnaOpcode::FlatAtomicSmin:
+        case RdnaOpcode::FlatAtomicUmin:
+        case RdnaOpcode::FlatAtomicSmax:
+        case RdnaOpcode::FlatAtomicUmax:
+        case RdnaOpcode::FlatAtomicAnd:
+        case RdnaOpcode::FlatAtomicOr:
+        case RdnaOpcode::FlatAtomicXor:
+        case RdnaOpcode::FlatAtomicInc:
+        case RdnaOpcode::FlatAtomicDec:
+        case RdnaOpcode::FlatAtomicSwapX2:
+        case RdnaOpcode::FlatAtomicCmpswapX2:
+        case RdnaOpcode::FlatAtomicAddX2:
+        case RdnaOpcode::FlatAtomicSubX2:
+        case RdnaOpcode::FlatAtomicSminX2:
+        case RdnaOpcode::FlatAtomicUminX2:
+        case RdnaOpcode::FlatAtomicSmaxX2:
+        case RdnaOpcode::FlatAtomicUmaxX2:
+        case RdnaOpcode::FlatAtomicAndX2:
+        case RdnaOpcode::FlatAtomicOrX2:
+        case RdnaOpcode::FlatAtomicXorX2:
+            return true;
+        default: return false;
+    }
+}
+
 void setRawWords(RdnaInstruction& instruction, std::span<const std::uint32_t> code, std::uint32_t wordIndex, std::uint32_t wordCount) {
     instruction.wordCount = wordCount;
     for (std::uint32_t i = 0; i < wordCount; ++i) {
@@ -741,10 +796,11 @@ RdnaInstruction DecodeRdnaFlat(std::uint32_t programCounter, std::span<const std
     const auto saddr = (word1 >> 16u) & 0x7Fu;
     const auto data = (word1 >> 8u) & 0xFFu;
     const auto addr = word1 & 0xFFu;
-    if (dlc != 0u || lds != 0u || glc || slc || seg == 3u) {
+    const auto& info = lookupOpcode(flatOpcodes, opcode, "FLAT opcode is not supported");
+    const bool atomic = isFlatAtomicOpcode(info.opcode);
+    if (dlc != 0u || lds != 0u || (glc && !atomic) || (atomic && seg == 1u) || slc || seg == 3u) {
         throw std::runtime_error("unsupported FLAT modifiers or segment");
     }
-    const auto& info = lookupOpcode(flatOpcodes, opcode, "FLAT opcode is not supported");
 
     RdnaInstruction instruction{};
     instruction.programCounter = programCounter;
@@ -776,6 +832,14 @@ RdnaInstruction DecodeRdnaFlat(std::uint32_t programCounter, std::span<const std
         instruction.source1 = scalarDescriptorBase(saddr, 2u, "FLAT scalar address register range overflow");
     }
     instruction.sourceCount = 2;
+    if (atomic) {
+        instruction.source2 = vectorRegister(data);
+        instruction.sourceCount = 3;
+        if (!glc) {
+            instruction.destination = RdnaOperand{};
+            instruction.destination.kind = RdnaOperandKind::None;
+        }
+    }
     return instruction;
 }
 

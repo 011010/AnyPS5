@@ -95,6 +95,7 @@ private:
     bool dsAtomic(const RdnaInstruction& inst, IrOpcode opcode, bool returnsValue);
     bool flatLoad(const RdnaInstruction& inst);
     bool flatStore(const RdnaInstruction& inst);
+    bool flatAtomic(const RdnaInstruction& inst, IrOpcode opcode);
     bool imageGetResinfo(const RdnaInstruction& inst);
     bool imageGetLod(const RdnaInstruction& inst);
     bool imageLoad(const RdnaInstruction& inst);

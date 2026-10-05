@@ -733,13 +733,22 @@ void LoadAddressWide(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint3
 
 void StoreAddress(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint32_t bits) {
     const auto& mem = ctx.Memory(inst);
-    if (mem.kind != ResourceKind::Scratch) {
-        ctx.Fail(inst, "must write a scratch resource because physical address stores have no emitter");
-    }
-    if (bits == 32u) {
-        StoreWord(ctx, inst, mem);
-    } else {
-        StoreSubword(ctx, inst, mem, bits);
+    switch (mem.kind) {
+    case ResourceKind::Scratch:
+        if (bits == 32u) {
+            StoreWord(ctx, inst, mem);
+        } else {
+            StoreSubword(ctx, inst, mem, bits);
+        }
+        return;
+    case ResourceKind::Flat:
+    case ResourceKind::Global:
+        EmitIfCondition(ctx.state, ActiveArgument(ctx, inst), [&]() {
+            EmitBdaStore(ctx, inst, GuestAddress(ctx, inst, mem), ctx.Arg(inst, inst.ArgumentCount() - 2u), bits);
+        });
+        return;
+    default:
+        ctx.Fail(inst, "must write a scratch or physical address resource");
     }
 }
 
@@ -1046,6 +1055,82 @@ std::uint32_t SharedFloatMinMax(SpirvValueEmitContext& ctx, const IrValue& inst,
     });
 }
 
+std::uint32_t AddressAtomicOpcode(IrOpcode opcode) {
+    switch (opcode) {
+    case IrOpcode::AddressAtomicSwap32:
+    case IrOpcode::AddressAtomicSwap64:
+        return spv::OpAtomicExchange;
+    case IrOpcode::AddressAtomicCmpSwap32:
+    case IrOpcode::AddressAtomicCmpSwap64:
+        return spv::OpAtomicCompareExchange;
+    case IrOpcode::AddressAtomicIAdd32:
+    case IrOpcode::AddressAtomicIAdd64:
+        return spv::OpAtomicIAdd;
+    case IrOpcode::AddressAtomicISub32:
+    case IrOpcode::AddressAtomicISub64:
+        return spv::OpAtomicISub;
+    case IrOpcode::AddressAtomicSMin32:
+    case IrOpcode::AddressAtomicSMin64:
+        return spv::OpAtomicSMin;
+    case IrOpcode::AddressAtomicUMin32:
+    case IrOpcode::AddressAtomicUMin64:
+        return spv::OpAtomicUMin;
+    case IrOpcode::AddressAtomicSMax32:
+    case IrOpcode::AddressAtomicSMax64:
+        return spv::OpAtomicSMax;
+    case IrOpcode::AddressAtomicUMax32:
+    case IrOpcode::AddressAtomicUMax64:
+        return spv::OpAtomicUMax;
+    case IrOpcode::AddressAtomicAnd32:
+    case IrOpcode::AddressAtomicAnd64:
+        return spv::OpAtomicAnd;
+    case IrOpcode::AddressAtomicOr32:
+    case IrOpcode::AddressAtomicOr64:
+        return spv::OpAtomicOr;
+    case IrOpcode::AddressAtomicXor32:
+    case IrOpcode::AddressAtomicXor64:
+        return spv::OpAtomicXor;
+    default:
+        throw std::runtime_error("AddressAtomicOpcode: opcode has no SPIR-V atomic instruction");
+    }
+}
+
+std::uint32_t AddressAtomic(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    auto& state = ctx.state;
+    const auto& mem = ctx.Memory(inst);
+    if (mem.kind != ResourceKind::Flat && mem.kind != ResourceKind::Global) {
+        ctx.Fail(inst, "must access a physical address resource");
+    }
+    const bool wide = inst.Type() == IrType::U64;
+    const auto type = wide ? TypeU64(state) : TypeU32(state);
+    const auto zero = wide ? ConstantU64(state, 0u) : ConstantU32(state, 0u);
+    return EmitValueOrDefaultIfCondition(state, ActiveArgument(ctx, inst), type, zero, [&]() {
+        const auto scalarType = wide ? TypeScalarU64(state) : TypeU32(state);
+        const auto scalar = [&](std::uint32_t value) { return wide ? Unary(state, spv::OpBitcast, scalarType, value) : value; };
+        const auto value = scalar(ctx.Arg(inst, 3));
+        const auto old = EmitBdaAtomic(ctx, inst, GuestAddress(ctx, inst, mem), wide ? 8u : 4u, [&](std::uint32_t pointer) {
+            if (inst.Opcode() == IrOpcode::AddressAtomicInc32 || inst.Opcode() == IrOpcode::AddressAtomicDec32) {
+                const bool increment = inst.Opcode() == IrOpcode::AddressAtomicInc32;
+                return AtomicUpdate(state, pointer, mem.kind, [&](std::uint32_t current) {
+                    return increment ? AtomicIncrement(state, current, value) : AtomicDecrement(state, current, value);
+                });
+            }
+            const auto scope = ConstantU32(state, spv::ScopeDevice);
+            const auto semantics = ConstantU32(state, spv::MemorySemanticsMaskNone);
+            const auto opcode = AddressAtomicOpcode(inst.Opcode());
+            const auto result = state.module.AllocateId();
+            if (opcode == spv::OpAtomicCompareExchange) {
+                state.module.AddFunction(opcode, scalarType, result, pointer, scope, semantics, semantics, value, scalar(ctx.Arg(inst, 4)));
+            } else {
+                state.module.AddFunction(opcode, scalarType, result, pointer, scope, semantics, value);
+            }
+            EmitDeviceAtomicMemoryBarrier(state);
+            return result;
+        });
+        return wide ? Unary(state, spv::OpBitcast, type, old) : old;
+    });
+}
+
 std::uint32_t AppendConsume(SpirvValueEmitContext& ctx, const IrValue& inst, bool append) {
     auto& state = ctx.state;
     if (ctx.half == 1u) {
@@ -1313,6 +1398,10 @@ void EmitStoreAddressU16(SpirvValueEmitContext& ctx, const IrValue& inst) {
 
 void EmitStoreAddressU32(SpirvValueEmitContext& ctx, const IrValue& inst) {
     StoreAddress(ctx, inst, 32u);
+}
+
+std::uint32_t EmitAddressAtomic(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return AddressAtomic(ctx, inst);
 }
 
 void EmitLoadBufferU8(SpirvValueEmitContext& ctx, const IrValue& inst) {

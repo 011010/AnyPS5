@@ -290,6 +290,30 @@ enum class IrOpcode : std::uint16_t {
     StoreAddressU8,
     StoreAddressU16,
     StoreAddressU32,
+    AddressAtomicSwap32,
+    AddressAtomicCmpSwap32,
+    AddressAtomicIAdd32,
+    AddressAtomicISub32,
+    AddressAtomicSMin32,
+    AddressAtomicUMin32,
+    AddressAtomicSMax32,
+    AddressAtomicUMax32,
+    AddressAtomicAnd32,
+    AddressAtomicOr32,
+    AddressAtomicXor32,
+    AddressAtomicInc32,
+    AddressAtomicDec32,
+    AddressAtomicSwap64,
+    AddressAtomicCmpSwap64,
+    AddressAtomicIAdd64,
+    AddressAtomicISub64,
+    AddressAtomicSMin64,
+    AddressAtomicUMin64,
+    AddressAtomicSMax64,
+    AddressAtomicUMax64,
+    AddressAtomicAnd64,
+    AddressAtomicOr64,
+    AddressAtomicXor64,
     LoadBufferU8,
     LoadBufferU16,
     LoadBufferU32,
@@ -425,7 +449,7 @@ enum class IrOpcode : std::uint16_t {
 
 enum class BufferAccess { None, Read, Write, Atomic };
 enum class SharedAccess { None, Read, Write, Atomic, Append, Consume };
-enum class AddressAccess { None, Read, Write };
+enum class AddressAccess { None, Read, Write, Atomic };
 enum class ImageAccess { None, Read, Write, Atomic };
 enum class ImageResourceClass { None, Sampled, Storage };
 

@@ -207,6 +207,54 @@ bool TranslationContext::emitMemory(const RdnaInstruction& inst) {
     case RdnaOpcode::FlatStoreDwordx3:
     case RdnaOpcode::FlatStoreDwordx4:
         return flatStore(inst);
+    case RdnaOpcode::FlatAtomicSwap:
+        return flatAtomic(inst, IrOpcode::AddressAtomicSwap32);
+    case RdnaOpcode::FlatAtomicCmpswap:
+        return flatAtomic(inst, IrOpcode::AddressAtomicCmpSwap32);
+    case RdnaOpcode::FlatAtomicAdd:
+        return flatAtomic(inst, IrOpcode::AddressAtomicIAdd32);
+    case RdnaOpcode::FlatAtomicSub:
+        return flatAtomic(inst, IrOpcode::AddressAtomicISub32);
+    case RdnaOpcode::FlatAtomicSmin:
+        return flatAtomic(inst, IrOpcode::AddressAtomicSMin32);
+    case RdnaOpcode::FlatAtomicUmin:
+        return flatAtomic(inst, IrOpcode::AddressAtomicUMin32);
+    case RdnaOpcode::FlatAtomicSmax:
+        return flatAtomic(inst, IrOpcode::AddressAtomicSMax32);
+    case RdnaOpcode::FlatAtomicUmax:
+        return flatAtomic(inst, IrOpcode::AddressAtomicUMax32);
+    case RdnaOpcode::FlatAtomicAnd:
+        return flatAtomic(inst, IrOpcode::AddressAtomicAnd32);
+    case RdnaOpcode::FlatAtomicOr:
+        return flatAtomic(inst, IrOpcode::AddressAtomicOr32);
+    case RdnaOpcode::FlatAtomicXor:
+        return flatAtomic(inst, IrOpcode::AddressAtomicXor32);
+    case RdnaOpcode::FlatAtomicInc:
+        return flatAtomic(inst, IrOpcode::AddressAtomicInc32);
+    case RdnaOpcode::FlatAtomicDec:
+        return flatAtomic(inst, IrOpcode::AddressAtomicDec32);
+    case RdnaOpcode::FlatAtomicSwapX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicSwap64);
+    case RdnaOpcode::FlatAtomicCmpswapX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicCmpSwap64);
+    case RdnaOpcode::FlatAtomicAddX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicIAdd64);
+    case RdnaOpcode::FlatAtomicSubX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicISub64);
+    case RdnaOpcode::FlatAtomicSminX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicSMin64);
+    case RdnaOpcode::FlatAtomicUminX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicUMin64);
+    case RdnaOpcode::FlatAtomicSmaxX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicSMax64);
+    case RdnaOpcode::FlatAtomicUmaxX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicUMax64);
+    case RdnaOpcode::FlatAtomicAndX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicAnd64);
+    case RdnaOpcode::FlatAtomicOrX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicOr64);
+    case RdnaOpcode::FlatAtomicXorX2:
+        return flatAtomic(inst, IrOpcode::AddressAtomicXor64);
 
     case RdnaOpcode::DsAddU32:
         return dsAtomic(inst, IrOpcode::SharedAtomicIAdd32, false);

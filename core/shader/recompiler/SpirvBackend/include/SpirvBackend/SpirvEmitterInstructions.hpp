@@ -239,6 +239,7 @@ void EmitLoadAddressU32x4(SpirvValueEmitContext& ctx, const IrValue& inst);
 void EmitStoreAddressU8(SpirvValueEmitContext& ctx, const IrValue& inst);
 void EmitStoreAddressU16(SpirvValueEmitContext& ctx, const IrValue& inst);
 void EmitStoreAddressU32(SpirvValueEmitContext& ctx, const IrValue& inst);
+std::uint32_t EmitAddressAtomic(SpirvValueEmitContext& ctx, const IrValue& inst);
 void EmitLoadBufferU8(SpirvValueEmitContext& ctx, const IrValue& inst);
 void EmitLoadBufferU16(SpirvValueEmitContext& ctx, const IrValue& inst);
 void EmitLoadBufferU32(SpirvValueEmitContext& ctx, const IrValue& inst);
