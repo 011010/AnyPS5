@@ -113,6 +113,10 @@ int APS5_VABI atoi_nid_postfix(const char* str) {
     return std::atoi(str);
 }
 
+std::div_t APS5_VABI div_nid_postfix(int numerator, int denominator) {
+    return std::div(numerator, denominator);
+}
+
 const wchar_t* APS5_VABI wmemchr_nid_postfix(const wchar_t* s, wchar_t c, size_t n) {
     return std::wmemchr(s, c, n);
 }
