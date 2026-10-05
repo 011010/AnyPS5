@@ -37,6 +37,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [dolOmWH+huQ](../../core/libs/prx/libSceAgc/Misc/src/ShaderFusion.cpp) (libSceAgc) - unknown name
 - [V++UgBtQhn0](../../core/libs/prx/libSceAgc/Misc/src/PacketInfo.cpp) (libSceAgc) - unknown name
 - [gQkqkLttcpw](../../core/libs/prx/libSceAgc/Acb/src/Control.cpp) (libSceAgc) - unknown name, signature
+- [sceAgcDcbPrimeUtcl2](../../core/libs/prx/libSceAgc/DcbState/src/Display.cpp) (libSceAgc) - assumed to write the packet `sceAgcAcbPrimeUtcl2` writes: PRIME_UTCL2 has the same 5 dwords on the graphics and compute rings. Not confirmed on a title. Both write a NOP of that size, as there is no TLB to prime
 - [sceKernelInternalMemoryGetModuleSegmentInfo](../../core/libs/prx/libkernel/Module/src/Module.cpp) (libkernel) - unknown signature
 - [sceKernelSyncOnAddressWait](../../core/libs/prx/libkernel/SyncOnAddress/src/SyncOnAddress.cpp) (libkernel) - the only known caller passes a null timeout and a name string as the fourth argument; the timeout is assumed to point to microseconds like the other kernel waits, and the name is ignored
 - [sceKernelMapNamedFlexibleMemoryInternal](../../core/libs/prx/libkernel/DirectMemory/Export.cpp) (libkernel) - flag 0x8000 unknown; only the sceKernelMapNamedFlexibleMemory flags are accepted
