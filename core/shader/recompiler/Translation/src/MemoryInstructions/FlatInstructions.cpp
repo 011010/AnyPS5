@@ -55,7 +55,8 @@ MemoryInfo flatMemoryInfoFromInstruction(const RdnaInstruction& inst) {
 }
 
 bool TranslationContext::flatLoad(const RdnaInstruction& inst) {
-    const MemoryInfo memory = flatMemoryInfoFromInstruction(inst);
+    MemoryInfo memory = flatMemoryInfoFromInstruction(inst);
+    memory.coherent = inst.glc || inst.dlc;
     IrOpcode opcode;
     switch (memory.dataBits) {
     case 8u:
@@ -111,7 +112,8 @@ bool TranslationContext::globalLoadAddtid(const RdnaInstruction& inst) {
 }
 
 bool TranslationContext::flatStore(const RdnaInstruction& inst) {
-    const MemoryInfo memory = flatMemoryInfoFromInstruction(inst);
+    MemoryInfo memory = flatMemoryInfoFromInstruction(inst);
+    memory.coherent = inst.glc || inst.dlc;
     IrOpcode opcode;
     switch (memory.dataBits) {
     case 8u:
