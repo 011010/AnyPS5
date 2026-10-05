@@ -58,9 +58,13 @@ void TranslationContext::TranslateCodeTableLoad(const RdnaInstruction& instructi
     IrU32 low(ir.Constant(static_cast<std::uint32_t>(table.values.back())));
     IrU32 high(ir.Constant(static_cast<std::uint32_t>(table.values.back() >> 32u)));
     for (std::size_t entry = table.values.size() - 1u; entry-- > 0u;) {
-        auto& matches = ir.IEqual(index.Value(), ir.Constant(static_cast<std::uint32_t>(entry * 8u)));
+        auto& matches = ir.IEqual(index.Value(), ir.Constant(static_cast<std::uint32_t>(entry * instruction.dataDwordCount * 4u)));
         low = IrU32(ir.Select(matches, ir.Constant(static_cast<std::uint32_t>(table.values[entry])), low.Value()));
-        high = IrU32(ir.Select(matches, ir.Constant(static_cast<std::uint32_t>(table.values[entry] >> 32u)), high.Value()));
+        if (instruction.dataDwordCount == 2u) high = IrU32(ir.Select(matches, ir.Constant(static_cast<std::uint32_t>(table.values[entry] >> 32u)), high.Value()));
+    }
+    if (instruction.dataDwordCount == 1u) {
+        writeRawU32(instruction.destination, low);
+        return;
     }
     writeU32Pair(instruction.destination, {low, high});
 }
