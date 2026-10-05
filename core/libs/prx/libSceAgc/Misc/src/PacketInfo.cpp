@@ -26,6 +26,23 @@ int APS5_VABI sceAgcGetDataPacketPayloadAddressUnk(uint32_t** addr, uint32_t* cm
     return 0;
 }
 
+int APS5_VABI sceAgcGetDataPacketPayloadRange(SceAgcMemoryRange* range, uint32_t* cmd, int type) {
+    Agc::Command::CheckAddress(reinterpret_cast<std::uintptr_t>(range), alignof(SceAgcMemoryRange), __func__);
+    Agc::Command::CheckAddress(reinterpret_cast<std::uintptr_t>(cmd), alignof(uint32_t), __func__);
+    const uint64_t count_bytes = (cmd[0] >> 14u) & 0xfffcu;
+    if (type != 0) {
+        range->base = cmd + 2;
+        range->size = count_bytes;
+    } else if ((~cmd[0] & 0x3fff0000u) == 0) {
+        range->base = nullptr;
+        range->size = 0;
+    } else {
+        range->base = cmd + 1;
+        range->size = count_bytes + sizeof(uint32_t);
+    }
+    return 0;
+}
+
 int APS5_VABI sceAgcDcbGetSystemSoftwareVersion(uint32_t* destination, const uint32_t* packet) {
     Agc::Command::CheckAddress(reinterpret_cast<std::uintptr_t>(destination), alignof(uint32_t), __func__);
     Agc::Command::CheckAddress(reinterpret_cast<std::uintptr_t>(packet), alignof(uint32_t), __func__);
