@@ -117,6 +117,17 @@ void Driver::execute(const Submission& submission) {
 
         GuestMemory::SetCurrentPacket(header == FlipPacketHeader ? 0xffffu : opcode, submission.queue);
         CaptureTrace::Log("packet submission=%llu queue=%x offset=%zu header=%08x words=%zu", static_cast<unsigned long long>(submission.serial), submission.queue, cursor, header, packet.size());
+        if (Pm4::Predicated(header) && queue.predication.operation != 0) {
+            recordQueuedLabelsBeforeRead(submission.queue);
+            if (!Pm4::PredicationPasses(queue)) {
+                cursor = opcode == 0x3f ? submission.conditionalEnds.at(cursor) : nextCursor;
+                continue;
+            }
+        }
+        if (opcode == 0x3f) {
+            cursor = nextCursor;
+            continue;
+        }
 
         const auto flushStart = profilePackets ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
         flushBetweenPackets(submission.queue, header, opcode == 0x49 || opcode == 0x37);

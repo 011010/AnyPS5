@@ -1,9 +1,11 @@
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include "SceTypes.hpp"
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <thread>
 
 extern "C" {
 int APS5_VABI sceNetInit_nid_postfix(void);
@@ -18,6 +20,8 @@ std::int64_t APS5_VABI sceNetRecv(int, void*, std::size_t, int);
 std::int64_t APS5_VABI sceNetSendto(int, const void*, std::size_t, int, const void*, std::uint32_t);
 std::int64_t APS5_VABI sceNetRecvfrom(int, void*, std::size_t, int, void*, std::uint32_t*);
 int APS5_VABI sceNetSocketClose(int);
+int APS5_VABI sceNetSetsockopt(int, int, int, const void*, std::uint32_t);
+int* APS5_VABI sceNetErrnoLoc(void);
 int APS5_VABI sceNetEpollCreate(const char*, int);
 int APS5_VABI sceNetEpollControl(int, int, int, const NetEpollEvent*);
 int APS5_VABI sceNetEpollWait(int, NetEpollEvent*, int, int);
@@ -53,6 +57,10 @@ int main() {
     address_size = peer.size();
     const int accepted = sceNetAccept(listener, peer.data(), &address_size);
     Require(accepted >= 0 && address_size == 16);
+    const int nonblocking = 1;
+    Require(sceNetSetsockopt(accepted, 0xffff, 0x1200, &nonblocking, sizeof(nonblocking)) == 0);
+    char pending = 0;
+    Require(sceNetRecv(accepted, &pending, sizeof(pending), 0) == static_cast<int>(0x80410123) && *sceNetErrnoLoc() == 35);
 
     const int epoll = sceNetEpollCreate("guest-sce-net", 0);
     Require(epoll >= 0);
@@ -71,8 +79,15 @@ int main() {
     Require(std::strcmp(request, response) == 0);
     Require(sceNetEpollDestroy(epoll) == 0);
     Require(sceNetSocketClose(accepted) == 0);
+    bool send_failed = false;
+    for (int attempt = 0; attempt < 100 && !send_failed; ++attempt) {
+        send_failed = sceNetSend(client, request, sizeof(request), 0) < 0;
+        if (!send_failed) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    Require(send_failed);
     Require(sceNetSocketClose(client) == 0);
     Require(sceNetSocketClose(listener) == 0);
+    Require(sceNetSocketClose(listener) == static_cast<int>(0x80410109) && *sceNetErrnoLoc() == 9);
 
     const int udp_receiver = sceNetSocket(nullptr, 2, 2, 17);
     const int udp_sender = sceNetSocket(nullptr, 2, 2, 17);

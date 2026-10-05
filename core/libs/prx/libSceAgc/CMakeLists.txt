@@ -83,6 +83,19 @@ if(BUILD_TESTING)
     endif()
 endif()
 
+add_test_executable(agc_packet_info_tests EXCLUDE_FROM_ALL tests/PacketInfo.cpp)
+target_include_directories(agc_packet_info_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_packet_info_tests PRIVATE libSceAgc libc)
+configure_windows_unwind(agc_packet_info_tests)
+if(BUILD_TESTING)
+    set_target_properties(agc_packet_info_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME agc_packet_info_tests COMMAND agc_packet_info_tests)
+    if(WIN32)
+        set_tests_properties(agc_packet_info_tests PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
+
 add_test_executable(agc_register_command_tests EXCLUDE_FROM_ALL
         tests/RegisterCommands.cpp
         Command/src/Packet.cpp
@@ -98,6 +111,19 @@ if(BUILD_TESTING)
     add_test(NAME agc_register_command_tests COMMAND agc_register_command_tests)
     if(WIN32)
         set_tests_properties(agc_register_command_tests PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
+
+add_test_executable(agc_payload_range_tests EXCLUDE_FROM_ALL tests/PayloadRange.cpp)
+target_include_directories(agc_payload_range_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_payload_range_tests PRIVATE libSceAgc libc)
+configure_windows_unwind(agc_payload_range_tests)
+if(BUILD_TESTING)
+    set_target_properties(agc_payload_range_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME agc_payload_range_tests COMMAND agc_payload_range_tests)
+    if(WIN32)
+        set_tests_properties(agc_payload_range_tests PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()
@@ -217,6 +243,26 @@ if(BUILD_TESTING)
     add_test(NAME agc_prime_utcl2_tests COMMAND agc_prime_utcl2_tests)
     if(WIN32)
         set_tests_properties(agc_prime_utcl2_tests PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
+
+add_test_executable(agc_cond_exec_patch_tests EXCLUDE_FROM_ALL
+        tests/CondExecPatch.cpp
+        Command/src/Packet.cpp
+        Command/src/Memory.cpp
+        Command/src/Control.cpp
+        DcbFlow/src/Sync.cpp
+        Patch/src/CondExec.cpp
+)
+target_include_directories(agc_cond_exec_patch_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_cond_exec_patch_tests PRIVATE libc)
+configure_windows_unwind(agc_cond_exec_patch_tests)
+if(BUILD_TESTING)
+    set_target_properties(agc_cond_exec_patch_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME agc_cond_exec_patch_tests COMMAND agc_cond_exec_patch_tests)
+    if(WIN32)
+        set_tests_properties(agc_cond_exec_patch_tests PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()

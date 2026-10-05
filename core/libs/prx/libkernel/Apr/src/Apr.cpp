@@ -161,8 +161,61 @@ void _writeAddress(const Apr::WriteAddressCommand& command) {
 
 std::array<std::atomic<std::uint32_t>, 256> g_counters{};
 
+std::mutex g_counterWrites;
+
 std::uint32_t _counter(std::uint32_t index) {
     return g_counters[index % g_counters.size()].load(std::memory_order_acquire);
+}
+
+struct CounterField {
+    std::uint32_t bits;
+    std::uint32_t shift;
+};
+
+CounterField _counterField(Apr::CounterAccess access) {
+    const auto value = static_cast<std::uint32_t>(access);
+    if (value == 0) return {64, 0};
+    if (value == 1) return {32, 0};
+    if (value < 4) return {16, (value - 2) * 16};
+    if (value < 8) return {8, (value - 4) * 8};
+    throw std::runtime_error("APR: counter access " + std::to_string(value) + " not implemented");
+}
+
+std::uint64_t _fieldMask(std::uint32_t bits) {
+    return bits == 64 ? ~std::uint64_t{0} : (std::uint64_t{1} << bits) - 1u;
+}
+
+std::uint64_t _readCounter(std::uint32_t index, Apr::CounterAccess access) {
+    const auto field = _counterField(access);
+    if (field.bits == 64) return _counter(index) | static_cast<std::uint64_t>(_counter(index + 1u)) << 32u;
+    return (_counter(index) >> field.shift) & _fieldMask(field.bits);
+}
+
+std::uint64_t _applyCounterOperation(Apr::CounterOperation operation, std::uint64_t current, std::uint64_t value) {
+    switch (operation) {
+        case Apr::CounterOperation::Store: return value;
+        case Apr::CounterOperation::AtomicOr: return current | value;
+        case Apr::CounterOperation::AtomicAndComplement: return current & ~value;
+        case Apr::CounterOperation::AtomicXor: return current ^ value;
+        case Apr::CounterOperation::AtomicAdd: return current + value;
+    }
+    throw std::runtime_error("APR: counter operation " + std::to_string(static_cast<std::uint32_t>(operation)) + " not implemented");
+}
+
+void _writeCounter(const Apr::WriteCounterCommand& command) {
+    const auto field = _counterField(command.access);
+    const std::lock_guard lock(g_counterWrites);
+    const std::uint64_t current = _readCounter(command.counter, command.access);
+    const std::uint64_t next = _applyCounterOperation(command.operation, current, command.value) & _fieldMask(field.bits);
+    auto& low = g_counters[command.counter % g_counters.size()];
+    if (field.bits == 64) {
+        g_counters[(command.counter + 1u) % g_counters.size()].store(static_cast<std::uint32_t>(next >> 32u), std::memory_order_release);
+        low.store(static_cast<std::uint32_t>(next), std::memory_order_release);
+        return;
+    }
+    const auto mask = static_cast<std::uint32_t>(_fieldMask(field.bits) << field.shift);
+    const auto bits = static_cast<std::uint32_t>(next << field.shift);
+    low.store((low.load(std::memory_order_relaxed) & ~mask) | bits, std::memory_order_release);
 }
 
 bool _waitSatisfied(std::uint32_t compare, std::uint64_t value, std::uint64_t reference) {
@@ -186,8 +239,27 @@ TCommand _read(const Apr::CommandBufferObject& buffer, std::uint32_t cursor) {
     return command;
 }
 
+struct ReadCursor {
+    bool valid = false;
+    std::uint32_t fileId = 0;
+    std::uint64_t nextDestination = 0;
+    std::uint64_t nextOffset = 0;
+};
+
+void _readResolved(Apr::Opcode opcode, Apr::ReadFileCommand command, ReadCursor& read) {
+    if (opcode != Apr::Opcode::ReadFile) {
+        if (!read.valid) throw std::runtime_error("APR: gather or scatter read without a preceding read");
+        command.fileId = read.fileId;
+        if (opcode == Apr::Opcode::ReadFileGather) command.destination = read.nextDestination;
+        if (opcode == Apr::Opcode::ReadFileScatter) command.offset = read.nextOffset;
+    }
+    _readFile(command);
+    read = {true, command.fileId, command.destination + command.size, command.offset + command.size};
+}
+
 void _execute(const Apr::CommandBufferObject& buffer) {
     std::uint32_t cursor = 0;
+    ReadCursor read;
     for (std::uint32_t index = 0; index < buffer.numCommands; ++index) {
         if (cursor + sizeof(Apr::CommandHeader) > buffer.offset) throw std::runtime_error("APR: truncated command buffer");
         Apr::CommandHeader header;
@@ -199,12 +271,15 @@ void _execute(const Apr::CommandBufferObject& buffer) {
         case Apr::Opcode::PopMarker:
         case Apr::Opcode::SetMarker:
             break;
-        case Apr::Opcode::ReadFile: {
-            Apr::ReadFileCommand command;
-            std::memcpy(&command, buffer.base + cursor, sizeof(command));
-            _readFile(command);
+        case Apr::Opcode::ReadFile:
+        case Apr::Opcode::ReadFileGather:
+        case Apr::Opcode::ReadFileScatter:
+        case Apr::Opcode::ReadFileGatherScatter:
+            _readResolved(header.opcode, _read<Apr::ReadFileCommand>(buffer, cursor), read);
             break;
-        }
+        case Apr::Opcode::ResetGatherScatterState:
+            read = {};
+            break;
         case Apr::Opcode::WriteAddress: {
             Apr::WriteAddressCommand command;
             std::memcpy(&command, buffer.base + cursor, sizeof(command));
@@ -212,18 +287,20 @@ void _execute(const Apr::CommandBufferObject& buffer) {
             break;
         }
         case Apr::Opcode::WriteCounter: {
-            const auto command = _read<Apr::WriteCounterCommand>(buffer, cursor);
-            g_counters[command.counter % g_counters.size()].store(command.value, std::memory_order_release);
+            _writeCounter(_read<Apr::WriteCounterCommand>(buffer, cursor));
             break;
         }
         case Apr::Opcode::WaitOnAddress:
         case Apr::Opcode::WaitOnCounter: {
             const auto command = _read<Apr::WaitCommand>(buffer, cursor);
+            const bool counter = header.opcode == Apr::Opcode::WaitOnCounter;
+            const std::uint32_t unused = counter ? 64u - _counterField(command.access).bits : 0u;
             const auto current = [&]() -> std::uint64_t {
-                if (header.opcode == Apr::Opcode::WaitOnCounter) return _counter(command.counter);
+                if (counter) return _readCounter(command.counter, command.access);
                 return std::atomic_ref<std::uint64_t>(*reinterpret_cast<std::uint64_t*>(command.address)).load(std::memory_order_acquire);
             };
-            while (!_waitSatisfied(command.compare, current() & command.mask, command.reference & command.mask)) std::this_thread::sleep_for(std::chrono::microseconds(50));
+            const std::uint64_t reference = (command.reference & command.mask) << unused;
+            while (!_waitSatisfied(command.compare, (current() & command.mask) << unused, reference)) std::this_thread::sleep_for(std::chrono::microseconds(50));
             break;
         }
         case Apr::Opcode::WriteKernelEventQueue: {

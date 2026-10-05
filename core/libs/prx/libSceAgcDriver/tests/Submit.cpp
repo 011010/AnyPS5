@@ -76,7 +76,7 @@ void testValidation() {
     expectFailure([&] { sceAgcDriverSubmitDcb(&packet); });
     commands[0] = 0xc001105c;
     expectFailure([&] { sceAgcDriverSubmitDcb(&packet); });
-    commands[0] = 0xc0017601;
+    commands[0] = 0xc0017608;
     expectFailure([&] { sceAgcDriverSubmitDcb(&packet); });
     commands[0] = 0xc0017600;
     commands[1] = 0x10000;
@@ -110,7 +110,7 @@ void testClearState() {
     words[0] = 0xc0011200;
     packet.dw_num = 3;
     expectFailure([&] { sceAgcDriverSubmitDcb(&packet); });
-    words[0] = 0xc0001201;
+    words[0] = 0xc0001202;
     packet.dw_num = 2;
     expectFailure([&] { sceAgcDriverSubmitDcb(&packet); });
     words[0] = 0xc0001200;

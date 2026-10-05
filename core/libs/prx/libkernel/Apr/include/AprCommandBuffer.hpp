@@ -8,7 +8,7 @@
 // The guest treats both the command buffer object and its memory as opaque, so the encoding is ours.
 namespace Apr {
 
-enum class BufferType : std::uint32_t {
+enum class BufferType : std::uint16_t {
     Generic = 0,
     Apr = 1,
 };
@@ -19,8 +19,11 @@ struct CommandBufferObject {
     std::uint32_t offset;
     std::uint32_t numCommands;
     BufferType type;
+    std::uint16_t recording;
 };
 static_assert(sizeof(CommandBufferObject) == 0x18, "guest reserves 0x18 bytes for sce::Ampr::CommandBuffer");
+
+inline constexpr std::uint16_t ScatterGatherValid = 1;
 
 enum class Opcode : std::uint32_t {
     Nop = 0,
@@ -36,6 +39,10 @@ enum class Opcode : std::uint32_t {
     PushMarker = 10,
     PopMarker = 11,
     SetMarker = 12,
+    ReadFileGather = 13,
+    ReadFileScatter = 14,
+    ReadFileGatherScatter = 15,
+    ResetGatherScatterState = 16,
 };
 
 struct CommandHeader {
@@ -52,6 +59,10 @@ struct ReadFileCommand {
     std::uint64_t offset;
 };
 
+struct ResetGatherScatterStateCommand {
+    CommandHeader header;
+};
+
 struct WriteAddressCommand {
     CommandHeader header;
     std::uint64_t address;
@@ -60,10 +71,32 @@ struct WriteAddressCommand {
     std::uint32_t reserved;
 };
 
+enum class CounterAccess : std::uint8_t {
+    Size8 = 0,
+    Size4 = 1,
+    Size2Offset0 = 2,
+    Size2Offset1 = 3,
+    Size1Offset0 = 4,
+    Size1Offset1 = 5,
+    Size1Offset2 = 6,
+    Size1Offset3 = 7,
+};
+
+enum class CounterOperation : std::uint8_t {
+    Store = 0,
+    AtomicOr = 1,
+    AtomicAndComplement = 2,
+    AtomicXor = 3,
+    AtomicAdd = 4,
+};
+
 struct WriteCounterCommand {
     CommandHeader header;
     std::uint32_t counter;
-    std::uint32_t value;
+    CounterAccess access;
+    CounterOperation operation;
+    std::uint16_t reserved;
+    std::uint64_t value;
 };
 
 struct WaitCommand {
@@ -72,7 +105,9 @@ struct WaitCommand {
     std::uint64_t reference;
     std::uint64_t mask;
     std::uint32_t counter;
-    std::uint32_t compare;
+    std::uint8_t compare;
+    CounterAccess access;
+    std::uint16_t reserved;
 };
 
 struct WriteKernelEventQueueCommand {

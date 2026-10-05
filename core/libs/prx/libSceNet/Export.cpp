@@ -49,6 +49,7 @@ constexpr int NET_ECONNABORTED = 53;
 constexpr int NET_EMSGSIZE = 40;
 constexpr int NET_ETIMEDOUT = 60;
 constexpr int NET_ECONNREFUSED = 61;
+constexpr int NET_ERROR_BASE = static_cast<int>(0x80410100u);
 constexpr int NET_ERROR_RESOLVER_ENODNS = static_cast<int>(0x804101E1u);
 
 constexpr int NET_AF_INET = 2;
@@ -65,6 +66,7 @@ constexpr int NET_SO_NBIO = 0x1200;
 using NativeSocket = SOCKET;
 using NativeLength = int;
 constexpr NativeSocket INVALID_NATIVE_SOCKET = INVALID_SOCKET;
+constexpr int NATIVE_SEND_FLAGS = 0;
 bool initialize_sockets() {
     static const int result = [] {
         WSADATA data{};
@@ -95,6 +97,7 @@ int native_error() {
 using NativeSocket = int;
 using NativeLength = socklen_t;
 constexpr NativeSocket INVALID_NATIVE_SOCKET = -1;
+constexpr int NATIVE_SEND_FLAGS = MSG_NOSIGNAL;
 bool initialize_sockets() { return true; }
 void close_socket(NativeSocket socket) { ::close(socket); }
 int native_error() {
@@ -115,6 +118,7 @@ int native_error() {
         case EINTR: return 4;
         case EINVAL: return NET_EINVAL;
         case ENOTSOCK: return NET_ENOTSOCK;
+        case EPIPE: return 32;
         default: return 5;
     }
 }
@@ -212,7 +216,7 @@ int* errno_slot() {
 
 int fail(int err) {
     *errno_slot() = err;
-    return -1;
+    return NET_ERROR_BASE | err;
 }
 
 void log_soft(const char* func, const char* what) {
@@ -484,7 +488,7 @@ int64_t APS5_VABI sceNetSend(int s, const void* buf, size_t len, int flags) {
         if (it == g_socks.end()) return fail(NET_EBADF);
         socket = it->second;
     }
-    const int result = ::send(socket.native->value, static_cast<const char*>(buf), static_cast<int>(len), 0);
+    const int result = ::send(socket.native->value, static_cast<const char*>(buf), static_cast<int>(len), NATIVE_SEND_FLAGS);
     return result >= 0 ? result : fail(native_error());
 }
 
@@ -502,13 +506,13 @@ int64_t APS5_VABI sceNetSendto(int s, const void* buf, size_t len, int flags, co
     int result;
     if (!to) {
         if (tolen != 0) return fail(NET_EINVAL);
-        result = ::send(socket.native->value, static_cast<const char*>(buf), static_cast<int>(len), 0);
+        result = ::send(socket.native->value, static_cast<const char*>(buf), static_cast<int>(len), NATIVE_SEND_FLAGS);
     } else {
         sockaddr_storage destination{};
         NativeLength destination_length = 0;
         if (!guest_to_native_address(to, tolen, destination, destination_length)) return fail(NET_EINVAL);
         if (destination.ss_family != (socket.family == NET_AF_INET ? AF_INET : AF_INET6)) return fail(NET_EAFNOSUPPORT);
-        result = ::sendto(socket.native->value, static_cast<const char*>(buf), static_cast<int>(len), 0,
+        result = ::sendto(socket.native->value, static_cast<const char*>(buf), static_cast<int>(len), NATIVE_SEND_FLAGS,
             reinterpret_cast<const sockaddr*>(&destination), destination_length);
     }
     return result >= 0 ? result : fail(native_error());
@@ -911,4 +915,10 @@ int APS5_VABI sceNetResolverStartAton(int rid, const void* addr, char* hostname,
     }
     return 0;
 }
+
+int APS5_VABI sceNetResolverGetError(void) {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
 }

@@ -374,6 +374,10 @@ const char* DccKeysName(DccKeys keys) {
     return "?";
 }
 
+std::size_t DccKeyBytes(std::uint64_t surfaceBytes) {
+    return static_cast<std::size_t>(surfaceBytes / KeyBytes);
+}
+
 namespace {
 
 // ReadDccKeys, saying in `memoized` whether the answer came from the pending-store memo rather
