@@ -424,6 +424,15 @@ void ReportAllThreads() {
     if (skippedCount != 0) Report("  %llu further thread(s) left out\n", static_cast<unsigned long long>(skippedCount));
 }
 
+DWORD WINAPI HangWatchdog(LPVOID param) {
+    const auto seconds = static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(param));
+    Sleep(static_cast<DWORD>(seconds * 1000ull));
+    Report("\nFATAL: timed dump after %llu s (APS5_HANG_DUMP_SECS); aborting\n", seconds);
+    std::fflush(stderr);
+    std::abort();
+    return 0;
+}
+
 // abort() and the UCRT's invalid-parameter path end the process with a silent fast fail
 // (0xc0000409); both are reported with the calling thread's stack first.
 void ReportBacktrace(const char* what, bool reportThreads) {
@@ -462,6 +471,15 @@ const bool g_crashReportInstalled = [] {
     std::signal(SIGABRT, AbortSignalHandler);
     _set_invalid_parameter_handler(InvalidParameterHandler);
     InstallWatch();
+    if (const char* hang = std::getenv("APS5_HANG_DUMP_SECS")) {
+        unsigned long long seconds = 0;
+        if (hang[0] >= '0' && hang[0] <= '9') {
+            char* end = nullptr;
+            const auto value = std::strtoull(hang, &end, 10);
+            if (end && *end == 0) seconds = value;
+        }
+        if (seconds > 0) CreateThread(nullptr, 0, HangWatchdog, reinterpret_cast<LPVOID>(static_cast<std::uintptr_t>(seconds)), 0, nullptr);
+    }
     return true;
 }();
 
