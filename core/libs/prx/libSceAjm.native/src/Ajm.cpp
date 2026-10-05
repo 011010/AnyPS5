@@ -16,6 +16,7 @@ extern "C" {
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -26,6 +27,7 @@ extern "C" {
 namespace {
 
 constexpr int SCE_AJM_ERROR_INVALID_INSTANCE = static_cast<int>(0x80930003);
+constexpr int SCE_AJM_ERROR_INVALID_BATCH = static_cast<int>(0x80930004);
 constexpr int SCE_AJM_ERROR_INVALID_PARAMETER = static_cast<int>(0x80930005);
 constexpr int SCE_AJM_ERROR_OUT_OF_RESOURCES = static_cast<int>(0x80930007);
 
@@ -127,6 +129,8 @@ std::map<std::uint32_t, std::unique_ptr<Instance>> g_instances;
 std::atomic<std::uint32_t> g_nextContext{1};
 std::atomic<std::uint32_t> g_nextInstance{1};
 std::atomic<std::uint32_t> g_nextBatch{1};
+std::mutex g_batchLock;
+std::set<std::uint32_t> g_batches;
 
 enum class JobKind : std::uint32_t {
     Initialize = 1,
@@ -985,14 +989,22 @@ int APS5_VABI sceAjmBatchStart(uint32_t context, const AjmBatchInfo* info, int p
         cursor += record.bytes;
     }
     if (error) std::memset(error, 0, sizeof(*error));
-    *batch = g_nextBatch.fetch_add(1, std::memory_order_relaxed);
+    const auto id = g_nextBatch.fetch_add(1, std::memory_order_relaxed);
+    {
+        std::lock_guard lock(g_batchLock);
+        g_batches.insert(id);
+    }
+    *batch = id;
     return 0;
 }
 
 int APS5_VABI sceAjmBatchWait(uint32_t context, uint32_t batch, uint32_t timeout, AjmBatchError* error) {
     (void)context;
-    (void)batch;
     (void)timeout;
+    {
+        std::lock_guard lock(g_batchLock);
+        if (g_batches.erase(batch) == 0) return SCE_AJM_ERROR_INVALID_BATCH;
+    }
     if (error) std::memset(error, 0, sizeof(*error));
     return 0;
 }
