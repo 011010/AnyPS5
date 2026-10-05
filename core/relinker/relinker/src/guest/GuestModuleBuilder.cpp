@@ -49,6 +49,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
     if (lazyBinding) throw Domain::RelinkerException("Guest modules require eager binding; --lazy-binding is incompatible");
     std::vector<GuestImage> images;
     std::map<std::string, std::size_t> exports;
+    std::map<std::string, std::set<std::size_t>> sharedExports;
     std::set<std::string> outputNames;
     Io::FileReader reader;
     for (const auto& path : paths) {
@@ -65,7 +66,11 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         for (const auto& symbol : image.Symbols) {
             if (symbol.Section == 0 || (symbol.Info >> 4) == 0 || symbol.Visibility == 1 || symbol.Visibility == 2) continue;
             const auto [existing, inserted] = exports.emplace(symbol.Name, images.size());
-            if (!inserted) throw Domain::RelinkerException("Duplicate guest export after stripping #: " + symbol.Name + " in " + images.at(existing->second).SourcePath.string() + " and " + path.string());
+            if (inserted) continue;
+            if (windows || existing->second == images.size()) throw Domain::RelinkerException("Duplicate guest export after stripping #: " + symbol.Name + " in " + images.at(existing->second).SourcePath.string() + " and " + path.string());
+            auto& providers = sharedExports[symbol.Name];
+            providers.insert(existing->second);
+            providers.insert(images.size());
         }
         std::vector<Domain::ProgramHeader> codeHeaders;
         for (const auto& header : image.Headers) if (header.Type == 1 && (header.Flags & 1) != 0) codeHeaders.push_back(header);
@@ -88,6 +93,24 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
             if (!inserted && found->second != index) throw Domain::RelinkerException("Ambiguous guest dependency name: " + name);
         }
     }
+    const auto rejectSharedImport = [&](const std::string& name, const std::string& importer) {
+        const auto shared = sharedExports.find(name);
+        if (shared == sharedExports.end()) return;
+        std::string providers;
+        for (const auto provider : shared->second) providers += " " + images[provider].SourcePath.string();
+        throw Domain::RelinkerException("Ambiguous guest import " + name + " in " + importer + ": exported by" + providers);
+    };
+    if (dynamic.DynSymData.size() % 24 != 0) throw Domain::RelinkerException("Invalid executable symbol table");
+    for (std::size_t offset = 0; offset < dynamic.DynSymData.size(); offset += 24) {
+        if (Io::ReadU16(dynamic.DynSymData, offset + 6) != 0) continue;
+        const auto nameOffset = Io::ReadU32(dynamic.DynSymData, offset);
+        if (nameOffset >= dynamic.DynStrData.size()) throw Domain::RelinkerException("Invalid executable symbol name offset");
+        const auto start = dynamic.DynStrData.begin() + nameOffset;
+        const auto end = std::find(start, dynamic.DynStrData.end(), 0);
+        if (end == dynamic.DynStrData.end()) throw Domain::RelinkerException("Unterminated executable symbol name");
+        const std::string name(start, end);
+        rejectSharedImport(name.substr(0, name.find('#')), inputPath.string());
+    }
     std::vector<std::set<std::size_t>> dependencies(images.size());
     for (auto& image : images) image.UsePlatformTlsResolver = !exports.contains("vNe1w4diLCs");
     for (std::size_t index = 0; index < images.size(); ++index) {
@@ -97,6 +120,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         }
         for (const auto& symbol : images[index].Symbols) {
             if (symbol.Section != 0 || symbol.Name.empty()) continue;
+            rejectSharedImport(symbol.Name, images[index].SourcePath.string());
             const auto found = exports.find(symbol.Name);
             if (found != exports.end()) {
                 const auto& provider = images[found->second];
