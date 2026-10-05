@@ -1936,6 +1936,16 @@ bool supportsNativeVop3ResultModifiers(RdnaOpcode opcode) {
         case RdnaOpcode::VMadF32:
         case RdnaOpcode::VFmaF32:
         case RdnaOpcode::VFmaF16:
+        case RdnaOpcode::VAddF16:
+        case RdnaOpcode::VSubF16:
+        case RdnaOpcode::VSubrevF16:
+        case RdnaOpcode::VMulF16:
+        case RdnaOpcode::VMinF16:
+        case RdnaOpcode::VMaxF16:
+        case RdnaOpcode::VLdexpF16:
+        case RdnaOpcode::VFrexpMantF16:
+        case RdnaOpcode::VCvtNormI16F16:
+        case RdnaOpcode::VCvtNormU16F16:
         case RdnaOpcode::VCvtPkrtzF16F32:
         case RdnaOpcode::VLdexpF32:
         case RdnaOpcode::VFmaF64:
@@ -1959,6 +1969,9 @@ bool isF32DivisionStepOpcode(RdnaOpcode opcode) {
 }
 
 bool supportsNativeVop3Clamp(RdnaOpcode opcode) {
+    if (isNativeVop3F16TernaryOpcode(opcode)) {
+        return true;
+    }
     return supportsNativeVop3ResultModifiers(opcode) || usesInexactClampControl(opcode) || usesIntegerSaturateClamp(opcode) ||
         isF32DivisionStepOpcode(opcode) || isCubeOpcode(opcode);
 }
@@ -1971,9 +1984,6 @@ void checkNativeVop3Modifiers(RdnaOpcode opcode, bool permlane, bool carryInOut,
         return;
     }
     if (isNativeVop3F16TernaryOpcode(opcode)) {
-        if (opcode != RdnaOpcode::VFmaF16 && (clamp != 0u || omod != 0u)) {
-            throw std::invalid_argument("VOP3 source modifiers are not implemented");
-        }
         return;
     }
     if (isNativeVop3I16TernaryOpcode(opcode)) {
@@ -2013,8 +2023,14 @@ void checkNativeVop3Modifiers(RdnaOpcode opcode, bool permlane, bool carryInOut,
         }
         return;
     }
-    if (opcode == RdnaOpcode::VLdexpF16 || opcode == RdnaOpcode::VCvtPkU8F32) {
+    if (opcode == RdnaOpcode::VCvtPkU8F32) {
         if ((abs & ~1u) != 0u || opSel != 0u || clamp != 0u || omod != 0u || (neg & ~1u) != 0u) {
+            throw std::invalid_argument("VOP3 source modifiers are not implemented");
+        }
+        return;
+    }
+    if (opcode == RdnaOpcode::VLdexpF16) {
+        if ((abs & ~1u) != 0u || opSel != 0u || (neg & ~1u) != 0u) {
             throw std::invalid_argument("VOP3 source modifiers are not implemented");
         }
         return;
