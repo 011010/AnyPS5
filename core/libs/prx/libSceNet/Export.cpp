@@ -202,7 +202,7 @@ std::set<int> g_epolls;
 std::map<int, std::map<int, NetEpollEvent>> g_epoll_socks;
 std::set<int> g_epoll_aborted;
 std::set<int> g_pools;
-std::set<int> g_resolvers;
+std::map<int, int> g_resolvers;
 int g_next_sock = 32;
 int g_next_epoll = 0x4000;
 int g_next_pool = 1;
@@ -217,6 +217,12 @@ int* errno_slot() {
 int fail(int err) {
     *errno_slot() = err;
     return NET_ERROR_BASE | err;
+}
+
+void set_resolver_error(int rid, int error) {
+    std::lock_guard<std::mutex> lk(g_mutex);
+    const auto resolver = g_resolvers.find(rid);
+    if (resolver != g_resolvers.end()) resolver->second = error;
 }
 
 void log_soft(const char* func, const char* what) {
@@ -859,7 +865,7 @@ int APS5_VABI sceNetResolverCreate(const char* name, int memid, int flags) {
     (void)flags;
     std::lock_guard<std::mutex> lk(g_mutex);
     const int id = g_next_resolver++;
-    g_resolvers.insert(id);
+    g_resolvers[id] = 0;
     return id;
 }
 
@@ -885,11 +891,13 @@ int APS5_VABI sceNetResolverStartNtoa(int rid, const char* hostname, void* addr,
     if (result != 0) {
         *errno_slot() = result == EAI_AGAIN ? NET_ETIMEDOUT : NET_ENOENT;
         log_soft(__func__, "host DNS lookup failed");
+        set_resolver_error(rid, NET_ERROR_RESOLVER_ENODNS);
         return NET_ERROR_RESOLVER_ENODNS;
     }
     const auto* address = reinterpret_cast<const sockaddr_in*>(results->ai_addr);
     std::memcpy(addr, &address->sin_addr, sizeof(address->sin_addr));
     ::freeaddrinfo(results);
+    set_resolver_error(rid, 0);
     return 0;
 }
 
@@ -911,13 +919,19 @@ int APS5_VABI sceNetResolverStartAton(int rid, const void* addr, char* hostname,
     if (result != 0) {
         *errno_slot() = result == EAI_AGAIN ? NET_ETIMEDOUT : NET_ENOENT;
         log_soft(__func__, "host reverse DNS lookup failed");
+        set_resolver_error(rid, NET_ERROR_RESOLVER_ENODNS);
         return NET_ERROR_RESOLVER_ENODNS;
     }
+    set_resolver_error(rid, 0);
     return 0;
 }
 
-int APS5_VABI sceNetResolverGetError(void) {
-    NotImplemented_nid_no_patch(__func__);
+int APS5_VABI sceNetResolverGetError(int rid, int* status) {
+    if (!status) return fail(NET_EINVAL);
+    std::lock_guard<std::mutex> lk(g_mutex);
+    const auto resolver = g_resolvers.find(rid);
+    if (resolver == g_resolvers.end()) return fail(NET_EBADF);
+    *status = resolver->second;
     return 0;
 }
 
