@@ -166,6 +166,8 @@ CompiledVariant sampleVariant() {
     image.written = true;
     image.cube = true;
     image.r128 = true;
+    image.fmaskCompatible = false;
+    image.depthBitsCompatible = false;
     image.indirectRoot = 0;
     image.indirectMappingOffset = 12;
     image.indirectSearchIterations = 3;
