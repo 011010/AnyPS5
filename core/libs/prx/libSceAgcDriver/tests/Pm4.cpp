@@ -290,6 +290,9 @@ void testMemory() {
     check(data[0] == 22 && data[1] == 12, "WRITE_DATA fixed destination failed");
     execute(state, makePacket(0x37, {0x40000100, low(data.data()), high(data.data()), 41, 42}));
     check(data[0] == 41 && data[1] == 42, "WRITE_DATA from the PFP failed");
+    execute(state, makePacket(0x37, {0x04100200, low(data.data()), high(data.data()), 61, 62}));
+    check(data[0] == 61 && data[1] == 62, "WRITE_DATA with a cache policy failed");
+    expectFailure([&] { AgcDriver::Pm4::Validate(makePacket(0x37, {0x08000100, low(data.data()), high(data.data()), 71}), 0); }, "reserved");
     expectFailure([&] { AgcDriver::Pm4::Validate(makePacket(0x37, {0x80000100, low(data.data()), high(data.data()), 51}), 0); }, "engine");
     execute(state, makePacket(0x81, {4, 31, 32}));
     execute(state, makePacket(0x83, {4, 2, low(data.data()), high(data.data())}));
