@@ -70,7 +70,7 @@ constexpr std::uint32_t ScanModeMask = ~2u;
 constexpr std::uint32_t ScanControlMask = ~0x06003fffu;
 constexpr std::uint32_t ScreenOffsetMask = ~0x01ff01ffu;
 // Bits 26/27 (ZCLIP_NEAR/FAR_DISABLE) become depth clamping; bit 19 selects the [0, 1] clip space.
-constexpr std::uint32_t ClipControlMask = ~(0x80000u | 0x0c000000u);
+constexpr std::uint32_t ClipControlMask = ~(0x80000u | 0x01000000u | 0x0c000000u);
 
 // Debug aid: APS5_IGNORE_DEPTH_TEST=1 renders depth- and stencil-tested draws without a depth
 // target as if their tests always passed (wrong occlusion, but the draws run), so stages that
