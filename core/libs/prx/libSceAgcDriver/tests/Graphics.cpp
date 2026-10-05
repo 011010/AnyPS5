@@ -6,6 +6,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/ShaderInputState.hpp"
 #include "ControlFlow/RequestSerializer.hpp"
+#include "CacheKey.hpp"
 #include <spirv/unified1/spirv.hpp>
 #include <algorithm>
 #include <array>
@@ -1283,6 +1284,7 @@ void misalignedShaderDataTests() {
 
 struct ModuleShape {
     bool fragment = false;
+    std::optional<std::uint32_t> fragmentMode;
     bool push = false;
     std::uint32_t pushLength = 32;
     std::uint32_t pushStride = 4;
@@ -1446,6 +1448,7 @@ std::vector<std::uint32_t> makeModule(const ModuleShape& shape) {
     else emit(words, spv::OpEntryPoint, {shape.fragment ? spv::ExecutionModelFragment : spv::ExecutionModelVertex, main, 0x6e69616du, 0, output});
     words[entryPointOffset] += static_cast<std::uint32_t>(extraInterface.size()) << 16u;
     words.insert(words.end(), extraInterface.begin(), extraInterface.end());
+    if (shape.fragmentMode) emit(words, spv::OpExecutionMode, {main, *shape.fragmentMode});
     if (shape.fragment) emit(words, spv::OpExecutionMode, {main, spv::ExecutionModeOriginUpperLeft});
     words.insert(words.end(), annotations.begin(), annotations.end());
     words.insert(words.end(), declarations.begin(), declarations.end());
@@ -1561,6 +1564,81 @@ std::vector<LocatedInput> locatedInputs(std::span<const std::uint32_t> words) {
     }
     std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.location < b.location; });
     return result;
+}
+
+constexpr std::array<std::uint32_t, 3> DepthExportCode{0xf8001881u, 2u, 0xbf810000u};
+
+AgcDriver::QueueState depthExportQueue(std::uint32_t shaderControl) {
+    auto queue = makeState();
+    queue.context[0x1b3] = 0x402u;
+    queue.context[0x1b4] = 0x402u;
+    queue.context[0x203] = shaderControl;
+    return queue;
+}
+
+ShaderRecompiler::RecompileRequest depthExportRequest(std::uint32_t shaderControl) {
+    const auto queue = depthExportQueue(shaderControl);
+    ShaderRecompiler::RecompileRequest request{};
+    request.shader = {ShaderRecompiler::ShaderStage::Fragment, 0x30000u, DepthExportCode, 0, {}};
+    request.context.waveSize = 64;
+    request.context.pixel = AgcDriver::Graphics::DecodePixelStageInfo(queue.context, IdentityExports);
+    request.target.vulkanVersion = 0x00401000u;
+    request.target.spirvVersion = 0x00010300u;
+    request.target.subgroupSize = 64;
+    request.layout.pushConstantSizeBytes = 128;
+    request.useCache = false;
+    return request;
+}
+
+std::set<std::uint32_t> depthModes(const ShaderRecompiler::RecompileRequest& request) {
+    const auto result = ShaderRecompiler::Recompile(request);
+    const auto& words = result.spirv.Words();
+    std::set<std::uint32_t> modes;
+    for (std::size_t at = 5; at < words.size() && (words[at] >> 16u) != 0; at += words[at] >> 16u) {
+        if (static_cast<spv::Op>(words[at] & 0xffffu) != spv::OpExecutionMode) continue;
+        const auto mode = words[at + 2];
+        if (mode == spv::ExecutionModeDepthReplacing || mode == spv::ExecutionModeDepthGreater || mode == spv::ExecutionModeDepthLess || mode == spv::ExecutionModeDepthUnchanged) modes.insert(mode);
+    }
+    return modes;
+}
+
+void conservativeZExportTests() {
+    const std::array<std::pair<std::uint32_t, std::set<std::uint32_t>>, 4> cases{{
+        {0x0021u, {spv::ExecutionModeDepthReplacing}},
+        {0x2021u, {spv::ExecutionModeDepthReplacing, spv::ExecutionModeDepthLess}},
+        {0x4021u, {spv::ExecutionModeDepthReplacing, spv::ExecutionModeDepthGreater}},
+        {0x2020u, {}}
+    }};
+    const ShaderRecompiler::RequestSerializer serializer;
+    std::set<std::vector<std::uint64_t>> keys;
+    for (const auto& [shaderControl, expected] : cases) {
+        const auto request = depthExportRequest(shaderControl);
+        const auto replayed = serializer.Deserialize(serializer.Serialize(request));
+        Require(depthModes(request) == expected && depthModes(replayed.request) == expected, "DB_SHADER_CONTROL " + std::to_string(shaderControl) + " declared the wrong depth execution modes");
+        std::vector<std::uint64_t> key;
+        ShaderRecompiler::RecompileCacheKey::Build(request, key);
+        keys.insert(key);
+    }
+    Require(keys.size() == cases.size(), "the recompile cache key ignores CONSERVATIVE_Z_EXPORT");
+    for (const auto shaderControl : {0x2020u, 0x4020u}) {
+        const auto queue = depthExportQueue(shaderControl);
+        static_cast<void>(AgcDriver::Graphics::DecodeState(queue));
+        Require(AgcDriver::Graphics::DrawRejection(queue, false).empty(), "the precheck rejected DB_SHADER_CONTROL " + std::to_string(shaderControl));
+    }
+    expectFailure([] { static_cast<void>(depthExportRequest(0x6021u)); }, "CONSERVATIVE_Z_EXPORT");
+    AgcDriver::Graphics::State state{};
+    state.stages.path = AgcDriver::Graphics::ShaderPath::Vertex;
+    ShaderRecompiler::RecompileResult vertex;
+    vertex.spirv = makeModule({});
+    ShaderRecompiler::RecompileResult pixel;
+    const std::array<AgcDriver::Graphics::CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &pixel, 0}}};
+    const VkPhysicalDeviceSubgroupProperties subgroup{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
+    for (const auto mode : {spv::ExecutionModeDepthLess, spv::ExecutionModeDepthGreater}) {
+        pixel.spirv = makeModule({.fragment = true, .fragmentMode = mode});
+        AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, false);
+    }
+    pixel.spirv = makeModule({.fragment = true, .fragmentMode = spv::ExecutionModeDepthUnchanged});
+    expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, false); }, "unsupported fragment execution mode");
 }
 
 void pixelParameterSlotTests() {
@@ -1922,6 +2000,7 @@ int main() {
         DepthClipTests();
         DepthStencilTests();
         DepthBoundsBiasTests();
+        conservativeZExportTests();
         DisabledColorTests();
         CompactedExportTests();
         metadataPassTests();
