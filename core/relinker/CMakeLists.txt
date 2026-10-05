@@ -125,6 +125,12 @@ endif()
 
 
 if(BUILD_TESTING)
+    add_test_executable(autorun_exit_tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/cli/tests/AutorunExitTests.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/cli/src/Autorun.cpp)
+    target_include_directories(autorun_exit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cli/include)
+    add_test(NAME autorun_exit_status COMMAND autorun_exit_tests)
+    set_tests_properties(autorun_exit_status PROPERTIES TIMEOUT 20)
     add_test_executable(buffer_bounds_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/io/tests/BufferBoundsTests.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/io/src/ByteReader.cpp
