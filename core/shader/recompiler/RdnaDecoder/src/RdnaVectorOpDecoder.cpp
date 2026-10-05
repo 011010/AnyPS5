@@ -1764,6 +1764,7 @@ bool supportsNativeVop3SourceModifiers(RdnaOpcode opcode) {
         case RdnaOpcode::VMaxF16:
         case RdnaOpcode::VMacF32:
         case RdnaOpcode::VMadF32:
+        case RdnaOpcode::VMadLegacyF32:
         case RdnaOpcode::VFmaF32:
         case RdnaOpcode::VPackB32F16:
         case RdnaOpcode::VCubeidF32:
