@@ -70,10 +70,6 @@ int APS5_VABI sceAgcGetGsOversubscription() {
  return 0;
 }
 
-int APS5_VABI sceAgcGetIsTrinityMode() {
-    return 0;
-}
-
 int APS5_VABI sceAgcGetSemaphoreLabel() {
  NotImplemented_nid_no_patch(__func__);
  return 0;
