@@ -151,21 +151,14 @@ IrValue* TranslationContext::readOperand(const RdnaOperand& operand, IrType type
         return &ir.ConstructU64(pair[0].Value(), pair[1].Value());
     }
     IrU32 bits = applyBitSourceModifiers(operand, readRawU32(operand));
-    if (TypesOverlap(type, IrType::F32) && !TypesOverlap(type, IrType::U32)) {
-        IrF32 value(ir.BitCastF32(bits.Value()));
-        if (operand.absolute) {
-            value = IrF32(ir.Emit(IrOpcode::FPAbs32, IrType::F32, {&value.Value()}));
-        }
-        if (operand.negate) {
-            value = IrF32(ir.Emit(IrOpcode::FPNeg32, IrType::F32, {&value.Value()}));
-        }
-        return &value.Value();
-    }
     if (operand.absolute) {
         bits = IrU32(ir.BitwiseAnd(bits.Value(), ir.Constant(0x7fffffffu)));
     }
     if (operand.negate) {
         bits = IrU32(ir.BitwiseXor(bits.Value(), ir.Constant(0x80000000u)));
+    }
+    if (TypesOverlap(type, IrType::F32) && !TypesOverlap(type, IrType::U32)) {
+        return &ir.BitCastF32(bits.Value());
     }
     if (!TypesOverlap(type, IrType::U32)) {
         throw std::runtime_error("TranslationContext::readOperand requested unsupported operand type");
