@@ -522,32 +522,38 @@ bool TranslationContext::vLdexpF32(const RdnaInstruction& inst) {
 }
 
 bool TranslationContext::vDot2cF32F16(const RdnaInstruction& inst) {
-    RdnaOperand a = sourceAt(inst, 0u);
-    a.opSel = false;
-    a.opSelHi = true;
-    RdnaOperand b = sourceAt(inst, 1u);
-    b.opSel = false;
-    b.opSelHi = true;
-    const IrF32 aLow = readF16LaneAsF32(a, false);
-    const IrF32 aHigh = readF16LaneAsF32(a, true);
-    const IrF32 bLow = readF16LaneAsF32(b, false);
-    const IrF32 bHigh = readF16LaneAsF32(b, true);
-    const IrF32 accumulator = readMixF32(inst.destination);
-    const IrF32 low(ir.Emit(IrOpcode::FPFma32, IrType::F32, {&aLow.Value(), &bLow.Value(), &accumulator.Value()}));
-    const IrF32 result(ir.Emit(IrOpcode::FPFma32, IrType::F32, {&aHigh.Value(), &bHigh.Value(), &low.Value()}));
-    writeOperand(inst.destination, &result.Value());
-    return true;
+    RdnaOperand lhs = sourceAt(inst, 0u);
+    lhs.opSel = false;
+    lhs.opSelHi = true;
+    RdnaOperand rhs = sourceAt(inst, 1u);
+    rhs.opSel = false;
+    rhs.opSelHi = true;
+    return float16Dot2(inst, lhs, rhs, readU32(accumulatorOperand(inst)));
 }
 
 bool TranslationContext::vDot2F32F16(const RdnaInstruction& inst) {
-    const IrF32 aLow = readF16LaneAsF32(sourceAt(inst, 0u), false, true);
-    const IrF32 aHigh = readF16LaneAsF32(sourceAt(inst, 0u), true, true);
-    const IrF32 bLow = readF16LaneAsF32(sourceAt(inst, 1u), false, true);
-    const IrF32 bHigh = readF16LaneAsF32(sourceAt(inst, 1u), true, true);
-    IrValue* accumulator = readOperand(sourceAt(inst, 2u), IrType::F32);
-    const IrF32 low(ir.Emit(IrOpcode::FPFma32, IrType::F32, {&aLow.Value(), &bLow.Value(), accumulator}));
-    const IrF32 result(ir.Emit(IrOpcode::FPFma32, IrType::F32, {&aHigh.Value(), &bHigh.Value(), &low.Value()}));
-    writeOperand(inst.destination, &result.Value());
+    return float16Dot2(inst, sourceAt(inst, 0u), sourceAt(inst, 1u), readU32(sourceAt(inst, 2u)));
+}
+
+bool TranslationContext::float16Dot2(const RdnaInstruction& inst, const RdnaOperand& lhs, const RdnaOperand& rhs, IrU32 accumulator) {
+    const auto packed = [&](const RdnaOperand& operand) {
+        const IrU32 source = readF16SourceBits(operand);
+        const auto half = [&](bool highLane) {
+            const bool selectHigh = highLane ? operand.opSelHi : operand.opSel;
+            IrU32 bits(selectHigh ? ir.ShiftRightLogical(source.Value(), ir.Constant(16u)) : ir.BitwiseAnd(source.Value(), ir.Constant(0xffffu)));
+            if (highLane ? operand.negateHi : operand.negate) {
+                bits = IrU32(ir.BitwiseXor(bits.Value(), ir.Constant(0x8000u)));
+            }
+            return bits;
+        };
+        return IrU32(ir.BitwiseOr(half(false).Value(), ir.ShiftLeftLogical(half(true).Value(), ir.Constant(16u))));
+    };
+    const IrU32 a = packed(lhs);
+    const IrU32 b = packed(rhs);
+    const IrU32 result(ir.Emit(IrOpcode::FPDot2F32F16, IrType::U32, {&a.Value(), &b.Value(), &accumulator.Value()}));
+    RdnaOperand destination = inst.destination;
+    destination.clamp = false;
+    writeOperand(destination, &ir.BitCastF32(result.Value()));
     return true;
 }
 
