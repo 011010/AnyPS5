@@ -272,11 +272,11 @@ IrU32 TranslationContext::readRelativeVector(const RdnaOperand& base, IrValue& o
         IrValue& hit = ir.IEqual(offset, ir.Constant(reg - base.reg));
         result = IrU32(ir.Select(hit, ir.GetVectorReg(static_cast<VectorReg>(reg)), result.Value()));
     }
-    return result;
+    return applyBitSourceModifiers(base, result);
 }
 
 void TranslationContext::writeRelativeVector(const RdnaOperand& base, IrValue& offset, IrU32 value, const char* name) {
-    const RdnaOperand destination = plainOperand(base);
+    const RdnaOperand& destination = base;
     if (destination.kind != RdnaOperandKind::VectorRegister) {
         throw std::runtime_error(std::string(name) + " destination is not a vector register");
     }

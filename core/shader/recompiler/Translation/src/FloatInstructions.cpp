@@ -16,7 +16,7 @@ bool TranslationContext::packedFloat16(const RdnaInstruction& inst, IrOpcode opc
         const IrF32 lhs = readF16LaneAsF32(sourceAt(inst, 0u), high, true);
         const IrF32 rhs = readF16LaneAsF32(sourceAt(inst, 1u), high, true);
         if (accumulator) {
-            const IrF32 acc = readF16LaneAsF32(inst.destination, high, true);
+            const IrF32 acc = readF16LaneAsF32(accumulatorOperand(inst), high, true);
             return applyF32ResultModifiers(inst.destination, IrF32(ir.Emit(opcode, IrType::F32, {&lhs.Value(), &rhs.Value(), &acc.Value()})));
         }
         if (inst.sourceCount == 3u) {
@@ -25,7 +25,6 @@ bool TranslationContext::packedFloat16(const RdnaInstruction& inst, IrOpcode opc
         }
         return applyF32ResultModifiers(inst.destination, IrF32(ir.Emit(opcode, IrType::F32, {&lhs.Value(), &rhs.Value()})));
     };
-    const RdnaOperand raw = plainOperand(inst.destination);
     IrU32 result = packHalf2x16(translateLane(false), translateLane(true));
     if (quietSnan) {
         const auto quietSnanLane = [&](const RdnaOperand& operand, bool high) {
@@ -44,7 +43,7 @@ bool TranslationContext::packedFloat16(const RdnaInstruction& inst, IrOpcode opc
         };
         result = packU16Lanes(overrideLane(false), overrideLane(true));
     }
-    writeOperand(raw, &result.Value());
+    writeRawU32(inst.destination, result);
     return true;
 }
 
