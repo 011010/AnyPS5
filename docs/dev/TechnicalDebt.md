@@ -21,6 +21,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceVideoOutOpen](../../core/libs/prx/libSceVideoOut/src/Output.cpp) validates the priority and CPU affinity that the open param requests for the VideoOut service thread but does not apply them: the port's present and vblank threads are host threads, and guest priorities and affinities do not reach host scheduling
 - The shader recompiler [skips baryctric coordinates](../../core/shader/recompiler/Recompiler.cpp) (is not even passed to SpirvTargetOptions at row 212).
 - [libSceAvPlayer](../../core/libs/prx/libSceAvPlayer/Export.cpp): `sceAvPlayerSetLogCallback` accepts a callback that is never called, as the player produces no log messages, and `sceAvPlayerSetAvailableBandwidth` has no effect, as it governs HLS sources, which `sceAvPlayerAddSource` does not implement.
+- [libSceNpTrophy2](../../core/libs/prx/libSceNpTrophy2/src/GameInfo.cpp): `sceNpTrophy2RegisterUnlockCallback` accepts a callback that is never called, as no trophy is ever unlocked, and `sceNpTrophy2UnregisterUnlockCallback` only returns success.
 - [sceAvPlayerSetTrickSpeed](../../core/libs/prx/libSceAvPlayer/src/Source.cpp) (libSceAvPlayer) with a negative speed runs the clock backwards but delivers no frames; when a forward speed is set again, playback resumes from the rewound time.
 
 ### Unknown function info
@@ -84,7 +85,6 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceNpSessionSignalingGetMemoryInfo](../../core/libs/prx/libSceNpSessionSignaling/Export.cpp) (libSceNpSessionSignaling) - unknown signature
 - [sceNpSessionSignalingGetConnectionStatistics](../../core/libs/prx/libSceNpSessionSignaling/Export.cpp) (libSceNpSessionSignaling) - unknown signature
 - [sce::Np::CppWebApi::Common::String](../../core/libs/prx/libSceNpCppWebApi/Export.cpp) (libSceNpCppWebApi) - the 0x20-byte layout (32-bit reference count, buffer at 0x08, buffer size at 0x10, `LibContext*` at 0x18) comes from the module bundled with one title (PPSA21564); other SDK versions are not checked. The destructor throws for a non-null buffer: releasing it needs the `LibContext` allocator, which is not implemented
-- [sceNpTrophy2UnregisterUnlockCallback](../../core/libs/prx/libSceNpTrophy2/src/Context.cpp) (libSceNpTrophy2) - unknown signature
 - [sceSystemServiceDisableMediaPlay](../../core/libs/prx/libSceSystemService/Export.cpp) (libSceSystemService) - unknown signature
 - [sceSystemServiceReenableMediaPlay](../../core/libs/prx/libSceSystemService/Export.cpp) (libSceSystemService) - unknown signature
 - [sceSystemServiceParamGetString](../../core/libs/prx/libSceSystemService/Export.cpp) (libSceSystemService) - the system name (parameter 6) is the fixed `PS5`, not the console's name; other parameters and buffers of 1 to 64 bytes throw
