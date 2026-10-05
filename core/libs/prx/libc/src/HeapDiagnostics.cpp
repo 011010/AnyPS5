@@ -48,22 +48,4 @@ int32_t APS5_VABI sceLibcUnknown_BnMAMrsfVWo(void) {
  return 0;
 }
 
-APS5_EXPORT("OQ-dzhlnM28", sceLibcInternalExtUnknown_OQ_dzhlnM28);
-int APS5_VABI sceLibcInternalExtUnknown_OQ_dzhlnM28(void) {
- NotImplemented_nid_no_patch(__func__);
- return 0;
-}
-
-APS5_EXPORT("qBS714-Jr3g", sceLibcInternalExtUnknown_qBS714_Jr3g);
-int APS5_VABI sceLibcInternalExtUnknown_qBS714_Jr3g(void) {
- NotImplemented_nid_no_patch(__func__);
- return 0;
-}
-
-APS5_EXPORT("tB59hFLH3SA", sceLibcInternalExtUnknown_tB59hFLH3SA);
-int APS5_VABI sceLibcInternalExtUnknown_tB59hFLH3SA(void) {
- NotImplemented_nid_no_patch(__func__);
- return 0;
-}
-
 }

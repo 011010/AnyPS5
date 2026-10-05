@@ -60,8 +60,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [BnMAMrsfVWo](../../core/libs/prx/libc/src/HeapDiagnostics.cpp) (libc) - unknown name, signature
 - [scePngEncEncode](../../core/libs/prx/libScePngEnc/Export.cpp) (libScePngEnc) - whether rows may stay unfiltered when `filter_type` names a subset of the filters is unknown; as in shadPS4, they may only for 0 and for the all-filters mask
 - AudioIn, NpSessionSignaling and PlayerInvitationDialog exports added without an implementation have assumed signatures
-- [dbOlWdppb4o, vieBRwlh1Lw](../../core/libs/prx/libSceAgc/Unimplemented.cpp) (libSceAgc) - unknown name, signature
-- [OQ-dzhlnM28, qBS714-Jr3g, tB59hFLH3SA](../../core/libs/prx/libc/src/HeapDiagnostics.cpp) (libSceLibcInternalExt, implemented in libc) - unknown name, signature
+- [vieBRwlh1Lw](../../core/libs/prx/libSceAgc/Unimplemented.cpp) (libSceAgc) - unknown name, signature
 - [fCWdlnmB1Ks](../../core/libs/prx/libScePad/Export.cpp) (libScePad) - unknown name, signature
 - [sceKernelGetOperationMode](../../core/libs/prx/libkernel/System/src/Process.cpp) (libkernel) - the signature `(int* mode, int* submode)` comes from PPSA12544, which logs both values after the call; the values are unknown and 0 is reported for both, as in the [prosper](https://github.com/mattias800/prosper/pull/4153) reimplementation. Null outputs throw
 - Font, Http2, Net, Ssl, SystemService and libkernel exports imported by PPSA12544 and added without an implementation have unknown signatures
