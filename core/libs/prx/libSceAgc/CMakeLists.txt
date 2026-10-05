@@ -30,6 +30,7 @@ add_library(libSceAgc SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/DcbState/src/Registers.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/DcbState/src/Workload.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Misc/src/PacketInfo.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Misc/src/Platform.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Misc/src/RegisterDefaults.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Misc/src/ShaderFusion.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Misc/src/Suspend.cpp
@@ -68,6 +69,19 @@ target_include_directories(agc_command_tests PRIVATE ${LIBS_INCLUDE_DIR})
 target_link_libraries(agc_command_tests PRIVATE libSceAgc libc)
 configure_windows_unwind(agc_command_tests)
 configure_windows_unwind(libSceAgc)
+
+add_test_executable(agc_platform_tests EXCLUDE_FROM_ALL tests/Platform.cpp)
+target_include_directories(agc_platform_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_platform_tests PRIVATE libSceAgc libc)
+configure_windows_unwind(agc_platform_tests)
+if(BUILD_TESTING)
+    set_target_properties(agc_platform_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME agc_platform_tests COMMAND agc_platform_tests)
+    if(WIN32)
+        set_tests_properties(agc_platform_tests PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
 
 add_test_executable(agc_register_command_tests EXCLUDE_FROM_ALL
         tests/RegisterCommands.cpp

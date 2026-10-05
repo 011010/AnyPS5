@@ -32,6 +32,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceFontGetRenderScaledKerning](../../core/libs/prx/libSceFont/src/Render.cpp) (libSceFont) - arguments, the cleared output and the bound renderer check taken from `cellFontGetRenderScaledKerning` in [RPCS3](https://github.com/RPCS3/rpcs3/blob/master/rpcs3/Emu/Cell/Modules/cellFont.cpp) (PS3 predecessor of the library), not confirmed on a title. The kerning is the `sceFontGetKerning` one at the render scale
 - [sceFontGetPixelResolution](../../core/libs/prx/libSceFont/src/Library.cpp) (libSceFont) - signature taken from the IDA type database of [Orbital](https://github.com/AlexAltea/orbital/blob/master/tools/ida/db_types.json), not confirmed on a title. The value is the one the library's driver reports (64 for FreeType); the argument checks and the cleared output follow `sceFontGetLibrary`
 - [sceAgcSetSubmitMode](../../core/libs/prx/libSceAgc/Misc/src/Suspend.cpp) (libSceAgc) - mode values unknown; only 0 is accepted
+- [sceAgcGetIsTrinityMode](../../core/libs/prx/libSceAgc/Misc/src/Platform.cpp) (libSceAgc) - signature from the only PPSA26344 call (a pointer to a one-byte flag, result ignored); a null pointer throws because its error code is unknown
 - [zARR5aCmkoY](../../core/libs/prx/libSceAgc/DcbFlow/src/Control.cpp) (libSceAgc) - unknown name, signature
 - [qj7QZpgr9Uw](../../core/libs/prx/libSceAgc/DcbState/src/ContextState.cpp) (libSceAgc) - unknown name
 - [fd5Bp5tGTgo](../../core/libs/prx/libSceAgc/Misc/src/ShaderFusion.cpp) (libSceAgc) - unknown name
