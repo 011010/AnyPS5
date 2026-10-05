@@ -153,7 +153,7 @@ int APS5_VABI sceAudio3dPortPush(uint32_t port_id, uint32_t blocking) {
         if (blocking == AUDIO3D_BLOCKING_ASYNC || level < g_port.queue_depth) return 0;
         wait_until = g_port.playing[level - g_port.queue_depth];
     }
-    std::this_thread::sleep_until(wait_until);
+    while (Clock::now() < wait_until) std::this_thread::sleep_until(wait_until);
     return 0;
 }
 
