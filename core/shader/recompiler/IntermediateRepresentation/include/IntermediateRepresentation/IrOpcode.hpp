@@ -303,6 +303,7 @@ enum class IrOpcode : std::uint16_t {
     AddressAtomicXor32,
     AddressAtomicInc32,
     AddressAtomicDec32,
+    AddressAtomicUSubSat32,
     AddressAtomicSwap64,
     AddressAtomicCmpSwap64,
     AddressAtomicIAdd64,
