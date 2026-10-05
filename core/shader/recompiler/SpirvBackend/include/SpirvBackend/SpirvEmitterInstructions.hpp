@@ -263,6 +263,7 @@ std::uint32_t EmitBufferAtomicOr32(SpirvValueEmitContext& ctx, const IrValue& in
 std::uint32_t EmitBufferAtomicOr64(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitBufferAtomicInc32(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitBufferAtomicDec32(SpirvValueEmitContext& ctx, const IrValue& inst);
+std::uint32_t EmitBufferAtomicUSubSat32(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitBufferAtomicIAdd64(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitBufferAtomicISub64(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitBufferAtomicSMin64(SpirvValueEmitContext& ctx, const IrValue& inst);
