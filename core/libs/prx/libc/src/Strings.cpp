@@ -1,4 +1,3 @@
-#include "prx/libc/include/ApplicationHeap.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -154,13 +153,6 @@ int APS5_VABI strncasecmp_nid_postfix(const char* s1, const char* s2, size_t n) 
     }
     if (!n) return 0;
     return static_cast<unsigned char>(*s1) - static_cast<unsigned char>(*s2);
-}
-
-char* APS5_VABI strdup_nid_postfix(const char* s) {
-    std::size_t len = std::strlen(s) + 1;
-    char* copy = static_cast<char*>(ApplicationHeapAllocate_nid_no_patch(len));
-    std::memcpy(copy, s, len);
-    return copy;
 }
 
 int APS5_VABI bcmp_nid_postfix(const void* s1, const void* s2, size_t n) {
