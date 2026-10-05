@@ -92,7 +92,13 @@ std::uint64_t APS5_VABI sceAmprMeasureCommandSizeMapEnd();
 int APS5_VABI sceAmprCommandBufferWriteCounter_04_00(Apr::CommandBufferObject*, std::uint8_t, std::uint8_t, std::uint64_t, std::uint8_t, std::uint8_t);
 }
 
-static void Require(bool value) { if (!value) std::abort(); }
+static void RequireAt(bool value, int line) {
+    if (value) return;
+    std::fprintf(stderr, "GuestAmpr.cpp:%d: requirement failed\n", line);
+    std::abort();
+}
+
+#define Require(value) RequireAt((value), __LINE__)
 
 namespace {
 
