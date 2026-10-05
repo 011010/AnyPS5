@@ -38,6 +38,7 @@ namespace {
 constexpr int NET_ENOENT = 2;
 constexpr int NET_EBADF = 9;
 constexpr int NET_EINVAL = 22;
+constexpr int NET_ENOSPC = 28;
 constexpr int NET_EAGAIN = 35;
 constexpr int NET_ENOTSOCK = 38;
 constexpr int NET_EOPNOTSUPP = 45;
@@ -814,7 +815,7 @@ int APS5_VABI sceNetInetPton(int af, const char* src, void* dst) {
 }
 
 const char* APS5_VABI sceNetInetNtop(int af, const void* src, char* dst, uint32_t size) {
-    if (src == nullptr || dst == nullptr || size == 0) {
+    if (src == nullptr || dst == nullptr) {
         *errno_slot() = NET_EINVAL;
         return nullptr;
     }
@@ -822,11 +823,23 @@ const char* APS5_VABI sceNetInetNtop(int af, const void* src, char* dst, uint32_
         *errno_slot() = NET_EAFNOSUPPORT;
         return nullptr;
     }
+    char text[INET6_ADDRSTRLEN];
 #ifdef _WIN32
-    return InetNtopA(af == NET_AF_INET ? AF_INET : AF_INET6, const_cast<void*>(src), dst, size);
+    const auto* result = InetNtopA(af == NET_AF_INET ? AF_INET : AF_INET6, const_cast<void*>(src), text, sizeof(text));
 #else
-    return ::inet_ntop(af == NET_AF_INET ? AF_INET : AF_INET6, src, dst, size);
+    const auto* result = ::inet_ntop(af == NET_AF_INET ? AF_INET : AF_INET6, src, text, sizeof(text));
 #endif
+    if (!result) {
+        *errno_slot() = native_error();
+        return nullptr;
+    }
+    const auto length = std::strlen(text) + 1;
+    if (length > size) {
+        *errno_slot() = NET_ENOSPC;
+        return nullptr;
+    }
+    std::memcpy(dst, text, length);
+    return dst;
 }
 
 int APS5_VABI sceNetEtherNtostr(const NetEtherAddr* n, char* str, size_t len) {

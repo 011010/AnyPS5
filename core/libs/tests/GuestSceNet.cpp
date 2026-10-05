@@ -28,14 +28,39 @@ int APS5_VABI sceNetResolverDestroy(int);
 int APS5_VABI sceNetCtlGetState(int*);
 int APS5_VABI sceNetInetPton(int, const char*, void*);
 const char* APS5_VABI sceNetInetNtop(int, const void*, char*, std::uint32_t);
+int* APS5_VABI sceNetErrnoLoc(void);
 }
 
 static void Require(bool condition) {
     if (!condition) std::abort();
 }
 
+static void CheckAddressText(int family, const char* text) {
+    std::array<std::uint8_t, 16> address{};
+    Require(sceNetInetPton(family, text, address.data()) == 1);
+    std::array<char, 64> output{};
+    const auto length = static_cast<std::uint32_t>(std::strlen(text));
+    for (std::uint32_t size = 0; size <= length; ++size) {
+        *sceNetErrnoLoc() = 123;
+        Require(sceNetInetNtop(family, address.data(), output.data(), size) == nullptr);
+        Require(*sceNetErrnoLoc() == 28);
+    }
+    output.fill('x');
+    *sceNetErrnoLoc() = 123;
+    Require(sceNetInetNtop(family, address.data(), output.data(), length + 1) == output.data());
+    Require(std::strcmp(output.data(), text) == 0 && output[length + 1] == 'x');
+    Require(*sceNetErrnoLoc() == 123);
+    Require(sceNetInetNtop(99, address.data(), output.data(), output.size()) == nullptr && *sceNetErrnoLoc() == 47);
+    Require(sceNetInetNtop(family, nullptr, output.data(), output.size()) == nullptr && *sceNetErrnoLoc() == 22);
+    Require(sceNetInetNtop(family, address.data(), nullptr, output.size()) == nullptr && *sceNetErrnoLoc() == 22);
+}
+
 int main() {
     Require(sceNetInit_nid_postfix() == 0);
+    CheckAddressText(2, "127.0.0.1");
+    CheckAddressText(2, "255.255.255.255");
+    CheckAddressText(28, "::1");
+    CheckAddressText(28, "1234:5678:9abc:def0:1234:5678:9abc:def0");
 
     const int listener = sceNetSocket(nullptr, 2, 1, 6);
     Require(listener >= 0);
