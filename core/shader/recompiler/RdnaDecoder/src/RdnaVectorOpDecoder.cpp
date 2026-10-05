@@ -701,7 +701,7 @@ bool isPermlaneOpcode(RdnaOpcode opcode) {
     return opcode == RdnaOpcode::VPermlane16B32 || opcode == RdnaOpcode::VPermlanex16B32;
 }
 
-bool acceptsDpp8(RdnaOpcode opcode) {
+bool hasDppForm(RdnaOpcode opcode) {
     switch (opcode) {
         case RdnaOpcode::VReadfirstlaneB32:
         case RdnaOpcode::VCvtI32F64:
@@ -724,12 +724,19 @@ bool acceptsDpp8(RdnaOpcode opcode) {
         case RdnaOpcode::VMadakF32:
         case RdnaOpcode::VFmamkF16:
         case RdnaOpcode::VFmaakF16:
+            return false;
+        default: return true;
+    }
+}
+
+bool acceptsDpp8(RdnaOpcode opcode) {
+    switch (opcode) {
         case RdnaOpcode::VPkFmacF16:
         case RdnaOpcode::VMovrelsB32:
         case RdnaOpcode::VMovrelsdB32:
         case RdnaOpcode::VMovrelsd2B32:
             return false;
-        default: return true;
+        default: return hasDppForm(opcode);
     }
 }
 
@@ -1219,12 +1226,12 @@ void decodeVop1Dpp(std::uint32_t programCounter, std::span<const std::uint32_t> 
         ? DecodeRdnaScalarDestination(vdst, programCounter)
         : DecodeRdnaVectorGpr(vdst);
     instruction.source0 = DecodeRdnaScalarSource(src0 + 256u, programCounter);
-    if (form == 250u) {
+    if (form == 250u && hasDppForm(instruction.op)) {
         applyDppModifier(instruction.source0, modifier);
-    } else if (acceptsDpp8(instruction.op)) {
+    } else if (form != 250u && acceptsDpp8(instruction.op)) {
         applyDpp8Modifier(instruction.source0, modifier, form == 234u);
     } else {
-        throw std::invalid_argument("DPP8 modifier is not supported for opcode");
+        throw std::invalid_argument(form == 250u ? "DPP modifier is not supported for opcode" : "DPP8 modifier is not supported for opcode");
     }
     instruction.sourceCount = 1;
 
@@ -1418,14 +1425,14 @@ void decodeVop2Dpp(std::uint32_t programCounter, std::span<const std::uint32_t> 
     instruction.destination = DecodeRdnaVectorGpr(vdst);
     instruction.source1 = DecodeRdnaVectorGpr(vsrc1);
     instruction.source0 = DecodeRdnaScalarSource(src0 + 256u, programCounter);
-    if (form == 250u) {
+    if (form == 250u && hasDppForm(instruction.op)) {
         applyDppModifier(instruction.source0, modifier);
         instruction.source1.negate = ((modifier >> 22u) & 0x1u) != 0u;
         instruction.source1.absolute = ((modifier >> 23u) & 0x1u) != 0u;
-    } else if (acceptsDpp8(instruction.op)) {
+    } else if (form != 250u && acceptsDpp8(instruction.op)) {
         applyDpp8Modifier(instruction.source0, modifier, form == 234u);
     } else {
-        throw std::invalid_argument("DPP8 modifier is not supported for opcode");
+        throw std::invalid_argument(form == 250u ? "DPP modifier is not supported for opcode" : "DPP8 modifier is not supported for opcode");
     }
     const bool packedFmac = instruction.op == RdnaOpcode::VPkFmacF16;
     if (packedFmac) {
