@@ -327,6 +327,7 @@ public:
                 return result;
             }
         }
+        addVideoDecodeAheadBuffers();
         const auto start = startOffset;
         startOffset = 0;
         seek(start);
@@ -605,7 +606,7 @@ private:
             pitch = AlignUp(static_cast<std::uint32_t>(decoder.context->width), VideoPitchAlignment);
             bufferHeight = AlignUp(static_cast<std::uint32_t>(decoder.context->height), VideoHeightAlignment);
             decoder.bufferSize = pitch * bufferHeight * 3 / 2;
-            count = settings.videoBuffers + VideoDecodeAheadFrames;
+            count = settings.videoBuffers;
             decoder.retained = settings.videoBuffers > 3 ? settings.videoBuffers - 3 : 0;
             texture = true;
             alignment = VideoBufferAlignment;
@@ -623,6 +624,27 @@ private:
             decoder.free.push_back(static_cast<std::uint8_t*>(buffer));
         }
         return SCE_OK;
+    }
+
+    void addVideoDecodeAheadBuffers() {
+        if (video.stream < 0) return;
+
+        const auto& memory = settings.memory;
+        std::vector<std::uint8_t*> extra;
+        extra.reserve(VideoDecodeAheadFrames);
+        for (std::uint32_t index = 0; index < VideoDecodeAheadFrames; ++index) {
+            auto* buffer = static_cast<std::uint8_t*>(memory.allocate_texture(
+                memory.object_ptr, VideoBufferAlignment, video.bufferSize));
+            if (!buffer) {
+                for (auto* allocated : extra) memory.deallocate_texture(memory.object_ptr, allocated);
+                return;
+            }
+            extra.push_back(buffer);
+        }
+        for (auto* buffer : extra) {
+            video.allocated.push_back(buffer);
+            video.free.push_back(buffer);
+        }
     }
 
     void releaseDecoders() {

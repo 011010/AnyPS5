@@ -24,6 +24,7 @@ Throughout the project, every function at every stage either **does exactly what
 
 ### Unknown function info
 
+- [sceAvPlayerAddSource](../../core/libs/prx/libSceAvPlayer/src/Source.cpp) (libSceAvPlayer) - requests up to 4 additional decode-ahead video framebuffers from the memory replacement beyond `num_output_video_framebuffers` when memory is available; the console's internal buffering behaviour is unknown
 - [sceVideoOutOpen](../../core/libs/prx/libSceVideoOut/src/Output.cpp) (libSceVideoOut) - the open param's first word is unknown (PPSA21564 passes 16; it is not the byte size, since the affinity mask is at offset 16); only 16 is accepted. Whether the param continues past offset 24 is also unknown
 - [sceRtcParseDateTime](../../core/libs/prx/libSceRtc/Export.cpp) (libSceRtc) - accepted format assumed to be the ISO 8601 subset `YYYY-MM-DDTHH:MM:SS[.ffffff]` (T/t/space separator, optional fractional seconds) with the sibling RFC 3339 zone suffix (`Z` or `±HH:MM`); a string without a zone is taken as UTC, and anything outside this shape throws instead of returning a parse error, unverified against hardware
 - [AMPR WaitOnAddress / WaitOnCounter](../../core/libs/prx/libkernel/Apr/src/Apr.cpp) (libSceAmpr) - compare encoding assumed to be the WAIT_REG_MEM one (0 always, 1 <, 2 <=, 3 ==, 4 !=, 5 >=, 6 >)
