@@ -72,6 +72,15 @@ void verifyStructured(const std::string& prefix, const ControlFlowGraph& graph) 
             }
         }
     }
+    for (const auto& loop : graph.blocks) {
+        if (!loop.terminator.loopHeader) continue;
+        const auto continueBlock = loop.terminator.continueBlock;
+        for (const auto member : constructBlocks(graph, loop.id, loop.terminator.mergeBlock)) {
+            const auto& terminator = graph.FindBlock(member).terminator;
+            if (terminator.loopHeader || graph.Dominates(continueBlock, member)) continue;
+            require(terminator.mergeBlock != continueBlock, prefix + "the selection at block " + std::to_string(member) + " in the loop at block " + std::to_string(loop.id) + " merges at the loop's continue block " + std::to_string(continueBlock));
+        }
+    }
 }
 
 std::uint32_t followEmptyBlocks(const std::string& prefix, const ControlFlowGraph& graph, std::uint32_t blockId, RouteState& routes) {
@@ -279,6 +288,71 @@ latch:
   buffer_store_dword v1, off, s[0:3], 0
   s_endpgm)",
          Store({0xbe880380u, 0x7e020280u, 0x7d880008u, 0xbf860004u, 0x7d880088u, 0xbf870003u, 0x4a020281u, 0xbf820002u, 0x4a020282u, 0x4a020283u, 0x80089008u, 0xbf0ac008u, 0xbf85fff5u}), Split::Clone},
+        {"loop exit to the end of the program beside a kill exit", R"(
+  v_mov_b32 v1, 0
+  s_mov_b64 s[20:21], exec
+  v_cmp_gt_u32 vcc, 4, v0
+  s_andn2_b64 s[20:21], s[20:21], vcc
+  s_cbranch_scc0 kill
+  s_mov_b32 s8, 0
+loop:
+  v_add_nc_u32 v1, 1, v1
+  v_cmp_eq_u32 vcc, s8, v0
+  s_andn2_b64 s[20:21], s[20:21], vcc
+  s_cbranch_scc0 kill
+  s_add_u32 s8, s8, 1
+  s_cmp_lt_u32 s8, 4
+  s_cbranch_scc1 loop
+  s_mov_b64 exec, s[20:21]
+  buffer_store_dword v1, off, s[0:3], 0
+  s_endpgm
+kill:
+  s_mov_b64 exec, 0
+  s_endpgm)",
+         {0x7e020280u, 0xbe94047eu, 0x7d880084u, 0x8a946a14u, 0xbf84000cu, 0xbe880380u, 0x4a020281u, 0x7d840008u, 0x8a946a14u, 0xbf840007u,
+          0x80088108u, 0xbf0a8408u, 0xbf85fff9u, 0xbefe0414u, 0xe0700000u, 0x80000100u, 0xbf810000u, 0xbefe0480u, 0xbf810000u},
+         Split::Route, 0},
+        {"inner loop exit to a return after the outer loop", R"(
+  v_mov_b32 v1, 0
+  s_mov_b32 s8, 0
+outer:
+  s_mov_b32 s9, 0
+inner:
+  v_add_nc_u32 v1, 1, v1
+  s_cmp_eq_u32 s9, s2
+  s_cbranch_scc1 early_exit
+  s_add_u32 s9, s9, 1
+  s_cmp_lt_u32 s9, 4
+  s_cbranch_scc1 inner
+  s_add_u32 s8, s8, 1
+  s_cmp_lt_u32 s8, 4
+  s_cbranch_scc1 outer
+  buffer_store_dword v1, off, s[0:3], 0
+  s_endpgm
+early_exit:
+  v_add_nc_u32 v1, 2, v1
+  buffer_store_dword v1, off, s[0:3], 0
+  s_endpgm)",
+         {0x7e020280u, 0xbe880380u, 0xbe890380u, 0x4a020281u, 0xbf060209u, 0xbf850009u, 0x80098109u, 0xbf0a8409u, 0xbf85fffau, 0x80088108u,
+          0xbf0a8408u, 0xbf85fff6u, 0xe0700000u, 0x80000100u, 0xbf810000u, 0x4a020282u, 0xe0700000u, 0x80000100u, 0xbf810000u},
+         Split::Route, 0},
+        {"loop exit tail beside the continue block", R"(
+  v_mov_b32 v1, 0
+  s_mov_b32 s8, 0
+loop:
+  v_add_nc_u32 v1, 1, v1
+  s_cmp_eq_u32 s8, s2
+  s_cbranch_scc0 latch
+  v_add_nc_u32 v1, 2, v1
+  s_branch done
+latch:
+  s_add_u32 s8, s8, 1
+  s_cmp_lt_u32 s8, 4
+  s_cbranch_scc1 loop
+done:
+  buffer_store_dword v1, off, s[0:3], 0
+  s_endpgm)",
+         Store({0x7e020280u, 0xbe880380u, 0x4a020281u, 0xbf060208u, 0xbf840002u, 0x4a020282u, 0xbf820003u, 0x80088108u, 0xbf0a8408u, 0xbf85fff8u}), Split::None},
         {"shared early exit", R"(
   v_mov_b32 v1, 0
   v_cmp_gt_u32 vcc, 16, v0
