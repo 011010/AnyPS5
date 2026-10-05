@@ -1948,7 +1948,7 @@ void checkNativeVop3Modifiers(RdnaOpcode opcode, bool permlane, bool carryInOut,
     }
     if (carryInOut || scalarDst) {
         const bool floatCompare = scalarDst && isVopcFloatCompareOpcode(opcode);
-        if (clamp != 0u || omod != 0u || (neg != 0u && !floatCompare && opcode != RdnaOpcode::VDivScaleF32 && opcode != RdnaOpcode::VDivScaleF64)) {
+        if ((clamp != 0u && !isVop3BMadU64Opcode(opcode)) || omod != 0u || (neg != 0u && !floatCompare && opcode != RdnaOpcode::VDivScaleF32 && opcode != RdnaOpcode::VDivScaleF64)) {
             throw std::invalid_argument("VOP3 source modifiers are not implemented");
         }
         return;
@@ -2191,7 +2191,7 @@ RdnaInstruction DecodeRdnaVop3(std::uint32_t programCounter, std::span<const std
         instruction.destination = DecodeRdnaVectorGpr(vdst);
     }
     instruction.source0 = DecodeRdnaScalarSource(src0, programCounter);
-    instruction.destination.clamp = supportsNativeVop3Clamp(instruction.op) && clamp != 0u;
+    instruction.destination.clamp = (supportsNativeVop3Clamp(instruction.op) || vop3bMadU64) && clamp != 0u;
     instruction.destination.omod = nativeResultModifiers ? omod : 0u;
     if (permlane) {
         instruction.destination.opSel = (opSel & 0x1u) != 0u;

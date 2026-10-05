@@ -336,10 +336,24 @@ bool TranslationContext::vMad64x32(const RdnaInstruction& inst, bool sign) {
     const IrU32 carryLowU32(ir.Select(carryLow.Value(), ir.Constant(1u), ir.Constant(0u)));
     const IrU32 high(ir.IAdd(high0.Value(), carryLowU32.Value()));
     const IrU1 carry1(ir.ULessThan(high.Value(), high0.Value()));
-    const IrU64 result(ir.ConstructU64(low.Value(), high.Value()));
+    const IrU1 carry(ir.LogicalOr(carry0.Value(), carry1.Value()));
+    IrU32 resultLow = low;
+    IrU32 resultHigh = high;
+    if (inst.destination.clamp) {
+        if (sign) {
+            IrValue& flipped = ir.BitwiseAnd(ir.BitwiseXor(mulHigh.Value(), high.Value()), ir.BitwiseXor(add[1].Value(), high.Value()));
+            const IrU1 overflow(ir.INotEqual(ir.ShiftRightLogical(flipped, ir.Constant(31u)), ir.Constant(0u)));
+            IrValue& addSign = ir.ShiftRightArithmetic(add[1].Value(), ir.Constant(31u));
+            resultLow = IrU32(ir.Select(overflow.Value(), ir.BitwiseXor(addSign, ir.Constant(0xffffffffu)), low.Value()));
+            resultHigh = IrU32(ir.Select(overflow.Value(), ir.BitwiseXor(addSign, ir.Constant(0x7fffffffu)), high.Value()));
+        } else {
+            resultLow = IrU32(ir.Select(carry.Value(), ir.Constant(0xffffffffu), low.Value()));
+            resultHigh = IrU32(ir.Select(carry.Value(), ir.Constant(0xffffffffu), high.Value()));
+        }
+    }
+    const IrU64 result(ir.ConstructU64(resultLow.Value(), resultHigh.Value()));
     writeOperand(inst.destination, &result.Value());
     if (inst.destination2.kind != RdnaOperandKind::Null && inst.destination2.kind != RdnaOperandKind::Unknown) {
-        const IrU1 carry(ir.LogicalOr(carry0.Value(), carry1.Value()));
         if (!sign) {
             writeMask(inst.destination2, carry);
             return true;
