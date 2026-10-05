@@ -535,8 +535,8 @@ constexpr std::int32_t cpuReadWrite = 0x03;
 constexpr std::int32_t cpuGpuReadWrite = 0x33;
 constexpr std::int32_t amprReadWrite = 0xC0;
 
-std::uint64_t& At(std::uint64_t address) {
-    return *reinterpret_cast<std::uint64_t*>(address);
+volatile std::uint64_t& At(std::uint64_t address) {
+    return *reinterpret_cast<volatile std::uint64_t*>(address);
 }
 
 void TestAmm() {
