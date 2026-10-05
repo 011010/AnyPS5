@@ -52,6 +52,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [dolOmWH+huQ](../../core/libs/prx/libSceAgc/Misc/src/ShaderFusion.cpp) (libSceAgc) - unknown name
 - [dbOlWdppb4o](../../core/libs/prx/libSceAgc/Shader/src/InterpolantMapping.cpp) (libSceAgc) - unknown name; same arguments as `sceAgcCreateInterpolantMapping`; the `SPI_PS_INPUT_CNTL` bits for `is_f16` 2 inputs follow KytyPS5, not confirmed on hardware
 - [V++UgBtQhn0](../../core/libs/prx/libSceAgc/Misc/src/PacketInfo.cpp) (libSceAgc) - unknown name
+- [sceAgcGetDataPacketPayloadRange](../../core/libs/prx/libSceAgc/Misc/src/PacketInfo.cpp) (libSceAgc) - signature, the `{base, size in bytes}` output and the type 0 range (header + 1, one dword longer than the type 1 payload) from KytyPS5 only, matching `V++UgBtQhn0`; prosper returns header + 2 for both types from that address function
 - [gQkqkLttcpw](../../core/libs/prx/libSceAgc/Acb/src/Control.cpp) (libSceAgc) - unknown name, signature
 - [sceAgcDcbPrimeUtcl2](../../core/libs/prx/libSceAgc/DcbState/src/Display.cpp) (libSceAgc) - assumed to write the packet `sceAgcAcbPrimeUtcl2` writes: PRIME_UTCL2 has the same 5 dwords on the graphics and compute rings. Not confirmed on a title. Both write a NOP of that size, as there is no TLB to prime
 - [sceKernelInternalMemoryGetModuleSegmentInfo](../../core/libs/prx/libkernel/Module/src/Module.cpp) (libkernel) - unknown signature
