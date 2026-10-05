@@ -66,6 +66,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceNetGetMemoryPoolStats](../../core/libs/prx/libSceNet/Export.cpp) (libSceNet) - unknown signature
 - [sceNpSessionSignalingGetMemoryInfo](../../core/libs/prx/libSceNpSessionSignaling/Export.cpp) (libSceNpSessionSignaling) - unknown signature
 - [sceNpSessionSignalingGetConnectionStatistics](../../core/libs/prx/libSceNpSessionSignaling/Export.cpp) (libSceNpSessionSignaling) - unknown signature
+- [sce::Np::CppWebApi::Common::String](../../core/libs/prx/libSceNpCppWebApi/Export.cpp) (libSceNpCppWebApi) - the 0x20-byte layout (32-bit reference count, buffer at 0x08, buffer size at 0x10, `LibContext*` at 0x18) comes from the module bundled with one title (PPSA21564); other SDK versions are not checked. The destructor throws for a non-null buffer: releasing it needs the `LibContext` allocator, which is not implemented
 - [sceNpTrophy2UnregisterUnlockCallback](../../core/libs/prx/libSceNpTrophy2/src/Context.cpp) (libSceNpTrophy2) - unknown signature
 - [sceSystemServiceDisableMediaPlay](../../core/libs/prx/libSceSystemService/Export.cpp) (libSceSystemService) - unknown signature
 - [sceSystemServiceReenableMediaPlay](../../core/libs/prx/libSceSystemService/Export.cpp) (libSceSystemService) - unknown signature
