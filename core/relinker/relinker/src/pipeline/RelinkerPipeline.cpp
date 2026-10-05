@@ -4,6 +4,7 @@
 #include <sstream>
 #include <iostream>
 #include <cstring>
+#include <domain/ImportModule.hpp>
 
 namespace Relinker {
 
@@ -175,6 +176,12 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
         if (policy) policy->RegisterLibraryImport(snd);
     }
 
+    std::map<std::uint64_t, std::string> importModules;
+    for (const auto& tag : dynTags) {
+        if (tag.Tag == 0x61000045 && !importModules.emplace(tag.Value >> 48, readCStr(tag.Value & 0xffffffffu)).second)
+            throw RelinkerException("Duplicate import module ID");
+    }
+
     auto extractRela = [&](const FileByteOffset relaOff, const ByteCount relaSize) {
         for (ByteCount off = 0; off + relaEntSize <= relaSize; off += relaEntSize) {
             const FileByteOffset pos = relaOff + off;
@@ -203,7 +210,8 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
             std::uint32_t nameOff = 0;
             std::memcpy(&nameOff, raw.data() + symOff, 4);
 
-            nidRefs.push_back({readCStr(nameOff), {}, relType, pos, rOffset, rAddend});
+            const auto name = readCStr(nameOff);
+            nidRefs.push_back({name, Domain::ImportModule(name, importModules), relType, pos, rOffset, rAddend});
         }
     };
 
