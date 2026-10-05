@@ -30,12 +30,6 @@ extern "C" {
         return 0;
     }
 
-APS5_EXPORT("Pu0Ecyk-7FU", libcUnknown_Pu0Ecyk_M7FU);
-int APS5_VABI libcUnknown_Pu0Ecyk_M7FU() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
-}
-
 // Dead import of Cyberpunk 2077 (PPSA04029): no call sites, but the
 // Windows loader resolves imports strictly, so it must be present.
 APS5_EXPORT("u2tMGOLaqnE", libcUnknown_u2tMGOLaqnE);
@@ -69,12 +63,6 @@ int APS5_VABI libcCyberUnknown19(void) {
  return 0;
 }
 
-
-APS5_EXPORT("2gbcltk3swE", libcCyberUnknown00);
-std::uint64_t APS5_VABI libcCyberUnknown00(void) {
-    NotImplemented_nid_no_patch("2gbcltk3swE");
-    return 0;
-}
 
 APS5_EXPORT("DiGVep5yB5w", libcCyberUnknown01);
 std::uint64_t APS5_VABI libcCyberUnknown01(void) {
@@ -157,12 +145,6 @@ std::uint64_t APS5_VABI libcCyberUnknown13(void) {
 APS5_EXPORT("iS4aWbUonl0", libcCyberUnknown14);
 std::uint64_t APS5_VABI libcCyberUnknown14(void) {
     NotImplemented_nid_no_patch("iS4aWbUonl0");
-    return 0;
-}
-
-APS5_EXPORT("qdGFBoLVNKI", libcCyberUnknown15);
-std::uint64_t APS5_VABI libcCyberUnknown15(void) {
-    NotImplemented_nid_no_patch("qdGFBoLVNKI");
     return 0;
 }
 
