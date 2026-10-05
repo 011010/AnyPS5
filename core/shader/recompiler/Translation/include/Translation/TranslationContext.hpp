@@ -251,6 +251,7 @@ private:
     void addU32(const RdnaInstruction& inst, bool vector, bool useCarryIn);
     void subU32(const RdnaInstruction& inst, bool vector, bool reverse);
     void subbU32(const RdnaInstruction& inst, bool vector, bool reverse);
+    bool vAddSubNcU32(const RdnaInstruction& inst, bool subtract, bool reverse);
     void sAbsdiffI32(const RdnaInstruction& inst);
     void sAddSubI32(const RdnaInstruction& inst, bool subtract);
     void sLshlAddU32(const RdnaInstruction& inst, std::uint32_t shiftAmount);
