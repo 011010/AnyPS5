@@ -40,7 +40,21 @@ target_include_directories(libc PRIVATE
         ${LIBS_INCLUDE_DIR}
 )
 
+if(WIN32)
+    target_link_libraries(libc PRIVATE advapi32)
+endif()
+
 if(BUILD_TESTING)
+    add_test_executable(guest_access_tests ${LIBS_INCLUDE_DIR}/tests/GuestAccess.cpp)
+    target_include_directories(guest_access_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(guest_access_tests PRIVATE libc)
+    configure_windows_unwind(guest_access_tests)
+    add_test(NAME guest_access COMMAND guest_access_tests)
+    if(WIN32)
+        target_link_libraries(guest_access_tests PRIVATE advapi32)
+        set_tests_properties(guest_access PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
     add_test_executable(file_position_tests ${LIBS_INCLUDE_DIR}/tests/FilePosition.cpp)
     target_include_directories(file_position_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(file_position_tests PRIVATE libc)

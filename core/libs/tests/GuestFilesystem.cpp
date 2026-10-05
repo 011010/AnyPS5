@@ -5,6 +5,12 @@
 #include <filesystem>
 #include <fstream>
 #include <cstdio>
+#include <cstring>
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 extern "C" {
 int APS5_VABI remove_nid_postfix(const char*);
 int APS5_VABI rename_nid_postfix(const char*, const char*);
@@ -28,6 +34,10 @@ int APS5_VABI sceKernelStat(const char*, FileStat*);
 int APS5_VABI sceKernelUnlink(const char*);
 int APS5_VABI sceKernelRmdir(const char*);
 int* APS5_VABI __error_nid_postfix();
+int APS5_VABI pipe_nid_postfix(int*);
+std::int64_t APS5_VABI read_nid_postfix(int, void*, std::size_t);
+std::int64_t APS5_VABI write_nid_postfix(int, const void*, std::size_t);
+int APS5_VABI sceKernelDebugOutText(int, const char*);
 }
 static void Check(bool value, int line) {
     if (!value) {
@@ -37,6 +47,40 @@ static void Check(bool value, int line) {
 }
 #define Require(value) Check((value), __LINE__)
 int main() {
+    Require(sceKernelDebugOutText(-1, "text") == static_cast<int>(0x80020016u));
+    Require(sceKernelDebugOutText(0, nullptr) == static_cast<int>(0x8002000eu));
+    auto* captured = std::tmpfile();
+    Require(captured != nullptr);
+#ifdef _WIN32
+    const int saved = ::_dup(::_fileno(stderr));
+    Require(saved >= 0 && ::_dup2(::_fileno(captured), ::_fileno(stderr)) == 0);
+#else
+    const int saved = ::dup(::fileno(stderr));
+    Require(saved >= 0 && ::dup2(::fileno(captured), ::fileno(stderr)) == ::fileno(stderr));
+#endif
+    const int debugResult = sceKernelDebugOutText(3, "%s%d literal\n");
+#ifdef _WIN32
+    Require(::_dup2(saved, ::_fileno(stderr)) == 0 && ::_close(saved) == 0);
+#else
+    Require(::dup2(saved, ::fileno(stderr)) == ::fileno(stderr) && ::close(saved) == 0);
+#endif
+    Require(debugResult == 0);
+    std::rewind(captured);
+    char debugText[64]{};
+    Require(std::fread(debugText, 1, sizeof(debugText), captured) == 23);
+    Require(std::strcmp(debugText, "[debug:3] %s%d literal\n") == 0);
+    Require(std::fclose(captured) == 0);
+    Require(pipe_nid_postfix(nullptr) == -1 && *__error_nid_postfix() == 14);
+    int descriptors[2] = {-1, -1};
+    Require(pipe_nid_postfix(descriptors) == 0 && descriptors[0] >= 0 && descriptors[1] >= 0);
+    const char payload[] = {'A', '\0', '\r', '\n', '\x1a', 'Z'};
+    Require(write_nid_postfix(descriptors[1], payload, sizeof(payload)) == sizeof(payload));
+    Require(close_nid_postfix(descriptors[1]) == 0);
+    char received[sizeof(payload)]{};
+    Require(read_nid_postfix(descriptors[0], received, sizeof(received)) == sizeof(received));
+    Require(std::memcmp(received, payload, sizeof(payload)) == 0);
+    Require(read_nid_postfix(descriptors[0], received, sizeof(received)) == 0);
+    Require(close_nid_postfix(descriptors[0]) == 0);
     const auto root = std::filesystem::path("anyps5-filesystem-test-" +
         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     Require(std::filesystem::create_directory(root));
