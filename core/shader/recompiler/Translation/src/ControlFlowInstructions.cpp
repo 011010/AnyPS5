@@ -168,6 +168,8 @@ void TranslationContext::sLshlAddU32(const RdnaInstruction& inst, std::uint32_t 
     const IrU32 rhs = readU32(sourceAt(inst, 1u));
     const IrU32 shifted(ir.ShiftLeftLogical(lhs.Value(), ir.Constant(shiftAmount)));
     const IrU32 result(ir.IAdd(shifted.Value(), rhs.Value()));
+    const IrU1 shiftedOut(ir.INotEqual(ir.ShiftRightLogical(lhs.Value(), ir.Constant(32u - shiftAmount)), ir.Constant(0u)));
+    ir.SetScc(ir.LogicalOr(shiftedOut.Value(), ir.ULessThan(result.Value(), shifted.Value())));
     writeRawU32(inst.destination, result);
 }
 
