@@ -73,6 +73,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [scePsmlMfsrGetContextBufferRequirement1100, scePsmlMfsrCreateContext1100, scePsmlMfsrGetDispatchMfsrPacket1100](../../core/libs/prx/libScePsml_debug/Export.cpp) (libScePsml_debug) - argument layouts unknown; only 0x8A810001 (not initialized) is returned
 - [BnMAMrsfVWo](../../core/libs/prx/libc/src/HeapDiagnostics.cpp) (libc) - unknown name, signature
 - [scePngEncEncode](../../core/libs/prx/libScePngEnc/Export.cpp) (libScePngEnc) - whether rows may stay unfiltered when `filter_type` names a subset of the filters is unknown; as in shadPS4, they may only for 0 and for the all-filters mask
+- [sceVoiceQoSInit](../../core/libs/prx/libSceVoiceQoS/Export.cpp) (libSceVoiceQoS) - the error codes are unknown: a null or empty memory block, an app type other than 0x20000000 (the value PPSA14632 passes) and a second initialization throw. The minimum memory size is unknown and the block is not used, as no endpoint is implemented
 - AudioIn, NpSessionSignaling and PlayerInvitationDialog exports added without an implementation have assumed signatures
 - [vieBRwlh1Lw](../../core/libs/prx/libSceAgc/Unimplemented.cpp) (libSceAgc) - unknown name, signature
 - [fCWdlnmB1Ks](../../core/libs/prx/libScePad/Export.cpp) (libScePad) - unknown name, signature
