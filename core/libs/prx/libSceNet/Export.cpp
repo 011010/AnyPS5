@@ -49,6 +49,7 @@ constexpr int NET_ECONNABORTED = 53;
 constexpr int NET_EMSGSIZE = 40;
 constexpr int NET_ETIMEDOUT = 60;
 constexpr int NET_ECONNREFUSED = 61;
+constexpr int NET_ERROR_BASE = static_cast<int>(0x80410100u);
 constexpr int NET_ERROR_RESOLVER_ENODNS = static_cast<int>(0x804101E1u);
 
 constexpr int NET_AF_INET = 2;
@@ -212,7 +213,7 @@ int* errno_slot() {
 
 int fail(int err) {
     *errno_slot() = err;
-    return -1;
+    return NET_ERROR_BASE | err;
 }
 
 void log_soft(const char* func, const char* what) {
