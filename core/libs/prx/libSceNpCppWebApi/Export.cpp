@@ -447,14 +447,24 @@ int APS5_VABI _ZN3sce2Np9CppWebApi6Common21DownStreamTransactionINS2_12Intrusive
     return 0;
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common6StringC1EPNS2_10LibContextE(void* self) {
-    (void)self;
-    return 0;
+struct CommonString {
+    std::int32_t referenceCount;
+    char* buffer;
+    std::uint64_t bufferSize;
+    void* libContext;
+};
+static_assert(sizeof(CommonString) == 0x20 && offsetof(CommonString, buffer) == 0x08);
+static_assert(offsetof(CommonString, bufferSize) == 0x10 && offsetof(CommonString, libContext) == 0x18);
+
+void APS5_VABI _ZN3sce2Np9CppWebApi6Common6StringC1EPNS2_10LibContextE(CommonString* self, void* libContext) {
+    self->referenceCount = 0;
+    self->buffer = nullptr;
+    self->bufferSize = 0;
+    self->libContext = libContext;
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common6StringD1Ev(void* self) {
-    (void)self;
-    return 0;
+void APS5_VABI _ZN3sce2Np9CppWebApi6Common6StringD1Ev(CommonString* self) {
+    if (self->buffer != nullptr) NotImplemented_nid_no_patch("sce::Np::CppWebApi::Common::String buffer release");
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_12Leaderboards2V14UserEEEE8pushBackERKS8_() {
@@ -727,9 +737,8 @@ int APS5_VABI _ZNK3sce2Np9CppWebApi6Common6Binary9getBinaryEv() {
  return 0;
 }
 
-int APS5_VABI _ZNK3sce2Np9CppWebApi6Common6String5c_strEv() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+const char* APS5_VABI _ZNK3sce2Np9CppWebApi6Common6String5c_strEv(const CommonString* self) {
+    return self->buffer != nullptr ? self->buffer : "";
 }
 
 int APS5_VABI _ZNK3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_12Leaderboards2V15EntryEEEEdeEv() {
