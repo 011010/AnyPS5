@@ -57,6 +57,16 @@ Throughout the project, every function at every stage either **does exactly what
 - [SceAvPlayerVideoEx](../../core/libs/SceTypes.hpp) (libSceAvPlayer) - frame rate field and encoding unknown; it is left zero in frame and stream info
 - [sceAjmDecMp3ParseFrame](../../core/libs/prx/libSceAjm.native/src/Ajm.cpp) (libSceAjm.native) - signature, result layout and rate tables taken from the [shadPS4](https://github.com/shadps4-emu/shadPS4) reimplementation of the PS4 library, not confirmed on a PS5 title: the layer field is not checked and MPEG-2.5 stops at 64 kbps
 - [AJM Opus decoder](../../core/libs/prx/libSceAjm.native/src/Ajm.cpp) (libSceAjm.native, codec 24) - the initialize parameter layout (`u32 channels, u32 sample rate, u32`, seen as `2, 48000, 0`) and the little-endian `u16` byte count before each packet come from one title (The Smurfs Dreams); only 48000 Hz and a zero third word are accepted
+- [sceHttpParseResponseHeader](../../core/libs/prx/libSceHttp/Export.cpp) (libSceHttp) - unknown signature
+- [sceHttp2GetMemoryPoolStats](../../core/libs/prx/libSceHttp2/Export.cpp) (libSceHttp2) - unknown signature
+- [sceNetGetMemoryPoolStats](../../core/libs/prx/libSceNet/Export.cpp) (libSceNet) - unknown signature
+- [sceNpSessionSignalingGetMemoryInfo](../../core/libs/prx/libSceNpSessionSignaling/Export.cpp) (libSceNpSessionSignaling) - unknown signature
+- [sceNpSessionSignalingGetConnectionStatistics](../../core/libs/prx/libSceNpSessionSignaling/Export.cpp) (libSceNpSessionSignaling) - unknown signature
+- [sceNpTrophy2UnregisterUnlockCallback](../../core/libs/prx/libSceNpTrophy2/src/Context.cpp) (libSceNpTrophy2) - unknown signature
+- [sceSystemServiceDisableMediaPlay](../../core/libs/prx/libSceSystemService/Export.cpp) (libSceSystemService) - unknown signature
+- [sceSystemServiceReenableMediaPlay](../../core/libs/prx/libSceSystemService/Export.cpp) (libSceSystemService) - unknown signature
+- [sceVoiceSetMuteFlag](../../core/libs/prx/libSceVoice/Export.cpp) (libSceVoice) - unknown signature
+- [snwprintf_s](../../core/libs/prx/libc/src/RuntimeSupport.cpp) (libc) - unknown signature
 
 ### Functional
 
