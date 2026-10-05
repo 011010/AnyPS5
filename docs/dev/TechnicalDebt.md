@@ -48,6 +48,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceAgcGetIsTrinityMode](../../core/libs/prx/libSceAgc/Misc/src/Platform.cpp) (libSceAgc) - signature from the only PPSA26344 call (a pointer to a one-byte flag, result ignored); a null pointer throws because its error code is unknown
 - [zARR5aCmkoY](../../core/libs/prx/libSceAgc/DcbFlow/src/Control.cpp) (libSceAgc) - unknown name, signature
 - [qj7QZpgr9Uw](../../core/libs/prx/libSceAgc/DcbState/src/ContextState.cpp) (libSceAgc) - unknown name
+- [sceAgcDcbContextStateOpGetSize](../../core/libs/prx/libSceAgc/DcbState/src/ContextState.cpp) (libSceAgc) - sizes from KytyPS5 only (5, 27, 27 and 32 dwords), equal to what `qj7QZpgr9Uw` writes; KytyPS5 returns 0 for an operation above 3, here it throws
 - [fd5Bp5tGTgo](../../core/libs/prx/libSceAgc/Misc/src/ShaderFusion.cpp) (libSceAgc) - unknown name
 - [dolOmWH+huQ](../../core/libs/prx/libSceAgc/Misc/src/ShaderFusion.cpp) (libSceAgc) - unknown name
 - [dbOlWdppb4o](../../core/libs/prx/libSceAgc/Shader/src/InterpolantMapping.cpp) (libSceAgc) - unknown name; same arguments as `sceAgcCreateInterpolantMapping`; the `SPI_PS_INPUT_CNTL` bits for `is_f16` 2 inputs follow KytyPS5, not confirmed on hardware
