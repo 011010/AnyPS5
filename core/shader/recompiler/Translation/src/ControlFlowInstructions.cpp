@@ -25,17 +25,17 @@ bool SaveexecWritesDestinationFirst() {
     return writeFirst;
 }
 
-void TranslationContext::sSaveexec(const RdnaInstruction& inst, IrOpcode operation, bool negateExec, bool negateSource, bool write64, bool negateResult, bool writeDestination) {
+void TranslationContext::sSaveexec(const RdnaInstruction& inst, IrOpcode operation, bool negateExec, bool negateSource, bool write64, bool negateResult, bool writeResult) {
     // Callers name the lane-wise operation; the exec mask words themselves combine bitwise.
     if (operation == IrOpcode::LogicalAnd) operation = IrOpcode::BitwiseAnd32;
     else if (operation == IrOpcode::LogicalOr) operation = IrOpcode::BitwiseOr32;
     else if (operation == IrOpcode::LogicalXor) operation = IrOpcode::BitwiseXor32;
-    const bool writeFirst = SaveexecWritesDestinationFirst() && writeDestination;
+    const bool writeFirst = SaveexecWritesDestinationFirst() && !writeResult;
     if (write64) {
         const std::array<IrU32, 2> oldExec{IrU32(ir.GetExecLo()), IrU32(ir.GetExecHi())};
         if (writeFirst) writeU32Pair(inst.destination, oldExec);
         const std::array<IrU32, 2> source = readU32Pair(sourceAt(inst, 0u));
-        if (!writeFirst && writeDestination) writeU32Pair(inst.destination, oldExec);
+        if (!writeFirst && !writeResult) writeU32Pair(inst.destination, oldExec);
         IrValue& lowExecOperand = negateExec ? ir.BitwiseNot(oldExec[0].Value()) : oldExec[0].Value();
         IrValue& lowSourceOperand = negateSource ? ir.BitwiseNot(source[0].Value()) : source[0].Value();
         IrValue& highExecOperand = negateExec ? ir.BitwiseNot(oldExec[1].Value()) : oldExec[1].Value();
@@ -46,6 +46,7 @@ void TranslationContext::sSaveexec(const RdnaInstruction& inst, IrOpcode operati
         const IrU32 newExecHi(negateResult ? ir.BitwiseNot(highCombined) : highCombined);
         ir.SetExecLo(newExecLo.Value());
         ir.SetExecHi(newExecHi.Value());
+        if (writeResult) writeU32Pair(inst.destination, {newExecLo, newExecHi});
         const IrU1 nonZero(ir.LogicalOr(ir.INotEqual(newExecLo.Value(), ir.Constant(0u)), ir.INotEqual(newExecHi.Value(), ir.Constant(0u))));
         ir.SetScc(nonZero.Value());
         ir.SetExec(threadBit({newExecLo, newExecHi}).Value());
@@ -54,12 +55,13 @@ void TranslationContext::sSaveexec(const RdnaInstruction& inst, IrOpcode operati
     const IrU32 oldExec(ir.GetExecLo());
     if (writeFirst) writeRawU32(inst.destination, oldExec);
     const IrU32 source = readU32(sourceAt(inst, 0u));
-    if (!writeFirst && writeDestination) writeRawU32(inst.destination, oldExec);
+    if (!writeFirst && !writeResult) writeRawU32(inst.destination, oldExec);
     IrValue& execOperand = negateExec ? ir.BitwiseNot(oldExec.Value()) : oldExec.Value();
     IrValue& sourceOperand = negateSource ? ir.BitwiseNot(source.Value()) : source.Value();
     IrValue& combined = ir.Emit(operation, IrType::U32, {&execOperand, &sourceOperand});
     const IrU32 newExec(negateResult ? ir.BitwiseNot(combined) : combined);
     ir.SetExecLo(newExec.Value());
+    if (writeResult) writeRawU32(inst.destination, newExec);
     const IrU1 nonZero(ir.INotEqual(newExec.Value(), ir.Constant(0u)));
     ir.SetScc(nonZero.Value());
     ir.SetExec(threadBit({newExec, IrU32(ir.GetExecHi())}).Value());
@@ -254,13 +256,17 @@ void TranslationContext::sWqm(const RdnaInstruction& inst, bool wide) {
         const std::array<IrU32, 2> source = readU32Pair(sourceAt(inst, 0u));
         const IrU64 wide64(ir.ConstructU64(source[0].Value(), source[1].Value()));
         const IrU64 result(ir.Emit(IrOpcode::WqmU64, IrType::U64, {&wide64.Value()}));
-        writeU32Pair(inst.destination, extractU64(result));
+        const std::array<IrU32, 2> words = extractU64(result);
+        writeU32Pair(inst.destination, words);
+        ir.SetScc(ir.LogicalOr(ir.INotEqual(words[0].Value(), ir.Constant(0u)), ir.INotEqual(words[1].Value(), ir.Constant(0u))));
         return;
     }
     const IrU32 source = readU32(sourceAt(inst, 0u));
     const IrU64 wide64(ir.ConstructU64(source.Value(), ir.Constant(0u)));
     const IrU64 result(ir.Emit(IrOpcode::WqmU64, IrType::U64, {&wide64.Value()}));
-    writeRawU32(inst.destination, extractU64(result)[0]);
+    const IrU32 low = extractU64(result)[0];
+    writeRawU32(inst.destination, low);
+    ir.SetScc(ir.INotEqual(low.Value(), ir.Constant(0u)));
 }
 
 // M0 holds a uniform register offset. Vector registers are SSA values with fixed indices, so an indexed
