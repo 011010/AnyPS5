@@ -65,12 +65,13 @@ void testRange() {
     Storage storage;
     auto* first = sceAgcDcbSetIndexCount(&storage.buffer, 3);
     *storage.buffer.cursor_up++ = 0x80000000u;
+    *storage.buffer.cursor_up++ = 0xffff1000u;
     auto* second = sceAgcDcbSetIndexBuffer(&storage.buffer, 0x1000);
     auto* third = sceAgcDcbSetIndexCount(&storage.buffer, 5);
     const std::array headers{first[0], second[0], third[0]};
     check(sceAgcSetRangePredication(first, storage.buffer.cursor_up, 1) == 0, "range predication failed");
     check(first[0] == (headers[0] | 1u) && second[0] == (headers[1] | 1u) && third[0] == (headers[2] | 1u), "range did not predicate every packet");
-    check(first[2] == 0x80000000u && second[1] == 0x1000u && third[1] == 5u, "range predication changed a payload or filler");
+    check(first[2] == 0x80000000u && first[3] == 0xffff1000u && second[1] == 0x1000u && third[1] == 5u, "range predication changed a payload, filler or pad");
     check(sceAgcSetRangePredication(second, third, 0) == 0 && second[0] == headers[1] && third[0] == (headers[2] | 1u), "range end is not exclusive");
     check(sceAgcSetRangePredication(first, first, 0) == 0 && first[0] == (headers[0] | 1u), "empty range changed a packet");
     expectFailure([&] { sceAgcSetRangePredication(first, first + 1, 1); });

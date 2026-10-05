@@ -23,7 +23,7 @@ int APS5_VABI sceAgcSetRangePredication(uint32_t* start, const volatile uint32_t
     auto* packet = start;
     while (packet < end) {
         const auto type = packet[0] >> 30u;
-        if (type == 2u) {
+        if (type == 2u || (packet[0] & 0x3fffff00u) == 0x3fff1000u) {
             ++packet;
             continue;
         }
