@@ -42,6 +42,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceKernelInternalMemoryGetModuleSegmentInfo](../../core/libs/prx/libkernel/Module/src/Module.cpp) (libkernel) - unknown signature
 - [sceKernelSyncOnAddressWait](../../core/libs/prx/libkernel/SyncOnAddress/src/SyncOnAddress.cpp) (libkernel) - the only known caller passes a null timeout and a name string as the fourth argument; the timeout is assumed to point to microseconds like the other kernel waits, and the name is ignored
 - [sceKernelMapNamedFlexibleMemoryInternal](../../core/libs/prx/libkernel/DirectMemory/Export.cpp) (libkernel) - flag 0x8000 unknown; only the sceKernelMapNamedFlexibleMemory flags are accepted
+- [Guest arena](../../core/libs/prx/libc/src/GuestArena.cpp) (libc) - the application map area is assumed to end at 0xFC_0000_0000, as `SCE_KERNEL_APP_MAP_AREA_END_ADDR` does on the PS4. On Windows, host allocations made in the arena before libc loads stay, and a fixed guest mapping over one throws
 - [sceLibcInternalBacktraceForGame](../../core/libs/prx/libc/src/HeapDiagnostics.cpp) (libSceLibcInternal, implemented in libc) - unknown signature
 - [sceLibcInternalHeapErrorReportForGame](../../core/libs/prx/libc/src/HeapDiagnostics.cpp) (libSceLibcInternal, implemented in libc) - unknown signature
 - [__progname](../../core/libs/prx/libkernel/System/src/Process.cpp) (libkernel) - unknown data export
