@@ -12,6 +12,7 @@
 
 Throughout the project, every function at every stage either **does exactly what it's supposed to or throws an exception**. Everywhere... except:
 - [libSceSaveDataDialog.native](../../core/libs/prx/libSceSaveDataDialog.native/Export.cpp)
+- [libSceMsgDialog.native](../../core/libs/prx/libSceMsgDialog.native/Export.cpp) - dialogs finish at `sceMsgDialogOpen` without UI and answer with button 1, so `sceMsgDialogClose` returns `NOT_RUNNING`; its result before `sceMsgDialogInitialize` follows libSceMsgDialog
 - [libSceCommonDialog](../../core/libs/prx/libSceCommonDialog/Export.cpp)
 - [libSceErrorDialog](../../core/libs/prx/libSceErrorDialog/Export.cpp) - the error dialog runs the state machine but shows nothing; the error code passed to `sceErrorDialogOpen` is only logged
 - [libSceHmd](../../core/libs/prx/libSceHmd/Export.cpp) implements only the disconnected-headset path: initialization succeeds, device queries report `NotDetected`, and opening a device returns `DeviceDisconnected`. Headset support, tracking, rendering and additional HMD exports are not implemented; SDK-level ABI compatibility and in-game behaviour remain unverified.
