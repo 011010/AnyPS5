@@ -1056,7 +1056,7 @@ void ShaderResources::buildComplete() {
                         break;
                     case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
                         write.pImageInfo = images.data() + images.size();
-                        for (const auto index : binding.imageAllocations) images.push_back({VK_NULL_HANDLE, storageFirstLayer[index] ? storageTextures[index]->FirstLayerView(storageMips[index]) : storageTextures[index]->View(storageMips[index]), VK_IMAGE_LAYOUT_GENERAL});
+                        for (const auto index : binding.imageAllocations) images.push_back({VK_NULL_HANDLE, storageAtomic[index] ? storageTextures[index]->AtomicView(storageMips[index], storageFirstLayer[index]) : storageFirstLayer[index] ? storageTextures[index]->FirstLayerView(storageMips[index]) : storageTextures[index]->View(storageMips[index]), VK_IMAGE_LAYOUT_GENERAL});
                         break;
                     case VK_DESCRIPTOR_TYPE_SAMPLER:
                         write.pImageInfo = images.data() + images.size();
@@ -1201,6 +1201,7 @@ std::vector<std::uint32_t> ShaderResources::ContentKey(const CompiledShader& sha
         packBits(binding.imageWritten);
         packBits(binding.samplerDepthCompare);
         packBits(binding.imageDepthCompare);
+        packBits(binding.imageAtomic);
         // Read-only elements are bound without a write set: an object built for one written set
         // must not serve a build with another (the variant implies it, this makes it explicit).
         packBits(binding.bufferWritten);
@@ -2564,6 +2565,7 @@ void ShaderResources::resolveImageBinding(const ShaderRecompiler::DescriptorBind
         storageFirstLayer.push_back(firstLayer);
         // Images the shader only reads have nothing to store back.
         storageWritten.push_back(element >= binding.imageWritten.size() || binding.imageWritten[element]);
+        storageAtomic.push_back(element < binding.imageAtomic.size() && binding.imageAtomic[element]);
         describedRanges.push_back({"storage", resource.baseAddress, guestBytes, resource.width, resource.height, resource.format, static_cast<int>(resource.tileMode), resource.dccAddress});
         item.imageAllocations.push_back(storageTextures.size() - 1);
     }
