@@ -36,6 +36,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [qj7QZpgr9Uw](../../core/libs/prx/libSceAgc/DcbState/src/ContextState.cpp) (libSceAgc) - unknown name
 - [fd5Bp5tGTgo](../../core/libs/prx/libSceAgc/Misc/src/ShaderFusion.cpp) (libSceAgc) - unknown name
 - [dolOmWH+huQ](../../core/libs/prx/libSceAgc/Misc/src/ShaderFusion.cpp) (libSceAgc) - unknown name
+- [dbOlWdppb4o](../../core/libs/prx/libSceAgc/Shader/src/InterpolantMapping.cpp) (libSceAgc) - unknown name; same arguments as `sceAgcCreateInterpolantMapping`; the `SPI_PS_INPUT_CNTL` bits for `is_f16` 2 inputs follow KytyPS5, not confirmed on hardware
 - [V++UgBtQhn0](../../core/libs/prx/libSceAgc/Misc/src/PacketInfo.cpp) (libSceAgc) - unknown name
 - [gQkqkLttcpw](../../core/libs/prx/libSceAgc/Acb/src/Control.cpp) (libSceAgc) - unknown name, signature
 - [sceAgcDcbPrimeUtcl2](../../core/libs/prx/libSceAgc/DcbState/src/Display.cpp) (libSceAgc) - assumed to write the packet `sceAgcAcbPrimeUtcl2` writes: PRIME_UTCL2 has the same 5 dwords on the graphics and compute rings. Not confirmed on a title. Both write a NOP of that size, as there is no TLB to prime
