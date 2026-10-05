@@ -24,7 +24,6 @@ Throughout the project, every function at every stage either **does exactly what
 
 ### Unknown function info
 
-- [libSceUlt queues](../../core/libs/prx/libSceUlt/Export.cpp) - the added `sceUltQueuePop`, `sceUltQueueTryPush`, `sceUltQueueDestroy` and `sceUltQueueDataResourcePoolDestroy` signatures are inferred from the existing push/pop and object APIs. Queue destruction is assumed to reject blocked callers with `ULT_ERROR_BUSY` and otherwise discard queued data; pool exhaustion returns `ULT_ERROR_AGAIN`. These rules, alignment checks and shared slot limits have not been confirmed on PS5 hardware or a title. Non-null queue and data-pool option parameters throw because their layouts are unknown.
 - [sceVideoOutOpen](../../core/libs/prx/libSceVideoOut/src/Output.cpp) (libSceVideoOut) - the open param's first word is unknown (PPSA21564 passes 16; it is not the byte size, since the affinity mask is at offset 16); only 16 is accepted. Whether the param continues past offset 24 is also unknown
 - [sceRtcParseDateTime](../../core/libs/prx/libSceRtc/Export.cpp) (libSceRtc) - accepted format assumed to be the ISO 8601 subset `YYYY-MM-DDTHH:MM:SS[.ffffff]` (T/t/space separator, optional fractional seconds) with the sibling RFC 3339 zone suffix (`Z` or `±HH:MM`); a string without a zone is taken as UTC, and anything outside this shape throws instead of returning a parse error, unverified against hardware
 - [AMPR WriteAddressFromCounterPairOnCompletion](../../core/libs/prx/libSceAmpr/Export.cpp) (libSceAmpr) - the pair of an even counter n is assumed to give counter n in the low 32 bits and n + 1 in the high 32 bits. Wait compare values, wait flush and counter index ranges follow the [ampr_emu](https://github.com/drakmor/ampr_emu) reimplementation; the flush is accepted and has no effect, as commands run in order
@@ -71,6 +70,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceSystemServiceReenableMediaPlay](../../core/libs/prx/libSceSystemService/Export.cpp) (libSceSystemService) - unknown signature
 - [sceVoiceSetMuteFlag](../../core/libs/prx/libSceVoice/Export.cpp) (libSceVoice) - unknown signature
 - [snwprintf_s](../../core/libs/prx/libc/src/RuntimeSupport.cpp) (libc) - unknown signature
+- [libSceUlt queues](../../core/libs/prx/libSceUlt/Export.cpp) - the added `sceUltQueuePop`, `sceUltQueueTryPush`, `sceUltQueueDestroy` and `sceUltQueueDataResourcePoolDestroy` signatures are inferred from the existing push/pop and object APIs. Queue destruction is assumed to reject blocked callers with `ULT_ERROR_BUSY` and otherwise discard queued data; pool exhaustion returns `ULT_ERROR_AGAIN`. These rules, alignment checks and shared slot limits have not been confirmed on PS5 hardware or a title. Non-null queue and data-pool option parameters throw because their layouts are unknown.
 
 ### Functional
 
