@@ -23,14 +23,13 @@ static void Check(std::uint32_t opcode, RdnaOpcode expected, std::uint32_t dword
     auto& block = program.CreateBlock();
     program.SetEntryBlock(block);
     TranslationContext context(program, block, 256);
-    context.TranslateInstruction(instruction);
-    std::uint32_t loadCount = 0;
-    for (auto* value : block.Instructions()) {
-        if (value->Opcode() == IrOpcode::LoadAddressU32) {
-            ++loadCount;
-        }
+    bool threw = false;
+    try {
+        context.TranslateInstruction(instruction);
+    } catch (const std::runtime_error&) {
+        threw = true;
     }
-    Require(loadCount == dwords);
+    Require(threw);
 }
 int main() {
     Check(0x05u, RdnaOpcode::SScratchLoadDword, 1u);

@@ -52,32 +52,8 @@ bool TranslationContext::sLoad(const RdnaInstruction& inst, bool raw) {
     return true;
 }
 
-bool TranslationContext::sScratchLoad(const RdnaInstruction& inst) {
-    if (inst.family != RdnaInstructionFamily::SMEM) {
-        throw std::runtime_error("sScratchLoad requires an SMEM instruction");
-    }
-    MemoryInfo memory;
-    memory.kind = ResourceKind::Scratch;
-    memory.offset = inst.memoryOffset;
-    memory.dataDwords = inst.dataDwordCount;
-    memory.componentCount = inst.dataDwordCount;
-    IrValue& resource = ir.Emit(IrOpcode::GetScratchResource, IrOpcodeType(IrOpcode::GetScratchResource), {});
-    const IrU32 base = readU32(inst.source0);
-    const IrU32 soffset = readU32(inst.source1);
-    IrValue& byteOffset = ir.IAdd(base.Value(), soffset.Value());
-    std::array<IrValue*, 4u> loaded{};
-    for (std::uint32_t component = 0u; component < memory.dataDwords; ++component) {
-        MemoryInfo scalar = memory;
-        scalar.offset += component * 4u;
-        scalar.dataDwords = 1u;
-        scalar.componentIndex = component;
-        const MemoryFlags flags = addMemoryInfo(scalar, inst.programCounter);
-        loaded[component] = &ir.Emit(IrOpcode::LoadAddressU32, IrOpcodeType(IrOpcode::LoadAddressU32), {&resource, &byteOffset, &ir.Constant(0u), &ir.ConstantBool(true)}, flags);
-    }
-    for (std::uint32_t component = 0u; component < memory.dataDwords; ++component) {
-        writeOperand(scalarDestinationOperand(inst.destination, component), loaded[component]);
-    }
-    return true;
+bool TranslationContext::sScratchLoad(const RdnaInstruction& /*inst*/) {
+    throw std::runtime_error("s_scratch_load not yet implemented: wave-uniform or swizzled scratch layout required");
 }
 
 void TranslationContext::TranslateCodeTableLoad(const RdnaInstruction& instruction, const ControlFlowGraph::CodeTableLoad& table) {
