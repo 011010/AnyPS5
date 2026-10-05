@@ -708,10 +708,10 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
         vCvtPkrtzF16F32(inst);
         return true;
     case RdnaOpcode::VCvtPknormI16F32:
-        vCvtPknormF32(inst, IrOpcode::PackSnorm2x16);
+        vCvtPknormF32(inst, true);
         return true;
     case RdnaOpcode::VCvtPknormU16F32:
-        vCvtPknormF32(inst, IrOpcode::PackUnorm2x16);
+        vCvtPknormF32(inst, false);
         return true;
     case RdnaOpcode::VCvtPkU8F32:
         vCvtPkU8F32(inst);
@@ -933,7 +933,7 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
     case RdnaOpcode::VDivFixupF32:
         return vDivFixupF32(inst);
     case RdnaOpcode::VLdexpF32:
-        return floatBinary(inst, IrOpcode::FPLdexp, false);
+        return vLdexpF32(inst);
     case RdnaOpcode::VMacF32:
         return floatTernary(inst, roundsProductSeparately(inst) ? IrOpcode::FPMad32 : IrOpcode::FPFma32, true, true);
     case RdnaOpcode::VMadmkF32:

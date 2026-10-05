@@ -460,11 +460,6 @@ std::uint32_t EmitFPLog2(SpirvEmitterState& state, std::uint32_t arg0) {
     return EmitExt(state, TypeF32(state), GLSLstd450Log2, {EmitFlushF32DenormToSignedZero(state, arg0)});
 }
 
-std::uint32_t EmitFPLdexp(SpirvEmitterState& state, std::uint32_t arg0, std::uint32_t arg1) {
-    const auto exponent = Unary(state, spv::OpBitcast, TypeI32(state), arg1);
-    return EmitExt(state, TypeF32(state), GLSLstd450Ldexp, {arg0, exponent});
-}
-
 std::uint32_t EmitFPSin(SpirvEmitterState& state, std::uint32_t arg0) {
     const auto cycle = EmitTrigCycleF32(state, arg0, true);
     const auto source = Binary(state, spv::OpFMul, TypeF32(state), cycle, ConstantF32(state, 0x40c90fdbu));
@@ -950,14 +945,6 @@ std::uint32_t EmitPackHalf2x16(SpirvEmitterState& state, std::uint32_t arg0) {
     };
     const auto high = Binary(state, spv::OpShiftLeftLogical, TypeU32(state), component(1u), ConstantU32(state, 16u));
     return Binary(state, spv::OpBitwiseOr, TypeU32(state), component(0u), high);
-}
-
-std::uint32_t EmitPackSnorm2x16(SpirvEmitterState& state, std::uint32_t arg0) {
-    return EmitGlsl<GLSLstd450PackSnorm2x16, IrType::U32>(state, arg0);
-}
-
-std::uint32_t EmitPackUnorm2x16(SpirvEmitterState& state, std::uint32_t arg0) {
-    return EmitGlsl<GLSLstd450PackUnorm2x16, IrType::U32>(state, arg0);
 }
 
 std::uint32_t EmitFPFma32(SpirvEmitterState& state, std::uint32_t arg0, std::uint32_t arg1, std::uint32_t arg2) {

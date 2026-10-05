@@ -145,7 +145,7 @@ private:
     void vFrexpExpI32F32(const RdnaInstruction& inst);
     void vCvtOffF32I4(const RdnaInstruction& inst);
     void vCvtPkrtzF16F32(const RdnaInstruction& inst);
-    void vCvtPknormF32(const RdnaInstruction& inst, IrOpcode opcode);
+    void vCvtPknormF32(const RdnaInstruction& inst, bool signedValue);
     void vCvtPkU8F32(const RdnaInstruction& inst);
     void vPackB32F16(const RdnaInstruction& inst);
     bool packedFloat16(const RdnaInstruction& inst, IrOpcode opcode, bool accumulator, bool quietSnan);
@@ -162,8 +162,10 @@ private:
     bool vDivFixupF32(const RdnaInstruction& inst);
     bool vFrexpMantF32(const RdnaInstruction& inst);
     bool vFmaLegacyF32(const RdnaInstruction& inst);
+    bool vLdexpF32(const RdnaInstruction& inst);
     IrU32 readF16Bits(const RdnaOperand& operand);
     IrU32 normF16(IrU32 bits, bool signedValue);
+    IrU32 normF32(IrU32 bits, bool signedValue);
     bool vLdexpF16(const RdnaInstruction& inst);
     bool vFrexpF16(const RdnaInstruction& inst, bool exponent);
     bool vCvtNormF16(const RdnaInstruction& inst, bool signedValue);
