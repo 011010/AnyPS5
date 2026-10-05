@@ -60,11 +60,6 @@ int APS5_VABI sceAgcGetDefaultCxStateFlat() {
  return 0;
 }
 
-int APS5_VABI sceAgcGetGsOversubscription() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
-}
-
 int APS5_VABI sceAgcGetSemaphoreLabel() {
  NotImplemented_nid_no_patch(__func__);
  return 0;
