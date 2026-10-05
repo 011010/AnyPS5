@@ -28,6 +28,7 @@ namespace {
 using AgcDriver::Graphics::Require;
 
 alignas(256) std::array<std::byte, 1024> colorMemory{};
+alignas(256) std::array<std::byte, 2048> sliceMemory{};
 
 AgcDriver::QueueState makeState() {
     AgcDriver::QueueState queue;
@@ -126,7 +127,7 @@ void stateTests() {
     queue.context.erase(0x3b8);
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "missing register");
     queue = makeState();
-    queue.context[0x3b8] |= 5u << 14u;
+    queue.context[0x3b8] |= 1u << 14u;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "unsupported color tile mode");
     queue = makeState();
     queue.context[0x3b0] = (62u << 14u) | 3u;
@@ -148,6 +149,29 @@ void stateTests() {
     queue.context[0x200] = 0x007007b6;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "depth");
     queue = makeState();
+    queue.context[0x010] = 0x80000180;
+    queue.context[0x011] = 0x20000180;
+    queue.context[0x200] = 0x007007b3;
+    queue.context[0x1b3] = 2;
+    queue.context[0x1b4] = 2;
+    state = AgcDriver::Graphics::DecodeState(queue);
+    Require(!state.depthTest && !state.stencilTest, "tests on absent depth and stencil planes were kept");
+    Require(AgcDriver::Graphics::DrawRejection(queue, false).empty(), "tests on absent depth and stencil planes were rejected");
+    queue.context[0x011] = 0x20000181;
+    queue.context[0x012] = 0x00001000;
+    queue.context[0x013] = 0x00002000;
+    queue.context[0x015] = 0x00002000;
+    queue.context[0x007] = 0x003f003f;
+    queue.context[0x000] = 0;
+    queue.context[0x002] = 0;
+    queue.context[0x00a] = 0;
+    queue.context[0x00b] = 0x3f800000;
+    queue.context[0x10b] = 0;
+    queue.context[0x10c] = 0x01ffff00;
+    queue.context[0x10d] = 0x01ffff00;
+    state =AgcDriver::Graphics::DecodeState(queue);
+    Require(!state.depthTest && state.stencilTest, "a depth test on an absent depth plane was kept beside a stencil plane");
+    queue = makeState();
     queue.context[0x10f] = 0x7fc00000;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "non-finite");
     // The register facade: every register the decoders read is in DrawKeyRegisters (a wrong hit of
@@ -167,6 +191,25 @@ void stateTests() {
     log.clear();
     static_cast<void>(AgcDriver::Graphics::DecodeState(queue));
     Require(log.empty(), "the register facade recorded without a log");
+    queue = makeState();
+    queue.context.erase(0x1b3);
+    queue.context.erase(0x1b4);
+    queue.context.erase(0x1c5);
+    queue.shader[0x008] = 0x100;
+    queue.shader[0x009] = 0;
+    Require(!AgcDriver::Graphics::PixelProgramUnset(queue), "a pixel program address was read as unset");
+    Require(AgcDriver::Graphics::DrawRejection(queue, true).find("missing register at DWORD 0x1b3") != std::string::npos, "a real pixel program without SPI_PS_INPUT_ENA was accepted");
+    expectFailure([&] { AgcDriver::Graphics::DecodePixelStageInfo(queue.context, std::array<std::uint8_t, 8>{0xe4u, 0xe4u, 0xe4u, 0xe4u, 0xe4u, 0xe4u, 0xe4u, 0xe4u}); }, "missing register");
+    queue.shader[0x008] = 0;
+    Require(AgcDriver::Graphics::PixelProgramUnset(queue), "a zero pixel program address was not read as unset");
+    Require(AgcDriver::Graphics::DrawRejection(queue, true).find("writes color") != std::string::npos, "a draw without a pixel program that writes color was accepted");
+    queue.context[0x8e] = 0;
+    Require(AgcDriver::Graphics::DrawRejection(queue, true).empty(), "a depth-only draw without a pixel program was rejected");
+    state = AgcDriver::Graphics::DecodeState(queue);
+    Require(!state.hasColorTarget, "a depth-only draw without a pixel program decoded a color target");
+    const auto unset = AgcDriver::Graphics::DecodePixelStageInfo(queue.context, AgcDriver::Graphics::ExportMappings(state), true);
+    Require(unset.inputAddr == ShaderRecompiler::PixelInputBit(ShaderRecompiler::PixelInput::PerspectiveCenter), "unset pixel inputs of the null program did not read as PERSP_CENTER_ENA");
+    for (const auto mode : unset.targetOutputMode) Require(mode == 0, "an unset SPI_SHADER_COL_FORMAT exported a color");
 }
 
 void hardwareScreenOffsetTests() {
@@ -425,6 +468,36 @@ void DisabledColorTests() {
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "missing register");
 }
 
+void CompactedExportTests() {
+    alignas(256) static std::array<std::byte, 1024> slotFourMemory{};
+    const auto slotFour = reinterpret_cast<std::uintptr_t>(slotFourMemory.data());
+    auto queue = makeState();
+    for (const auto offset : {0x31bu, 0x31cu, 0x31du}) queue.context[offset + 4u * 0xfu] = queue.context.at(offset);
+    for (const auto offset : {0x3b0u, 0x3b8u}) queue.context[offset + 4u] = queue.context.at(offset);
+    queue.context[0x318 + 4u * 0xfu] = static_cast<std::uint32_t>(slotFour >> 8u);
+    queue.context[0x390 + 4u] = static_cast<std::uint32_t>(slotFour >> 40u);
+    queue.context[0x1e4] = 0x40010001u;
+    for (std::uint32_t i = 0; i < 4; ++i) queue.context[0x105 + i] = 0;
+    queue.context[0x8e] = 0x3000fu;
+    queue.context[0x8f] = 0xf000fu;
+    queue.context[0x1c5] = 0x44u;
+    auto state = AgcDriver::Graphics::DecodeState(queue);
+    Require(state.colors.size() == 2 && state.blends.size() == 2, "two compacted exports did not give two attachments");
+    Require(state.colors[0].slot == 0 && state.colors[0].exportIndex == 0 && state.colors[0].address == reinterpret_cast<std::uintptr_t>(colorMemory.data()), "export 0 did not reach MRT slot 0");
+    Require(state.colors[1].slot == 4 && state.colors[1].exportIndex == 1 && state.colors[1].address == slotFour, "export 1 did not reach MRT slot 4, the second slot CB_SHADER_MASK enables");
+    Require(!state.blends[0].blendEnable && state.blends[1].blendEnable && state.blends[1].colorWriteMask == (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT), "export 1 did not take MRT slot 4's blend control and target mask");
+    Require(AgcDriver::Graphics::ExportMappings(state)[1] == state.colors[1].componentMapping, "export 1 did not take MRT slot 4's component mapping");
+    queue.context[0x1c5] = 0x90009u;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "color export format 0");
+    queue.context[0x8e] = 0xf000fu;
+    queue.context[0x8f] = 0xf0f0fu;
+    queue.context[0x1c5] = 0x999u;
+    state = AgcDriver::Graphics::DecodeState(queue);
+    Require(state.colors.size() == 2 && state.blends.size() == 3, "a write-masked export between written ones changed the attachment count");
+    Require(state.colors[0].exportIndex == 0 && state.colors[1].slot == 4 && state.colors[1].exportIndex == 2, "export 2 did not reach MRT slot 4, the third slot CB_SHADER_MASK enables");
+    Require(state.blends[1].colorWriteMask == 0 && !state.blends[1].blendEnable && state.blends[2].blendEnable, "the write-masked export 1 was not left unused");
+}
+
 void DepthStencilTests() {
     auto queue = makeState();
     queue.context[0x000] = 0;
@@ -482,7 +555,22 @@ void DepthStencilTests() {
     queue.context[0x31b] = 1u << 26u;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "mip exceeds");
     queue.context[0x31b] = 1u << 13u;
-    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "array views");
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "several array slices");
+    const auto sliced = reinterpret_cast<std::uintptr_t>(sliceMemory.data());
+    queue.context[0x318] = static_cast<std::uint32_t>(sliced >> 8u);
+    queue.context[0x390] = static_cast<std::uint32_t>(sliced >> 40u);
+    queue.context[0x31b] = 1u | (1u << 13u);
+    const auto slice = AgcDriver::Graphics::DecodeState(queue);
+    Require(slice.color.address == sliced + 1024u && slice.color.bytes == 1024u, "a color view of one slice did not move the target by one slice");
+    queue.context[0x3b8] = 0x0a000003;
+    queue.context[0x31b] = 2u | (2u << 13u);
+    const auto volume = AgcDriver::Graphics::DecodeState(queue);
+    Require(volume.color.address == sliced && volume.color.depth == 4u && volume.color.depthSlice == 2u, "a color view of one 3D depth slice did not keep the surface address and select the slice");
+    queue.context[0x31b] = 4u | (4u << 13u);
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "beyond the 3D surface");
+    queue.context[0x31b] = 0;
+    queue.context[0x31c] |= 0x10000000;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "DCC 3D color targets");
 }
 
 void DepthBoundsBiasTests() {
@@ -1821,6 +1909,7 @@ int main() {
         DepthStencilTests();
         DepthBoundsBiasTests();
         DisabledColorTests();
+        CompactedExportTests();
         metadataPassTests();
         ShaderStageTests();
         PixelInputLayoutTests();
