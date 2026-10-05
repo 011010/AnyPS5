@@ -172,6 +172,7 @@ private:
     void emitFloat16ClassCompare(const RdnaInstruction& inst, bool cmpx);
     bool float64Operation(const RdnaInstruction& inst, IrOpcode opcode);
     bool vDot2cF32F16(const RdnaInstruction& inst);
+    bool vDot2F32F16(const RdnaInstruction& inst);
     bool vCubeidF32(const RdnaInstruction& inst);
     bool vCubescF32(const RdnaInstruction& inst);
     bool vCubetcF32(const RdnaInstruction& inst);

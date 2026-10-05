@@ -279,6 +279,7 @@ enum class RdnaOpcode : std::uint16_t {
     VCubetcF32,
     VCubemaF32,
     VDot2cF32F16,
+    VDot2F32F16,
     VDot4cI32I8,
     VDot2I32I16,
     VDot2U32U16,

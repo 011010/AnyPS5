@@ -433,6 +433,18 @@ bool TranslationContext::vDot2cF32F16(const RdnaInstruction& inst) {
     return true;
 }
 
+bool TranslationContext::vDot2F32F16(const RdnaInstruction& inst) {
+    const IrF32 aLow = readF16LaneAsF32(sourceAt(inst, 0u), false, true);
+    const IrF32 aHigh = readF16LaneAsF32(sourceAt(inst, 0u), true, true);
+    const IrF32 bLow = readF16LaneAsF32(sourceAt(inst, 1u), false, true);
+    const IrF32 bHigh = readF16LaneAsF32(sourceAt(inst, 1u), true, true);
+    IrValue* accumulator = readOperand(sourceAt(inst, 2u), IrType::F32);
+    const IrF32 low(ir.Emit(IrOpcode::FPFma32, IrType::F32, {&aLow.Value(), &bLow.Value(), accumulator}));
+    const IrF32 result(ir.Emit(IrOpcode::FPFma32, IrType::F32, {&aHigh.Value(), &bHigh.Value(), &low.Value()}));
+    writeOperand(inst.destination, &result.Value());
+    return true;
+}
+
 bool TranslationContext::vCubeidF32(const RdnaInstruction& inst) {
     return floatCube(inst, 0u);
 }
