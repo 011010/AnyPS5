@@ -313,8 +313,6 @@ void EmitDirectInstruction(SpirvValueEmitContext& ctx, const IrValue& inst) {
         case IrOpcode::CompositeExtractU32x3: return Invoke(EmitCompositeExtractU32x3, ctx, inst);
         case IrOpcode::CompositeExtractU32x4: return Invoke(EmitCompositeExtractU32x4, ctx, inst);
         case IrOpcode::PackHalf2x16: return Invoke(EmitPackHalf2x16, ctx, inst);
-        case IrOpcode::PackSnorm2x16: return Invoke(EmitPackSnorm2x16, ctx, inst);
-        case IrOpcode::PackUnorm2x16: return Invoke(EmitPackUnorm2x16, ctx, inst);
         case IrOpcode::PackFloat2x16Rtz: return Invoke(EmitPackFloat2x16Rtz, ctx, inst);
         case IrOpcode::FPAbs32: return Invoke(EmitFPAbs32, ctx, inst);
         case IrOpcode::FPNeg32: return Invoke(EmitFPNeg32, ctx, inst);
@@ -413,7 +411,6 @@ void EmitDirectInstruction(SpirvValueEmitContext& ctx, const IrValue& inst) {
         case IrOpcode::FPCos: return Invoke(EmitFPCos, ctx, inst);
         case IrOpcode::FPExp2: return Invoke(EmitFPExp2, ctx, inst);
         case IrOpcode::FPLog2: return Invoke(EmitFPLog2, ctx, inst);
-        case IrOpcode::FPLdexp: return Invoke(EmitFPLdexp, ctx, inst);
         case IrOpcode::FPRoundEven32: return Invoke(EmitFPRoundEven32, ctx, inst);
         case IrOpcode::FPFloor32: return Invoke(EmitFPFloor32, ctx, inst);
         case IrOpcode::FPCeil32: return Invoke(EmitFPCeil32, ctx, inst);
