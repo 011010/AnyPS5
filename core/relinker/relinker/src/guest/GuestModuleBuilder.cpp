@@ -63,7 +63,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         }
         if (!outputNames.insert(folded).second) throw Domain::RelinkerException("Conflicting guest output filename: " + image.OutputName);
         for (const auto& symbol : image.Symbols) {
-            if (symbol.Section == 0 || (symbol.Info >> 4) == 0 || symbol.Visibility == 1 || symbol.Visibility == 2) continue;
+            if (symbol.Section == 0 || symbol.Section == AbsoluteSection || (symbol.Info >> 4) == 0 || symbol.Visibility == 1 || symbol.Visibility == 2) continue;
             const auto [existing, inserted] = exports.emplace(symbol.Name, images.size());
             if (!inserted) throw Domain::RelinkerException("Duplicate guest export after stripping #: " + symbol.Name + " in " + images.at(existing->second).SourcePath.string() + " and " + path.string());
         }
@@ -100,7 +100,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
             const auto found = exports.find(symbol.Name);
             if (found != exports.end()) {
                 const auto& provider = images[found->second];
-                const auto exported = std::find_if(provider.Symbols.begin(), provider.Symbols.end(), [&](const auto& candidate) { return candidate.Section != 0 && candidate.Name == symbol.Name && (candidate.Info >> 4) != 0 && candidate.Visibility != 1 && candidate.Visibility != 2; });
+                const auto exported = std::find_if(provider.Symbols.begin(), provider.Symbols.end(), [&](const auto& candidate) { return candidate.Section != 0 && candidate.Section != AbsoluteSection && candidate.Name == symbol.Name && (candidate.Info >> 4) != 0 && candidate.Visibility != 1 && candidate.Visibility != 2; });
                 if (exported == provider.Symbols.end() || ((symbol.Info & 15) != 0 && (symbol.Info & 15) != (exported->Info & 15))) throw Domain::RelinkerException("Guest import/export type mismatch: " + symbol.Name);
                 if (found->second != index) dependencies[index].insert(found->second);
             } else if (windows && (symbol.Info & 15) == 6) throw Domain::RelinkerException("Windows guest TLS import requires a guest TLS export: " + symbol.Name);
