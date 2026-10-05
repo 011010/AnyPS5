@@ -185,6 +185,7 @@ private:
     bool vDivFixupF64(const RdnaInstruction& inst);
     bool vDot2cF32F16(const RdnaInstruction& inst);
     bool vDot2F32F16(const RdnaInstruction& inst);
+    bool float16Dot2(const RdnaInstruction& inst, const RdnaOperand& lhs, const RdnaOperand& rhs, IrU32 accumulator);
     bool vCubeidF32(const RdnaInstruction& inst);
     bool vCubescF32(const RdnaInstruction& inst);
     bool vCubetcF32(const RdnaInstruction& inst);
