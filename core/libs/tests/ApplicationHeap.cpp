@@ -6,6 +6,7 @@
 #include <cstring>
 #include <cstdio>
 #include <limits>
+#include <new>
 #include <stdexcept>
 
 extern "C" {
@@ -31,6 +32,7 @@ unsigned initializes = 0;
 unsigned frees = 0;
 bool fail = false;
 bool recurse = false;
+bool nullPosixResult = false;
 
 void require(bool condition) {
     if (!condition) throw std::runtime_error("application heap test failed");
@@ -80,6 +82,7 @@ void* APS5_VABI realign(void* pointer, std::size_t bytes, std::size_t alignment)
 int APS5_VABI posixAlign(void** pointer, std::size_t alignment, std::size_t bytes) {
     ++posixCalls;
     if (fail) { *__error_nid_postfix() = 12; *pointer = nullptr; return 12; }
+    if (nullPosixResult) { *pointer = nullptr; return 0; }
     *pointer = align(alignment, bytes);
     return 0;
 }
@@ -203,6 +206,15 @@ int main(int argc, char** argv) {
     require(*__error_nid_postfix() == 77);
     require(unchanged == storage.data());
     fail = false;
+    nullPosixResult = true;
+    bool rejectedNull = false;
+    try {
+        const int error = posix_memalign_nid_postfix(&unchanged, 64, 64);
+        std::fprintf(stderr, "posix_memalign callback: success with null pointer must throw, received %d\n", error);
+        return 1;
+    } catch (const std::bad_alloc&) { rejectedNull = true; }
+    require(rejectedNull && unchanged == storage.data());
+    nullPosixResult = false;
     const auto beforeInvalid = posixCalls;
     for (const std::size_t alignment : {std::size_t{0}, std::size_t{1}, std::size_t{4}, std::size_t{24}}) {
         require(posix_memalign_nid_postfix(&unchanged, alignment, 32) == 22);
