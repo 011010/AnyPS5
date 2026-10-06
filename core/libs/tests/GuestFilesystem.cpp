@@ -9,6 +9,10 @@ extern "C" {
 int APS5_VABI remove_nid_postfix(const char*);
 int APS5_VABI rename_nid_postfix(const char*, const char*);
 int APS5_VABI sceKernelChmod_nid_postfix(const char*, unsigned short);
+int APS5_VABI sceKernelFchmod(int, unsigned short);
+int APS5_VABI fchmod_nid_postfix(int, int);
+int APS5_VABI futimes_nid_postfix(int, const KernelTimeval*);
+int APS5_VABI socket_nid_postfix(int, int, int);
 int APS5_VABI sceKernelFsync(int);
 int APS5_VABI sceKernelFtruncate(int, long long);
 int APS5_VABI sceKernelTruncate_nid_postfix(const char*, long long);
@@ -74,9 +78,37 @@ int main() {
     const int descriptor = ::fileno(native);
 #endif
     Require(descriptor >= 0 && sceKernelFsync(descriptor) == 0);
+    const auto ownerWrite = [&] {
+        return (std::filesystem::status(sized).permissions() & std::filesystem::perms::owner_write) != std::filesystem::perms::none;
+    };
+    Require(sceKernelFchmod(descriptor, 0400) == 0 && !ownerWrite());
+    Require(fchmod_nid_postfix(descriptor, 0600) == 0 && ownerWrite());
     Require(sceKernelFtruncate(descriptor, 3) == 0);
+    FileStat times{};
+    const KernelTimeval past[2]{{1000000000, 0}, {1000000000, 500000}};
+    Require(futimes_nid_postfix(descriptor, past) == 0);
+    Require(stat_nid_postfix(sized.string().c_str(), &times) == 0 && times.st_mtim.tv_sec == 1000000000);
+    Require(futimes_nid_postfix(descriptor, nullptr) == 0);
+    Require(stat_nid_postfix(sized.string().c_str(), &times) == 0 && times.st_mtim.tv_sec > 1000000000);
+    const KernelTimeval overflow[2]{{0, 0}, {0, 1000000}};
+    Require(futimes_nid_postfix(descriptor, overflow) == -1 && *__error_nid_postfix() == 22);
+    const KernelTimeval negative[2]{{0, -1}, {0, 0}};
+    Require(futimes_nid_postfix(descriptor, negative) == -1 && *__error_nid_postfix() == 22);
     Require(std::fclose(native) == 0);
     Require(std::filesystem::file_size(sized) == 3);
+#ifndef _WIN32
+    Require(sceKernelFchmod(descriptor, 0600) == static_cast<int>(0x80020009u));
+    Require(fchmod_nid_postfix(descriptor, 0600) == -1 && *__error_nid_postfix() == 9);
+    Require(futimes_nid_postfix(descriptor, nullptr) == -1 && *__error_nid_postfix() == 9);
+#endif
+    const int socket = socket_nid_postfix(2, 2, 0);
+    Require(socket >= 0);
+    Require(sceKernelFchmod(socket, 0600) == static_cast<int>(0x80020016u));
+    Require(fchmod_nid_postfix(socket, 0600) == -1 && *__error_nid_postfix() == 22);
+    Require(futimes_nid_postfix(socket, nullptr) == -1 && *__error_nid_postfix() == 22);
+    Require(close_nid_postfix(socket) == 0);
+    Require(fchmod_nid_postfix(socket, 0600) == -1 && *__error_nid_postfix() == 9);
+    Require(futimes_nid_postfix(socket, nullptr) == -1 && *__error_nid_postfix() == 9);
     Require(remove_nid_postfix(sized.string().c_str()) == 0);
     const auto present = root / "present.txt";
     const auto presentName = present.string();
