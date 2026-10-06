@@ -150,7 +150,7 @@ int APS5_VABI scePadRead_nid_postfix(int handle, PadData* data, int num) {
 }
 
 int APS5_VABI scePadReadState(int handle, PadData* data) {
- if (handle != 1) APS5_INVALID_ARG_EX;
+ if (handle != PAD_HANDLE) return PAD_ERROR_INVALID_HANDLE;
  if (data == nullptr) APS5_INVALID_ARG_EX;
 
  *data = Pad::ReadState();
