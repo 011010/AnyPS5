@@ -5,6 +5,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/ShaderInputState.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/DccMetadata.hpp"
 #include "ControlFlow/RequestSerializer.hpp"
 #include "CacheKey.hpp"
 #include <spirv/unified1/spirv.hpp>
@@ -699,6 +700,31 @@ void metadataPassTests() {
     pass->targets[0].dccAddress = 0;
     AgcDriver::Graphics::RunColorMetadataPass(context, *pass);
     Require(texels(0x5a5a5a5au), "a pass over a target without DCC changed its texels");
+
+    using AgcDriver::Graphics::DccKeys;
+    struct TenBitClear {
+        std::uint8_t key;
+        DccKeys keys;
+        std::uint32_t texel;
+        const char* code;
+    };
+    for (const std::uint32_t swap : {0u, 1u}) {
+        auto tenBit = queue;
+        tenBit.context[0x31c] = (tenBit.context[0x31c] & ~0x187cu) | (9u << 2u) | (swap << 11u);
+        const auto tenBitPass = DecodeColorMetadataPass(tenBit);
+        const auto format = swap == 0 ? VK_FORMAT_A2B10G10R10_UNORM_PACK32 : VK_FORMAT_A2R10G10B10_UNORM_PACK32;
+        const std::string name = swap == 0 ? "A2B10G10R10" : "A2R10G10B10";
+        Require(tenBitPass.has_value() && tenBitPass->targets.size() == 1 && tenBitPass->targets[0].format == format && tenBitPass->targets[0].dccAlphaOnMsb, "the " + name + " metadata pass target changed");
+        for (const auto& clear : {TenBitClear{0x00, DccKeys::Clear0000, 0u, "0000"}, TenBitClear{0x40, DccKeys::Clear0001, 0xc0000000u, "0001"}, TenBitClear{0x80, DccKeys::Clear1110, 0x3fffffffu, "1110"}, TenBitClear{0xc0, DccKeys::Clear1111, 0xffffffffu, "1111"}}) {
+            std::memset(colorMemory.data(), 0x5a, colorMemory.size());
+            dccKeys.fill(clear.key);
+            AgcDriver::Graphics::RunColorMetadataPass(context, *tenBitPass);
+            Require(texels(clear.texel) && keysAre(0xff), "a " + std::string(clear.code) + " fast clear of an " + name + " target was not eliminated into its 10/10/10/2 texel");
+            std::array<std::uint32_t, 4> copied{};
+            copied.fill(0x5a5a5a5au);
+            Require(AgcDriver::Graphics::FillDccClear(tenBitPass->targets[0].format, clear.keys, tenBitPass->targets[0].dccAlphaOnMsb, std::as_writable_bytes(std::span(copied))) && std::ranges::all_of(copied, [&](std::uint32_t word) { return word == clear.texel; }), "a copied " + name + " target under " + clear.code + " keys was not filled with its 10/10/10/2 texel");
+        }
+    }
 }
 
 void DepthClipTests() {
