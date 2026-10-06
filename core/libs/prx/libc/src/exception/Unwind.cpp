@@ -25,8 +25,8 @@ _Unwind_Reason_Code CallPersonality(Word personality, _Unwind_Action actions, _U
 #endif
     if (personality == reinterpret_cast<Word>(__gxx_personality_v0_nid_postfix) || personality == reinterpret_cast<Word>(__gxx_personality_v0))
         return __gxx_personality_v0_nid_postfix(1, actions, exception->exception_class, exception, context);
-    if (personality == reinterpret_cast<Word>(__gcc_personality_v0))
-        return __gcc_personality_v0(1, actions, exception->exception_class, exception, context);
+    if (personality == reinterpret_cast<Word>(__gcc_personality_v0_nid_postfix) || personality == reinterpret_cast<Word>(__gcc_personality_v0))
+        return __gcc_personality_v0_nid_postfix(1, actions, exception->exception_class, exception, context);
     return (actions & _UA_SEARCH_PHASE) ? _URC_FATAL_PHASE1_ERROR : _URC_FATAL_PHASE2_ERROR;
 }
 struct Lookup { Word pc; const Byte* fde {}; Word text {}; Word data {}; };
