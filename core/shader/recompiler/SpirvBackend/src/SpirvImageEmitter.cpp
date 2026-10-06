@@ -619,9 +619,25 @@ std::uint32_t PackImageTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess& 
     return result;
 }
 
+SpirvBufferFormatInfo SintStorageFormat(const ImageResource& image) {
+    const auto format = image.conversionFormat;
+    if (image.resourceClass != ImageResourceClass::Storage || format == IrBufferFormat::Invalid || SampledTextureNumericClass(format) != IrTextureNumericClass::Sint) {
+        return {};
+    }
+    const auto info = GetFormatInfo(format);
+    if (image.numericClass != IrTextureNumericClass::Uint || info.type != SpirvFormatComponentType::Sint || info.packedBitfield || info.componentCount == 0u || info.byteSize == 12u) {
+        throw std::runtime_error("storage image conversion format is not a SINT format written through a UINT view");
+    }
+    return info;
+}
+
 std::uint32_t StoreTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t data, bool integer) {
     auto& state = ctx.state;
     const auto& mem = access.mem;
+    const auto sint = SintStorageFormat(access.image);
+    if (sint.format != IrBufferFormat::Invalid && mem.dataBits == 16u) {
+        ctx.Fail(access.inst, "stores 16-bit data to an image of a SINT format");
+    }
     const auto swizzle = access.image.shaderSwizzle;
     std::uint32_t values[4] = {};
     const auto dmask = EffectiveDmask(mem);
@@ -640,10 +656,13 @@ std::uint32_t StoreTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess& acce
             }
         }
         values[component] = integer ? raw : mem.dataBits == 16u ? EmitF16BitsToF32(state, raw) : Unary(state, spv::OpBitcast, TypeF32(state), raw);
+        if (component < sint.componentCount) {
+            values[component] = EmitFormatStoreComponent(state, sint, component, values[component]);
+        }
     }
     const auto texel = state.module.AllocateId();
     state.module.AddFunction(spv::OpCompositeConstruct, integer ? TypeU32Vector(state, 4) : TypeF32Vector(state, 4), texel, values[0], values[1], values[2], values[3]);
-    return PackImageTexel(ctx, access, texel);
+    return sint.format != IrBufferFormat::Invalid ? texel : PackImageTexel(ctx, access, texel);
 }
 
 std::uint32_t PackedStoreTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t data) {
