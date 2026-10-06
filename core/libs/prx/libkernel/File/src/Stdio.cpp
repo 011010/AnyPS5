@@ -20,6 +20,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <io.h>
+#include <fcntl.h>
 #include <direct.h>
 #include <sys/stat.h>
 #include <sys/utime.h>
@@ -180,6 +181,21 @@ static int PosixFailure(int error) {
 
 static int PosixResult(int result) {
     return result < 0 ? PosixFailure(result & 0xffff) : result;
+}
+
+extern "C" int APS5_VABI pipe_nid_postfix(int* descriptors) {
+    if (!descriptors) return PosixFailure(GUEST_EFAULT);
+    const GuestArena::HostWrite destination(descriptors, 2 * sizeof(int));
+    if (!destination.Open()) return PosixFailure(GUEST_EFAULT);
+    int native[2];
+#ifdef _WIN32
+    const int result = ::_pipe(native, 4096, _O_BINARY);
+#else
+    const int result = ::pipe(native);
+#endif
+    if (result != 0) return PosixFailure(SceErrorFromErrno(errno) & 0xffff);
+    std::memcpy(descriptors, native, sizeof(native));
+    return 0;
 }
 
 static int PathError(const char* path) {
