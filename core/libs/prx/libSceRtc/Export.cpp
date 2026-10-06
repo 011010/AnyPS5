@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <limits>
 #include "SceTypes.hpp"
@@ -156,6 +157,97 @@ bool parseZoneSuffix(const char*& cursor, std::int64_t& offsetMinutes) {
         return true;
     }
     return false;
+}
+
+bool parseName(const char*& cursor, const char* const* names, int count, int& index) {
+    for (index = 0; index < count; ++index) {
+        if (std::strncmp(cursor, names[index], 3) == 0) {
+            cursor += 3;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool parseWeekday(const char*& cursor) {
+    static constexpr const char* names[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+    int index = 0;
+    return parseName(cursor, names, 7, index);
+}
+
+bool parseMonth(const char*& cursor, int& month) {
+    static constexpr const char* names[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    if (!parseName(cursor, names, 12, month)) return false;
+    ++month;
+    return true;
+}
+
+bool parseClock(const char*& cursor, int& hour, int& minute, int& second) {
+    return parseDigits(cursor, 2, hour) && *cursor++ == ':' && parseDigits(cursor, 2, minute) && *cursor++ == ':' && parseDigits(cursor, 2, second);
+}
+
+RtcDateTime makeDateTime(int year, int month, int day, int hour, int minute, int second, std::uint32_t microsecond) {
+    return RtcDateTime{static_cast<std::uint16_t>(year), static_cast<std::uint16_t>(month), static_cast<std::uint16_t>(day),
+        static_cast<std::uint16_t>(hour), static_cast<std::uint16_t>(minute), static_cast<std::uint16_t>(second), microsecond};
+}
+
+bool parseIsoDateTime(const char* cursor, RtcDateTime& time, std::int64_t& offsetMinutes) {
+    int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
+    if (!parseDigits(cursor, 4, year) || *cursor++ != '-' || !parseDigits(cursor, 2, month) || *cursor++ != '-' || !parseDigits(cursor, 2, day)) return false;
+    if (*cursor != 'T' && *cursor != 't' && *cursor != ' ') return false;
+    ++cursor;
+    if (!parseClock(cursor, hour, minute, second)) return false;
+    std::uint32_t microsecond = 0;
+    if (*cursor == '.') {
+        ++cursor;
+        std::uint32_t scale = 100000;
+        if (*cursor < '0' || *cursor > '9') return false;
+        for (; *cursor >= '0' && *cursor <= '9'; ++cursor, scale /= 10) microsecond += static_cast<std::uint32_t>(*cursor - '0') * scale;
+    }
+    offsetMinutes = 0;
+    if (*cursor != 0 && !parseZoneSuffix(cursor, offsetMinutes)) return false;
+    if (*cursor != 0) return false;
+    time = makeDateTime(year, month, day, hour, minute, second, microsecond);
+    return true;
+}
+
+bool parseRfc2822DateTime(const char* cursor, RtcDateTime& time, std::int64_t& offsetMinutes) {
+    int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
+    if (!parseWeekday(cursor) || *cursor++ != ',' || *cursor++ != ' ' || !parseDigits(cursor, 2, day) || *cursor++ != ' ') return false;
+    if (!parseMonth(cursor, month) || *cursor++ != ' ' || !parseDigits(cursor, 4, year) || *cursor++ != ' ' || !parseClock(cursor, hour, minute, second)) return false;
+    offsetMinutes = 0;
+    if (*cursor == ' ') {
+        ++cursor;
+        if (std::strcmp(cursor, "GMT") == 0) {
+            cursor += 3;
+        } else if (*cursor == '+' || *cursor == '-') {
+            const int sign = *cursor++ == '-' ? -1 : 1;
+            int offsetHours = 0, offsetMinute = 0;
+            if (!parseDigits(cursor, 2, offsetHours) || !parseDigits(cursor, 2, offsetMinute)) return false;
+            if (offsetHours > 23 || offsetMinute > 59) return false;
+            offsetMinutes = sign * (offsetHours * 60 + offsetMinute);
+        } else {
+            return false;
+        }
+    }
+    if (*cursor != 0) return false;
+    time = makeDateTime(year, month, day, hour, minute, second, 0);
+    return true;
+}
+
+bool parseAsctimeDateTime(const char* cursor, RtcDateTime& time, std::int64_t& offsetMinutes) {
+    int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
+    if (!parseWeekday(cursor) || *cursor++ != ' ' || !parseMonth(cursor, month) || *cursor++ != ' ') return false;
+    if (*cursor == ' ') {
+        ++cursor;
+        if (!parseDigits(cursor, 1, day)) return false;
+    } else if (!parseDigits(cursor, 2, day)) {
+        return false;
+    }
+    if (*cursor++ != ' ' || !parseClock(cursor, hour, minute, second) || *cursor++ != ' ' || !parseDigits(cursor, 4, year) || *cursor != 0) return false;
+    offsetMinutes = 0;
+    time = makeDateTime(year, month, day, hour, minute, second, 0);
+    return true;
 }
 
 }
@@ -313,28 +405,13 @@ int APS5_VABI sceRtcParseRFC3339(RtcTick* utc, const char* date_time) {
 
 int APS5_VABI sceRtcParseDateTime(RtcTick* utc, const char* date_time) {
     if (!utc || !date_time) return SCE_RTC_ERROR_INVALID_POINTER;
-    const char* cursor = date_time;
-    int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
-    bool ok = parseDigits(cursor, 4, year) && *cursor++ == '-' && parseDigits(cursor, 2, month) && *cursor++ == '-' && parseDigits(cursor, 2, day);
-    ok = ok && (*cursor == 'T' || *cursor == 't' || *cursor == ' ');
-    if (ok) ++cursor;
-    ok = ok && parseDigits(cursor, 2, hour) && *cursor++ == ':' && parseDigits(cursor, 2, minute) && *cursor++ == ':' && parseDigits(cursor, 2, second);
-    std::uint32_t microsecond = 0;
-    if (ok && *cursor == '.') {
-        ++cursor;
-        std::uint32_t scale = 100000;
-        ok = *cursor >= '0' && *cursor <= '9';
-        for (; ok && *cursor >= '0' && *cursor <= '9'; ++cursor, scale /= 10) microsecond += static_cast<std::uint32_t>(*cursor - '0') * scale;
-    }
+    RtcDateTime time{};
     std::int64_t offsetMinutes = 0;
-    if (ok && *cursor != 0) ok = parseZoneSuffix(cursor, offsetMinutes);
-    if (ok && *cursor != 0) ok = false;
-    if (!ok) {
+    if (!parseIsoDateTime(date_time, time, offsetMinutes) && !parseRfc2822DateTime(date_time, time, offsetMinutes)
+        && !parseAsctimeDateTime(date_time, time, offsetMinutes)) {
         NotImplemented_nid_no_patch(__func__);
         return SCE_RTC_ERROR_BAD_PARSE;
     }
-    const RtcDateTime time{static_cast<std::uint16_t>(year), static_cast<std::uint16_t>(month), static_cast<std::uint16_t>(day),
-        static_cast<std::uint16_t>(hour), static_cast<std::uint16_t>(minute), static_cast<std::uint16_t>(second), microsecond};
     if (const int result = validate(&time); result != 0) return result;
     const RtcTick local{toTick(time)};
     return addTicks(utc, &local, -offsetMinutes, TICKS_PER_MINUTE);
