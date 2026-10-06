@@ -91,12 +91,15 @@ def alu_execution_cases():
     for name, opcode, operation, base, value in cases:
         result = operation(base, value) & mask
         if opcode in (0x2b, 0x3b):
+            zero = 1 if (base - value) & mask == 0 else 0
             carry = 1 if base < value else 0
         elif opcode == 0x03:
+            zero = 1 if (base + value) & mask == 0 else 0
             carry = 1 if base + value > mask else 0
         else:
+            zero = 1 if result == 0 else 0
             carry = 0
-        flags_masked = ((1 if result == 0 else 0) << 6) | carry
+        flags_masked = (zero << 6) | carry
         for register in (0, 1, 3):
             body = alu_check_body(opcode, register, base, value, result, flags_masked)
             yield f"alu-exec-{name}-{register}", make_image("register", "unwind", body=body)
