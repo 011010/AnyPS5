@@ -417,10 +417,22 @@ SpirvBufferFormatInfo ImageConversionFormat(const ImageResource& image) {
         return {};
     }
     const auto info = GetFormatInfo(format);
-    if (SampledTextureNumericClass(format) != IrTextureNumericClass::Uint || RemapTextureFormat(format) == format || info.type != SpirvFormatComponentType::Uint || !info.packedBitfield || info.byteSize != sizeof(std::uint32_t) || info.componentCount == 0u || info.componentCount > 4u) {
-        throw std::runtime_error("image conversion format is not a packed 32-bit unsigned integer format");
+    if (SampledTextureNumericClass(format) != IrTextureNumericClass::Uint || RemapTextureFormat(format) == format || (info.type != SpirvFormatComponentType::Uint && info.type != SpirvFormatComponentType::Unorm) || !info.packedBitfield || info.byteSize != sizeof(std::uint32_t) || info.componentCount == 0u || info.componentCount > 4u) {
+        throw std::runtime_error("image conversion format is not a packed 32-bit unsigned integer or unorm format");
     }
     return info;
+}
+
+void RequireConvertedUnormAccess(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, const SpirvBufferFormatInfo& info) {
+    if (access.mem.dataBits == 16u) {
+        ctx.Fail(access.inst, "reads or writes a converted unorm image with 16-bit data, which is not implemented");
+    }
+    for (std::uint32_t component = 0; component < 4u; component++) {
+        const auto selector = (access.image.shaderSwizzle >> (component * 3u)) & 7u;
+        if (selector >= 4u && selector - 4u >= info.componentCount) {
+            ctx.Fail(access.inst, "selects a channel the converted image format does not have");
+        }
+    }
 }
 
 std::uint32_t UnpackImageTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t texel) {
@@ -429,12 +441,19 @@ std::uint32_t UnpackImageTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess
     if (info.format == IrBufferFormat::Invalid) {
         return texel;
     }
+    const bool unorm = info.type == SpirvFormatComponentType::Unorm;
+    if (unorm) {
+        RequireConvertedUnormAccess(ctx, access, info);
+    }
     const auto packed = state.module.AllocateId();
     state.module.AddFunction(spv::OpCompositeExtract, TypeU32(state), packed, texel, 0u);
     std::uint32_t components[4] = {ConstantU32(state, 0), ConstantU32(state, 0), ConstantU32(state, 0), ConstantU32(state, 0)};
     for (std::uint32_t component = 0; component < info.componentCount; component++) {
         components[component] = state.module.AllocateId();
         state.module.AddFunction(spv::OpBitFieldUExtract, TypeU32(state), components[component], packed, ConstantU32(state, info.componentBitOffset[component]), ConstantU32(state, info.componentBits[component]));
+        if (unorm) {
+            components[component] = NormalizeFormatComponent(state, info, component, components[component]);
+        }
     }
     for (std::uint32_t component = info.componentCount; component < 4u; component++) {
         components[component] = components[component % info.componentCount];
@@ -444,7 +463,7 @@ std::uint32_t UnpackImageTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess
     for (std::uint32_t component = 0; component < 4u; component++) {
         const auto selector = (swizzle >> (component * 3u)) & 7u;
         if (selector == 1u) {
-            selected[component] = ConstantU32(state, 1u);
+            selected[component] = ConstantU32(state, FormattedConstantBits(info, SpirvFormattedSourceKind::One));
         } else if (selector >= 4u) {
             selected[component] = components[selector - 4u];
         } else {
@@ -572,13 +591,22 @@ std::uint32_t PackImageTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess& 
     if (info.format == IrBufferFormat::Invalid) {
         return texel;
     }
+    const bool unorm = info.type == SpirvFormatComponentType::Unorm;
+    if (unorm) {
+        RequireConvertedUnormAccess(ctx, access, info);
+    }
     auto packed = ConstantU32(state, 0u);
     for (std::uint32_t component = 0; component < info.componentCount; component++) {
         const auto value = state.module.AllocateId();
         state.module.AddFunction(spv::OpCompositeExtract, TypeU32(state), value, texel, component);
-        const auto maximum = ConstantU32(state, info.componentBits[component] == 32u ? UINT32_MAX : (1u << info.componentBits[component]) - 1u);
-        const auto within = Binary(state, spv::OpULessThan, TypeBool(state), value, maximum);
-        const auto clamped = Select(state, TypeU32(state), within, value, maximum);
+        auto clamped = value;
+        if (unorm) {
+            clamped = EmitFormatStoreComponent(state, info, component, value);
+        } else {
+            const auto maximum = ConstantU32(state, info.componentBits[component] == 32u ? UINT32_MAX : (1u << info.componentBits[component]) - 1u);
+            const auto within = Binary(state, spv::OpULessThan, TypeBool(state), value, maximum);
+            clamped = Select(state, TypeU32(state), within, value, maximum);
+        }
         const auto shifted = info.componentBitOffset[component] == 0u ? clamped : Binary(state, spv::OpShiftLeftLogical, TypeU32(state), clamped, ConstantU32(state, info.componentBitOffset[component]));
         packed = Binary(state, spv::OpBitwiseOr, TypeU32(state), packed, shifted);
     }
@@ -695,6 +723,9 @@ void EmitQueryDimensionsOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& ac
 
 void EmitQueryLodOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     auto& state = ctx.state;
+    if (ImageConversionFormat(access.image).type == SpirvFormatComponentType::Unorm) {
+        ctx.Fail(access.inst, "queries the level of detail of a converted unorm image, which is not implemented");
+    }
     state.module.EmitCapability(spv::CapabilityImageQuery);
     const auto sampled = MakeSampledImage(state, access.mem.resource, access.mem.sampler, access.slot);
     const auto coord = CoordF32(ctx, access, 0, RdnaImageDimensionInfoFor(access.image.dimension).spatialComponents, AddressDimension(access).spatialComponents);
@@ -794,6 +825,9 @@ SampleSetup MakeSampleSetup(SpirvValueEmitContext& ctx, const ImageEmitAccess& a
     const bool dref = HasFlag(access.mem, RdnaImageSampleFlagCompare);
     if (dref && access.image.conversionFormat != IrBufferFormat::Invalid) {
         ctx.Fail(access.inst, "uses depth comparison with a packed integer image");
+    }
+    if (ImageConversionFormat(access.image).type == SpirvFormatComponentType::Unorm) {
+        ctx.Fail(access.inst, "samples or gathers a converted unorm image, which needs filtering in the shader and is not implemented");
     }
     const auto coord = CoordF32(ctx, access, layout.coord, dimensionInfo.coordinateComponents, AddressDimension(access).coordinateComponents);
     return {dimensionInfo, layout, access.image.numericClass, dref, coord};

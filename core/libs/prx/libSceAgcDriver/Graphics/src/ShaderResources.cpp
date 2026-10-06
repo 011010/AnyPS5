@@ -48,6 +48,11 @@ VkComponentSwizzle ComponentSwizzleFor(std::uint8_t dstSel) {
     }
 }
 
+VkComponentMapping ViewComponents(const GuestTextureResource& resource) {
+    if (IsConvertedTextureFormat(resource.format)) return {VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A};
+    return {ComponentSwizzleFor(resource.dstSelX), ComponentSwizzleFor(resource.dstSelY), ComponentSwizzleFor(resource.dstSelZ), ComponentSwizzleFor(resource.dstSelW)};
+}
+
 // Sampled textures are reused across draws and dispatches while their guest bytes are unchanged; a
 // byte copy of the guest surface validates each reuse, so CPU or GPU writes to it force a re-upload.
 // The key is everything a lookup matches: the device, the eight descriptor words and the swizzle.
@@ -1697,7 +1702,7 @@ bool ShaderResources::Revalidate(std::span<const CompiledShader> shaders, ProofR
                     for (std::uint32_t element = 0; element < binding.count; ++element) {
                         const auto words = std::span<const std::uint32_t>(binding.guestDescriptor).subspan(static_cast<std::size_t>(element) * elementWords, elementWords);
                         const auto resource = DecodeTextureResource(words);
-                        const VkComponentMapping components{ComponentSwizzleFor(resource.dstSelX), ComponentSwizzleFor(resource.dstSelY), ComponentSwizzleFor(resource.dstSelZ), ComponentSwizzleFor(resource.dstSelW)};
+                        const VkComponentMapping components = ViewComponents(resource);
                         if (textureIndex >= textures.size() || cachedTexture(context, words, resource, components, 0, !binding.imageDepthCompare.empty() && binding.imageDepthCompare.at(element)) != textures[textureIndex]) return false;
                         ++textureIndex;
                     }
@@ -2438,7 +2443,7 @@ bool ShaderResources::precollectImages() {
                 record.decoded = true;
                 if (record.sampled && !noRecords && words.size() == 8 && (binding.imageDepthCompare.empty() || !binding.imageDepthCompare.at(element))) {
                     std::copy(words.begin(), words.end(), record.words.begin());
-                    record.components = {ComponentSwizzleFor(record.resource.dstSelX), ComponentSwizzleFor(record.resource.dstSelY), ComponentSwizzleFor(record.resource.dstSelZ), ComponentSwizzleFor(record.resource.dstSelW)};
+                    record.components = ViewComponents(record.resource);
                     record.keys = TextureClearKeys(record.resource, record.guestBytes);
                     auto& cache = Textures();
                     std::lock_guard lock(cache.mutex);
@@ -2526,7 +2531,7 @@ void ShaderResources::resolveImageBinding(const ShaderRecompiler::DescriptorBind
             const auto resource = record != nullptr && record->decoded ? record->resource : DecodeTextureResource(words);
             const bool firstLayer = binding.imageShape == ShaderRecompiler::DescriptorImageShape::Image2D && resource.dimension == TextureDimension::k2DArray;
             if (!firstLayer && !MatchesGuestDimension(*binding.imageShape, resource.dimension)) throw std::runtime_error("AGC graphics: guest texture dimension disagrees with the shader's declared image shape (shape " + std::to_string(static_cast<int>(*binding.imageShape)) + ", dimension " + std::to_string(static_cast<int>(resource.dimension)) + ")");
-            const VkComponentMapping components{ComponentSwizzleFor(resource.dstSelX), ComponentSwizzleFor(resource.dstSelY), ComponentSwizzleFor(resource.dstSelZ), ComponentSwizzleFor(resource.dstSelW)};
+            const VkComponentMapping components = ViewComponents(resource);
             const auto guestBytes = record != nullptr && record->decoded ? record->guestBytes : DescribeSurface(resource).guestBytes;
             std::shared_ptr<Texture> texture;
             if (record != nullptr && record->texture != nullptr) {
