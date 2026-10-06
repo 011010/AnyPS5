@@ -65,9 +65,40 @@ std::uint64_t APS5_VABI sceAmprMeasureCommandSizeReadFileGather(std::uint64_t, s
 std::uint64_t APS5_VABI sceAmprMeasureCommandSizeReadFileScatter(void*, std::uint64_t);
 std::uint64_t APS5_VABI sceAmprMeasureCommandSizeReadFileGatherScatter(void*, std::uint64_t, std::uint64_t);
 std::uint64_t APS5_VABI sceAmprMeasureCommandSizeResetGatherScatterState();
+std::size_t APS5_VABI sceKernelGetDirectMemorySize();
+int APS5_VABI sceAmprAmmCommandBufferConstructor(Apr::CommandBufferObject*);
+int APS5_VABI sceAmprAmmCommandBufferMap(Apr::CommandBufferObject*, std::uint64_t, std::uint64_t, std::int32_t, std::int32_t);
+int APS5_VABI sceAmprAmmCommandBufferMapWithGpuMaskId(Apr::CommandBufferObject*, std::uint64_t, std::uint64_t, std::int32_t, std::int32_t, std::uint8_t);
+int APS5_VABI sceAmprAmmCommandBufferMapDirect(Apr::CommandBufferObject*, std::uint64_t, std::uint64_t, std::uint64_t, std::int32_t, std::int32_t);
+int APS5_VABI sceAmprAmmCommandBufferMapDirectWithGpuMaskId(Apr::CommandBufferObject*, std::uint64_t, std::uint64_t, std::uint64_t, std::int32_t, std::int32_t, std::uint8_t);
+int APS5_VABI sceAmprAmmCommandBufferUnmap(Apr::CommandBufferObject*, std::uint64_t, std::uint64_t);
+std::int64_t APS5_VABI sceAmprAmmMeasureAmmCommandSizeMap(std::uint64_t, std::uint64_t, std::int32_t, std::int32_t);
+std::int64_t APS5_VABI sceAmprAmmMeasureAmmCommandSizeMapWithGpuMaskId(std::uint64_t, std::uint64_t, std::int32_t, std::int32_t, std::uint8_t);
+std::int64_t APS5_VABI sceAmprAmmMeasureAmmCommandSizeMapDirect(std::uint64_t, std::uint64_t, std::uint64_t, std::int32_t, std::int32_t);
+std::int64_t APS5_VABI sceAmprAmmMeasureAmmCommandSizeMapDirectWithGpuMaskId(std::uint64_t, std::uint64_t, std::uint64_t, std::int32_t, std::int32_t, std::uint8_t);
+std::int64_t APS5_VABI sceAmprAmmMeasureAmmCommandSizeUnmap(std::uint64_t, std::uint64_t);
+int APS5_VABI sceAmprAmmGiveDirectMemory(std::int64_t, std::int64_t, std::size_t, std::size_t, int, std::int64_t*);
+int APS5_VABI sceAmprAmmGetVirtualAddressRanges(std::uint64_t*, std::uint64_t*, std::uint64_t*, std::uint64_t*);
+int APS5_VABI sceAmprAmmSubmitCommandBuffer(void*, std::uint32_t, std::uint32_t);
+int APS5_VABI sceAmprAmmSubmitCommandBuffer2(void*, std::uint32_t, std::uint32_t, std::uint64_t*, std::uint32_t*);
+int APS5_VABI sceAmprAmmSubmitCommandBuffer3(void*, std::uint32_t, std::uint32_t, std::uint32_t*);
+int APS5_VABI sceAmprAmmWaitCommandBufferCompletion(std::uint32_t);
+int APS5_VABI sceAmprAprCommandBufferMapBegin(Apr::CommandBufferObject*, std::uint64_t, std::uint64_t, std::int32_t, std::int32_t);
+int APS5_VABI sceAmprAprCommandBufferMapDirectBegin(Apr::CommandBufferObject*, std::uint64_t, std::uint64_t, std::uint64_t, std::int32_t, std::int32_t);
+int APS5_VABI sceAmprAprCommandBufferMapEnd(Apr::CommandBufferObject*);
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeMapBegin(std::uint64_t, std::uint64_t, std::uint32_t, std::uint32_t);
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeMapDirectBegin(std::uint64_t, std::uint64_t, std::uint64_t, std::uint32_t, std::uint32_t);
+std::uint64_t APS5_VABI sceAmprMeasureCommandSizeMapEnd();
+int APS5_VABI sceAmprCommandBufferWriteCounter_04_00(Apr::CommandBufferObject*, std::uint8_t, std::uint8_t, std::uint64_t, std::uint8_t, std::uint8_t);
 }
 
-static void Require(bool value) { if (!value) std::abort(); }
+static void RequireAt(bool value, int line) {
+    if (value) return;
+    std::fprintf(stderr, "GuestAmpr.cpp:%d: requirement failed\n", line);
+    std::abort();
+}
+
+#define Require(value) RequireAt((value), __LINE__)
 
 namespace {
 
@@ -496,6 +527,147 @@ void TestGatherScatter() {
     Require(sceAmprMeasureCommandSizeReadFileGatherScatter(nullptr, 4, 0) == sizeof(Apr::ReadFileCommand));
 }
 
+constexpr std::uint64_t page = 0x4000;
+constexpr int permissionDenied = static_cast<int>(0x80020001);
+constexpr int busy = static_cast<int>(0x80020010);
+constexpr int noSuchSubmission = static_cast<int>(0x80020003);
+constexpr std::int32_t cpuReadWrite = 0x03;
+constexpr std::int32_t cpuGpuReadWrite = 0x33;
+constexpr std::int32_t amprReadWrite = 0xC0;
+
+volatile std::uint64_t& At(std::uint64_t address) {
+    return *reinterpret_cast<volatile std::uint64_t*>(address);
+}
+
+void TestAmm() {
+    std::uint64_t start = 0;
+    std::uint64_t end = 0;
+    std::uint64_t multimapStart = 0;
+    std::uint64_t multimapEnd = 0;
+    Require(sceAmprAmmGetVirtualAddressRanges(&start, &end, &multimapStart, &multimapEnd) == 0);
+    Require(start != 0 && start % page == 0 && start < end && end <= multimapStart && multimapStart < multimapEnd);
+
+    const auto directMemory = static_cast<std::int64_t>(sceKernelGetDirectMemorySize());
+    std::int64_t pool = -1;
+    std::int64_t direct = -1;
+    Require(sceAmprAmmGiveDirectMemory(0, directMemory, 7 * page, page, 1, &pool) == 0 && pool >= 0);
+    Require(sceAmprAmmGiveDirectMemory(0, directMemory, 2 * page, page, 0, &direct) == 0 && direct >= 0);
+    Require(sceAmprAmmGiveDirectMemory(0, directMemory, page, page, 2, &direct) == invalidArgument);
+    Require(sceAmprAmmGiveDirectMemory(0, directMemory, page, page, 1, nullptr) == invalidArgument);
+
+    const std::uint64_t automatic = start;
+    const std::uint64_t first = start + 0x10000;
+    const std::uint64_t alias = start + 0x20000;
+    const std::uint64_t reused = start + 0x30000;
+    const std::uint64_t region = start + 0x60000;
+    const std::uint64_t directRegion = start + 0x70000;
+
+    Recorder maps;
+    Require(sceAmprAmmCommandBufferConstructor(&maps.buffer) == 0);
+    auto offset = maps.Offset();
+    auto commands = maps.Commands();
+    Require(sceAmprAmmCommandBufferMap(&maps.buffer, automatic, 2 * page, 0, cpuReadWrite) == 0);
+    RequireAppended(maps, offset, commands, Apr::Opcode::AmmMap, sceAmprAmmMeasureAmmCommandSizeMap(automatic, 2 * page, 0, cpuReadWrite));
+    offset = maps.Offset();
+    commands = maps.Commands();
+    Require(sceAmprAmmCommandBufferMapDirect(&maps.buffer, first, direct, 2 * page, 0, cpuGpuReadWrite) == 0);
+    RequireAppended(maps, offset, commands, Apr::Opcode::AmmMapDirect, sceAmprAmmMeasureAmmCommandSizeMapDirect(first, direct, 2 * page, 0, cpuGpuReadWrite));
+    Require(sceAmprAmmCommandBufferMapDirectWithGpuMaskId(&maps.buffer, alias, direct, 2 * page, 0, amprReadWrite, 3) == 0);
+    std::uint32_t id = 0;
+    Require(sceAmprAmmSubmitCommandBuffer3(maps.memory.data(), maps.Offset(), 0, &id) == 0 && id != 0);
+    Require(sceAmprAmmWaitCommandBufferCompletion(id) == 0);
+    Require(sceAmprAmmWaitCommandBufferCompletion(id + 1000) == noSuchSubmission);
+    At(automatic) = 0x1111;
+    At(automatic + 2 * page - 8) = 0x2222;
+    Require(At(automatic) == 0x1111 && At(automatic + 2 * page - 8) == 0x2222);
+    At(first + page) = 0x3333;
+    Require(At(alias + page) == 0x3333);
+    At(alias) = 0x4444;
+    Require(At(first) == 0x4444);
+
+    Recorder remaps;
+    Require(sceAmprAmmCommandBufferConstructor(&remaps.buffer) == 0);
+    offset = remaps.Offset();
+    commands = remaps.Commands();
+    Require(sceAmprAmmCommandBufferUnmap(&remaps.buffer, automatic, 2 * page) == 0);
+    RequireAppended(remaps, offset, commands, Apr::Opcode::AmmUnmap, sceAmprAmmMeasureAmmCommandSizeUnmap(automatic, 2 * page));
+    Require(sceAmprAmmCommandBufferMapWithGpuMaskId(&remaps.buffer, reused, 6 * page, 0, cpuReadWrite, 1) == 0);
+    std::uint64_t result = ~0ull;
+    Require(sceAmprAmmSubmitCommandBuffer2(remaps.memory.data(), remaps.Offset(), 0, &result, &id) == 0 && result == 0);
+    Require(sceAmprAmmWaitCommandBufferCompletion(id) == 0);
+    At(reused + 6 * page - 8) = 0x5555;
+    Require(At(reused + 6 * page - 8) == 0x5555);
+
+    Recorder apr;
+    alignas(8) std::uint64_t done = 0;
+    offset = apr.Offset();
+    commands = apr.Commands();
+    Require(sceAmprAprCommandBufferMapBegin(&apr.buffer, region, page, 0, amprReadWrite) == 0);
+    RequireAppended(apr, offset, commands, Apr::Opcode::AmmMap, sceAmprMeasureCommandSizeMapBegin(region, page, 0, amprReadWrite));
+    Require(sceAmprAprCommandBufferMapBegin(&apr.buffer, region, page, 0, amprReadWrite) == permissionDenied);
+    Require(sceAmprAprCommandBufferMapDirectBegin(&apr.buffer, directRegion, direct, page, 0, amprReadWrite) == permissionDenied);
+    Require(sceAmprCommandBufferWriteAddressOnCompletion(&apr.buffer, &done, 1) == permissionDenied);
+    Require(sceAmprCommandBufferWriteCounterOnCompletion(&apr.buffer, 30, 1) == permissionDenied);
+    Require(sceAmprCommandBufferWriteKernelEventQueueOnCompletion(&apr.buffer, 1, 1, 0) == permissionDenied);
+    Require(sceAmprCommandBufferWriteAddressFromCounter_04_00(&apr.buffer, &done, 30, 0) == permissionDenied);
+    Require(sceAmprCommandBufferWriteCounter_04_00(&apr.buffer, 30, 1, 5, 0, 0) == permissionDenied);
+    Require(sceAmprCommandBufferWriteCounter_04_00(&apr.buffer, 30, 1, 5, 0, 1) == 0);
+    offset = apr.Offset();
+    commands = apr.Commands();
+    Require(sceAmprAprCommandBufferMapEnd(&apr.buffer) == 0);
+    RequireAppended(apr, offset, commands, Apr::Opcode::MapEnd, sceAmprMeasureCommandSizeMapEnd());
+    Require(sceAmprAprCommandBufferMapEnd(&apr.buffer) == permissionDenied);
+    Require(sceAmprAprCommandBufferMapDirectBegin(&apr.buffer, directRegion, direct, page, 0, cpuReadWrite) == 0);
+    Require(sceAmprAprCommandBufferMapEnd(&apr.buffer) == 0);
+    Require(sceAmprCommandBufferWriteAddressFromCounterOnCompletion(&apr.buffer, &done, 30) == 0);
+    SubmitWithin10Seconds(apr);
+    Require(done == 5);
+    At(region + page - 8) = 0x6666;
+    Require(At(region + page - 8) == 0x6666);
+    Require(At(directRegion) == 0x4444);
+
+    const auto rejected = static_cast<std::uint64_t>(static_cast<std::uint32_t>(invalidArgument));
+    const std::int64_t ammRejected = invalidArgument;
+    Recorder empty;
+    Require(sceAmprAmmCommandBufferMap(&empty.buffer, start, page, 0, 0x04) == invalidArgument);
+    Require(sceAmprAmmCommandBufferMap(&empty.buffer, start, page, 0, 0x400) == invalidArgument);
+    Require(sceAmprAmmCommandBufferMap(&empty.buffer, start + 0x1000, page, 0, cpuReadWrite) == invalidArgument);
+    Require(sceAmprAmmCommandBufferMap(&empty.buffer, start, page + 0x1000, 0, cpuReadWrite) == invalidArgument);
+    Require(sceAmprAmmCommandBufferMap(&empty.buffer, start, 0, 0, cpuReadWrite) == invalidArgument);
+    Require(sceAmprAmmCommandBufferMap(&empty.buffer, 0, page, 0, cpuReadWrite) == invalidArgument);
+    Require(sceAmprAmmCommandBufferMap(&empty.buffer, ~(page - 1), 2 * page, 0, cpuReadWrite) == invalidArgument);
+    Require(sceAmprAmmCommandBufferMapDirect(&empty.buffer, start, direct + 0x1000, page, 0, cpuReadWrite) == invalidArgument);
+    Require(sceAmprAmmCommandBufferUnmap(&empty.buffer, start + 8, page) == invalidArgument);
+    Require(sceAmprAmmCommandBufferMap(nullptr, start, page, 0, cpuReadWrite) == invalidArgument);
+    Require(sceAmprAprCommandBufferMapBegin(&empty.buffer, start, page, 0, 0x04) == invalidArgument);
+    Require(sceAmprAprCommandBufferMapEnd(nullptr) == invalidArgument);
+    Require(empty.Offset() == 0 && empty.Commands() == 0);
+
+    Apr::CommandBufferObject unbound{};
+    Require(sceAmprCommandBufferConstructor(&unbound) == 0);
+    Require(sceAmprAmmCommandBufferMap(&unbound, start, page, 0, cpuReadWrite) == permissionDenied);
+    Require(sceAmprAmmCommandBufferUnmap(&unbound, start, page) == permissionDenied);
+    const auto measured = static_cast<std::uint32_t>(sceAmprAmmMeasureAmmCommandSizeUnmap(start, page));
+    Recorder exact(measured);
+    Require(sceAmprAmmCommandBufferUnmap(&exact.buffer, start, page) == 0);
+    Require(sceAmprAmmCommandBufferUnmap(&exact.buffer, start, page) == busy);
+    Require(sceAmprAmmCommandBufferMap(&exact.buffer, start, page, 0, cpuReadWrite) == busy);
+    Require(sceAmprAmmSubmitCommandBuffer(nullptr, 0, 0) == permissionDenied);
+    Require(sceAmprAmmSubmitCommandBuffer(exact.memory.data(), 0, 3) == invalidArgument);
+    Require(sceAmprAmmSubmitCommandBuffer3(nullptr, 0, 3, nullptr) == invalidArgument);
+    Require(sceAmprAmmSubmitCommandBuffer(exact.memory.data(), 0, 2) == 0);
+
+    Require(sceAmprAmmMeasureAmmCommandSizeMap(start, page, 0, 0x04) == ammRejected);
+    Require(sceAmprAmmMeasureAmmCommandSizeMapWithGpuMaskId(start + 8, page, 0, cpuReadWrite, 0) == ammRejected);
+    Require(sceAmprAmmMeasureAmmCommandSizeMapWithGpuMaskId(start, page, 0, cpuReadWrite, 0) == std::int64_t{sizeof(Apr::AmmMapCommand)});
+    Require(sceAmprAmmMeasureAmmCommandSizeMapDirect(start, direct + 8, page, 0, cpuReadWrite) == ammRejected);
+    Require(sceAmprAmmMeasureAmmCommandSizeMapDirectWithGpuMaskId(start, direct, page, 0, cpuReadWrite, 0) == std::int64_t{sizeof(Apr::AmmMapCommand)});
+    Require(sceAmprAmmMeasureAmmCommandSizeUnmap(start, 0) == ammRejected);
+    Require(sceAmprMeasureCommandSizeMapBegin(start, page, 0, 0x04) == rejected);
+    Require(sceAmprMeasureCommandSizeMapDirectBegin(start, direct + 8, page, 0, cpuReadWrite) == rejected);
+    Require(sceAmprMeasureCommandSizeMapDirectBegin(start, direct, page, 0, cpuReadWrite) == sizeof(Apr::AmmMapCommand));
+}
+
 }
 
 int main() {
@@ -515,5 +687,6 @@ int main() {
     TestVersionedCounters();
     TestConstructed();
     TestGatherScatter();
+    TestAmm();
     return 0;
 }

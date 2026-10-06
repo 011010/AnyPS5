@@ -24,6 +24,7 @@ struct CommandBufferObject {
 static_assert(sizeof(CommandBufferObject) == 0x18, "guest reserves 0x18 bytes for sce::Ampr::CommandBuffer");
 
 inline constexpr std::uint16_t ScatterGatherValid = 1;
+inline constexpr std::uint16_t MapActive = 2;
 
 enum class Opcode : std::uint32_t {
     Nop = 0,
@@ -43,6 +44,10 @@ enum class Opcode : std::uint32_t {
     ReadFileScatter = 14,
     ReadFileGatherScatter = 15,
     ResetGatherScatterState = 16,
+    AmmMap = 17,
+    AmmMapDirect = 18,
+    AmmUnmap = 19,
+    MapEnd = 20,
 };
 
 struct CommandHeader {
@@ -60,6 +65,25 @@ struct ReadFileCommand {
 };
 
 struct ResetGatherScatterStateCommand {
+    CommandHeader header;
+};
+
+struct AmmMapCommand {
+    CommandHeader header;
+    std::uint64_t address;
+    std::uint64_t directOffset;
+    std::uint64_t size;
+    std::int32_t type;
+    std::int32_t protection;
+};
+
+struct AmmUnmapCommand {
+    CommandHeader header;
+    std::uint64_t address;
+    std::uint64_t size;
+};
+
+struct MapEndCommand {
     CommandHeader header;
 };
 
@@ -129,6 +153,13 @@ struct MarkerCommand {
     CommandHeader header;
 };
 
+}
+
+extern "C" {
+int AmmGiveDirectMemory_nid_no_patch(std::int64_t searchStart, std::int64_t searchEnd, std::size_t size, std::size_t alignment, int usage, std::int64_t* offset);
+void AmmVirtualAddressRanges_nid_no_patch(std::uint64_t* start, std::uint64_t* end, std::uint64_t* multimapStart, std::uint64_t* multimapEnd);
+std::uint32_t AmmSubmit_nid_no_patch(void* base, std::uint32_t bytes);
+bool AmmSubmitted_nid_no_patch(std::uint32_t id);
 }
 
 #endif
