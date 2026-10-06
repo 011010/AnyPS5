@@ -408,6 +408,10 @@ int APS5_VABI sceKernelBatchMap2(KernelBatchMapEntry* entries, int num_entries, 
  int result = 0;
  for (; processed < num_entries; ++processed) {
   auto& entry = entries[processed];
+  if (entry.length == 0 || entry.operation < OpMapDirect || entry.operation > OpTypeProtect) {
+   result = SCE_KERNEL_ERROR_EINVAL;
+   break;
+  }
   switch (entry.operation) {
   case OpMapDirect:
    result = DoMapDirect(&entry.start, entry.length, static_cast<uint8_t>(entry.protection), flags, static_cast<int64_t>(entry.offset), 0);
@@ -422,8 +426,6 @@ int APS5_VABI sceKernelBatchMap2(KernelBatchMapEntry* entries, int num_entries, 
   case OpMapFlexible:
    result = _mapFlexible(&entry.start, entry.length, static_cast<uint8_t>(entry.protection), flags);
    break;
-  default:
-   throw std::invalid_argument("sceKernelBatchMap2: unsupported operation " + std::to_string(entry.operation));
   }
   if (result != 0) break;
  }
