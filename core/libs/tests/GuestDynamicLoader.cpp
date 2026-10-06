@@ -26,6 +26,12 @@ int main(int argc, char** argv) {
     auto add = reinterpret_cast<Add>(dlsym_nid_postfix(module, "GuestModuleAdd"));
     Require(add && add(17, 25) == 42);
     Require(dlsym_nid_postfix(reinterpret_cast<void*>(-2), "GuestModuleAdd") == reinterpret_cast<void*>(add));
+#ifndef _WIN32
+    auto mul = reinterpret_cast<Add>(dlsym_nid_postfix(module, "GuestModuleMul"));
+    Require(mul && mul(6, 7) == 42);
+    auto sub = reinterpret_cast<Add>(dlsym_nid_postfix(module, "GuestModuleSub"));
+    Require(sub && sub(50, 8) == 42);
+#endif
     Require(dlsym_nid_postfix(module, "missing_symbol") == nullptr);
     std::thread other([] { Require(dlerror_nid_postfix() == nullptr); });
     other.join();

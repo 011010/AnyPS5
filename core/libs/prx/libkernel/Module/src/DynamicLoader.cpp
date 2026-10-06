@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <vector>
 #ifdef _WIN32
 #define NOMINMAX
@@ -48,7 +49,14 @@ void* Symbol(Module& module, const char* name) {
 void* FindSymbol(Module& module, const char* name) {
     if (auto* symbol = Symbol(module, name)) return symbol;
     const auto nid = Nid::ComputeNid(name, "");
+#ifdef _WIN32
     return Symbol(module, nid.c_str());
+#else
+    if (auto* symbol = Symbol(module, nid.c_str())) return symbol;
+    constexpr char guestSuffix[] = "#guest";
+    if (auto* symbol = Symbol(module, (std::string(name) + guestSuffix).c_str())) return symbol;
+    return Symbol(module, (nid + guestSuffix).c_str());
+#endif
 }
 }
 

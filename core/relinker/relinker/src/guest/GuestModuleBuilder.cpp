@@ -7,6 +7,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <set>
 
 namespace Relinker {
@@ -100,6 +101,11 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         for (const auto provider : shared->second) providers += " " + images[provider].SourcePath.string();
         throw Domain::RelinkerException("Ambiguous guest import " + name + " in " + importer + ": exported by" + providers);
     };
+    const auto rename = [](std::vector<std::uint8_t>& symbols, std::vector<std::uint8_t>& strings, std::size_t index, const std::string& name) {
+        if (strings.size() > std::numeric_limits<std::uint32_t>::max()) throw Domain::RelinkerException("Guest string table too large");
+        Io::WriteU32(symbols, index * 24, static_cast<std::uint32_t>(strings.size()));
+        Io::AppendString(strings, name + GuestSymbolSuffix);
+    };
     if (dynamic.DynSymData.size() % 24 != 0) throw Domain::RelinkerException("Invalid executable symbol table");
     for (std::size_t offset = 0; offset < dynamic.DynSymData.size(); offset += 24) {
         if (Io::ReadU16(dynamic.DynSymData, offset + 6) != 0) continue;
@@ -110,6 +116,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         if (end == dynamic.DynStrData.end()) throw Domain::RelinkerException("Unterminated executable symbol name");
         const std::string name(start, end);
         rejectSharedImport(name.substr(0, name.find('#')), inputPath.string());
+        if (!windows && exports.contains(name)) rename(dynamic.DynSymData, dynamic.DynStrData, offset / 24, name);
     }
     std::vector<std::set<std::size_t>> dependencies(images.size());
     for (auto& image : images) image.UsePlatformTlsResolver = !exports.contains("vNe1w4diLCs");
@@ -128,6 +135,15 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
                 if (exported == provider.Symbols.end() || ((symbol.Info & 15) != 0 && (symbol.Info & 15) != (exported->Info & 15))) throw Domain::RelinkerException("Guest import/export type mismatch: " + symbol.Name);
                 if (found->second != index) dependencies[index].insert(found->second);
             } else if (windows && (symbol.Info & 15) == 6) throw Domain::RelinkerException("Windows guest TLS import requires a guest TLS export: " + symbol.Name);
+        }
+    }
+    if (!windows) {
+        for (auto& image : images) {
+            for (std::size_t index = 1; index < image.Symbols.size(); ++index) {
+                const auto& symbol = image.Symbols[index];
+                const bool exported = symbol.Section != 0 && (symbol.Info >> 4) != 0 && symbol.Visibility != 1 && symbol.Visibility != 2;
+                if ((symbol.Section == 0 || exported) && exports.contains(symbol.Name)) rename(image.Dynamic.DynSymData, image.Dynamic.DynStrData, index, symbol.Name);
+            }
         }
     }
     std::vector<std::size_t> order;
