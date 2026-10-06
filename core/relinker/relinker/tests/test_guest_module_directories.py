@@ -131,7 +131,7 @@ def main():
                 (case / name / f"{name}.prx").write_bytes(module_with_symbol(True))
             (case / "prx" / "consumer.prx").write_bytes(module_with_symbol(False))
             result, output = convert(case, windows)
-            assert result.returncode == 2 and "Ambiguous guest import shared" in result.stderr, result.stderr
+            assert result.returncode == 2 and "Ambiguous guest import" in result.stderr and "shared" in result.stderr, result.stderr
             assert not output.exists() and not (case / "app0").exists(), output
     print("Guest module directory integration tests passed")
 

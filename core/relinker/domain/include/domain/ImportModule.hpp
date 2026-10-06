@@ -2,11 +2,21 @@
 #define DOMAIN_IMPORTMODULE_HPP
 
 #include <domain/Types.hpp>
+#include <algorithm>
+#include <span>
 #include <string_view>
 
 namespace Domain {
 
-inline std::string ImportModule(const std::string& symbol, const std::map<std::uint64_t, std::string>& modules) {
+inline std::string ImportModuleName(std::string name) {
+    if (name.ends_with(".prx")) name.resize(name.size() - 4);
+    if (name.ends_with("-module")) name.resize(name.size() - 7);
+    std::replace(name.begin(), name.end(), '.', '_');
+    return name;
+}
+
+inline std::string ImportModule(const std::string& symbol, const std::map<std::uint64_t, std::string>& modules,
+    std::span<const std::string> dependencies = {}) {
     if (modules.empty()) return {};
     const auto first = symbol.find('#');
     if (first == std::string::npos) return {};
@@ -27,6 +37,14 @@ inline std::string ImportModule(const std::string& symbol, const std::map<std::u
     if (name.empty() || name.find_first_of("/\\:$\r\n") != std::string::npos)
         throw RelinkerException("Invalid import module name: " + name);
     if (!name.ends_with(".prx")) name += ".prx";
+    if (std::find(dependencies.begin(), dependencies.end(), name) != dependencies.end()) return name;
+    std::string matched;
+    for (const auto& dependency : dependencies) {
+        if (ImportModuleName(dependency) != ImportModuleName(name)) continue;
+        if (!matched.empty() && matched != dependency) throw RelinkerException("Ambiguous import module dependency: " + name);
+        matched = dependency;
+    }
+    if (!matched.empty()) return matched;
     return name;
 }
 

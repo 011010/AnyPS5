@@ -117,8 +117,8 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
     }
     std::vector<std::set<std::size_t>> dependencies(images.size());
     for (auto& image : images) {
-        image.UsePlatformTlsResolver = std::none_of(image.Symbols.begin(), image.Symbols.end(), [](const auto& symbol) {
-            return symbol.Name == "vNe1w4diLCs" && symbol.Section != 0 && (symbol.Info >> 4) != 0 && symbol.Visibility != 1 && symbol.Visibility != 2;
+        image.UsePlatformTlsResolver = !windows ? !exports.contains("vNe1w4diLCs") : std::none_of(image.Symbols.begin(), image.Symbols.end(), [](const auto& symbol) {
+            return symbol.Name == "vNe1w4diLCs" && symbol.Section != 0 && symbol.Section != AbsoluteSection && (symbol.Info >> 4) != 0 && symbol.Visibility != 1 && symbol.Visibility != 2;
         });
     }
     for (std::size_t index = 0; index < images.size(); ++index) {

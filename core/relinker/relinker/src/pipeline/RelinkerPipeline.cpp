@@ -211,7 +211,7 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
             std::memcpy(&nameOff, raw.data() + symOff, 4);
 
             const auto name = readCStr(nameOff);
-            nidRefs.push_back({name, Domain::ImportModule(name, importModules), relType, pos, rOffset, rAddend});
+            nidRefs.push_back({name, Domain::ImportModule(name, importModules, neededLibraries), relType, pos, rOffset, rAddend});
         }
     };
 
