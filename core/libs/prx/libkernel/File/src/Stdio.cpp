@@ -14,6 +14,7 @@
 #include <cstring>
 #include <cstdarg>
 #include <filesystem>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #ifdef _WIN32
@@ -31,6 +32,30 @@ static int NativeMkdir(const std::filesystem::path& path, std::uint16_t mode) {
 }
 static int NativeChmod(const std::filesystem::path& path, int mode) {
     return ::_wchmod(path.wstring().c_str(), mode);
+}
+static std::optional<std::filesystem::path> NativeDescriptorPath(int descriptor) {
+    if (auto directory = File::DirectoryDescriptorPath(descriptor)) return directory;
+    const auto handle = reinterpret_cast<HANDLE>(::_get_osfhandle(descriptor));
+    if (handle == INVALID_HANDLE_VALUE) {
+        errno = EBADF;
+        return std::nullopt;
+    }
+    std::wstring path(MAX_PATH, L'\0');
+    auto length = ::GetFinalPathNameByHandleW(handle, path.data(), static_cast<DWORD>(path.size()), FILE_NAME_NORMALIZED);
+    if (length >= path.size()) {
+        path.resize(length);
+        length = ::GetFinalPathNameByHandleW(handle, path.data(), length, FILE_NAME_NORMALIZED);
+    }
+    if (length == 0 || length >= path.size()) {
+        errno = EINVAL;
+        return std::nullopt;
+    }
+    path.resize(length);
+    return path;
+}
+static int NativeFchmod(int descriptor, int mode) {
+    const auto path = NativeDescriptorPath(descriptor);
+    return path ? NativeChmod(*path, mode) : -1;
 }
 static int NativeFtruncate(int descriptor, std::int64_t length) {
     return static_cast<int>(::_chsize_s(descriptor, length));
@@ -99,6 +124,9 @@ static int NativeMkdir(const std::filesystem::path& path, std::uint16_t mode) {
 static int NativeChmod(const std::filesystem::path& path, int mode) {
     return ::chmod(path.c_str(), static_cast<mode_t>(mode));
 }
+static int NativeFchmod(int descriptor, int mode) {
+    return ::fchmod(descriptor, static_cast<mode_t>(mode));
+}
 static int NativeFtruncate(int descriptor, std::int64_t length) {
     return ::ftruncate(descriptor, static_cast<off_t>(length));
 }
@@ -121,6 +149,7 @@ static std::int64_t NativePwrite(int descriptor, const void* buf, std::size_t nb
 
 static constexpr int GUEST_ENOENT = 2;
 static constexpr int GUEST_EIO = 5;
+static constexpr int GUEST_EBADF = 9;
 static constexpr int GUEST_EFAULT = 14;
 static constexpr int GUEST_EEXIST = 17;
 static constexpr int GUEST_EINVAL = 22;
@@ -467,6 +496,16 @@ extern "C" {
 
 int APS5_VABI sceKernelChmod_nid_postfix(const char* path, std::uint16_t mode) {
     return chmod_nid_postfix(path, mode);
+}
+
+int APS5_VABI sceKernelFchmod(int d, std::uint16_t mode) {
+    if (d >= GuestSockets::FirstDescriptor) return SceErrorFromErrno(GuestSockets::IsOpen(d) ? GUEST_EINVAL : GUEST_EBADF);
+    if (NativeFchmod(d, mode & 07777) != 0) return SceErrorFromErrno(errno);
+    return 0;
+}
+
+int APS5_VABI fchmod_nid_postfix(int d, int mode) {
+    return PosixResult(sceKernelFchmod(d, static_cast<std::uint16_t>(mode)));
 }
 
 int APS5_VABI sceKernelTruncate_nid_postfix(const char* path, std::int64_t length) {
