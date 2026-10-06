@@ -145,15 +145,15 @@ static void TestUserFxChain() {
 
     auto out = Render(system);
     for (std::uint32_t i = 0; i < Grain; i++) Require(out[i * 2] == 0.5f && out[i * 2 + 1] == 0.75f);
-    Require(calls.processFlags == (std::vector<std::uint32_t>{0}) && calls.order == (std::vector<int>{0, 1}));
+    Require(calls.processFlags == (std::vector<std::uint32_t>{1}) && calls.order == (std::vector<int>{0, 1}));
 
     const float gain = 0.5f;
     Control(custom, SCE_NGS2_CUSTOM_VOICE_PARAM_USER_FX2 | 0, Ngs2CustomVoiceUserFx2Param{{}, &gain, sizeof(gain)});
     out = Render(system);
     for (std::uint32_t i = 0; i < Grain; i++) Require(out[i * 2] == 0.25f && out[i * 2 + 1] == 0.5f);
-    Require(calls.processFlags == (std::vector<std::uint32_t>{0, 2}));
+    Require(calls.processFlags == (std::vector<std::uint32_t>{1, 2}));
     out = Render(system);
-    Require(calls.processFlags == (std::vector<std::uint32_t>{0, 2, 0}));
+    Require(calls.processFlags == (std::vector<std::uint32_t>{1, 2, 0}));
 
     Require(ControlThrows<std::invalid_argument>(custom, SCE_NGS2_CUSTOM_VOICE_PARAM_USER_FX2 | 0, Ngs2CustomVoiceUserFx2Param{{}, &gain, sizeof(gain) - 1}));
     Require(ControlThrows<std::invalid_argument>(custom, SCE_NGS2_CUSTOM_VOICE_PARAM_USER_FX2 | 2, Ngs2CustomVoiceUserFx2Param{{}, &gain, sizeof(gain)}));

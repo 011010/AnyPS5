@@ -8,6 +8,7 @@
 #include "prx/libc/include/General.hpp"
 #include "Ngs2Internal.hpp"
 
+static constexpr std::uint32_t USER_FX2_FLAG_FIRST_PROCESS = 1;
 static constexpr std::uint32_t USER_FX2_FLAG_PARAM_CHANGED = 2;
 
 void Ngs2CheckCustomRack(const Ngs2CustomRackOption& option) {
@@ -44,6 +45,7 @@ void Ngs2SetupUserFx(Ngs2Rack& rack, const Ngs2CustomRackOption& option) {
             fx.param.resize(module.param_size);
             fx.work.resize(module.work_size);
             fx.state.resize(option.module[m].state_size);
+            fx.flags = USER_FX2_FLAG_FIRST_PROCESS;
             if (module.setup_handler == nullptr) continue;
             auto context = UserFxContext(rack, m, i);
             const int result = module.setup_handler(&context);
