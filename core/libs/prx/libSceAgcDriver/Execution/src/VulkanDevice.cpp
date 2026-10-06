@@ -729,6 +729,15 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         state->capabilities.push_back(spv::CapabilityShaderClockKHR);
         state->spirvExtensions.push_back("SPV_KHR_shader_clock");
     }
+    VkPhysicalDeviceShaderAtomicInt64FeaturesKHR atomicInt64Features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES_KHR};
+    if (hasExtension(VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME)) {
+        VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &atomicInt64Features};
+        state->InstanceFunction<PFN_vkGetPhysicalDeviceFeatures2>("vkGetPhysicalDeviceFeatures2")(selected, &features);
+    }
+    const bool bufferInt64Atomics = atomicInt64Features.shaderBufferInt64Atomics == VK_TRUE;
+    atomicInt64Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES_KHR};
+    atomicInt64Features.shaderBufferInt64Atomics = VK_TRUE;
+    if (bufferInt64Atomics) deviceExtensions.push_back(VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME);
     deviceExtensions.push_back(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
     state->capabilities.push_back(spv::CapabilitySignedZeroInfNanPreserve);
     state->spirvExtensions.push_back("SPV_KHR_float_controls");
@@ -909,6 +918,10 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     if (state->shaderClock) {
         clockFeatures.pNext = byteFeatures.pNext;
         byteFeatures.pNext = &clockFeatures;
+    }
+    if (bufferInt64Atomics) {
+        atomicInt64Features.pNext = byteFeatures.pNext;
+        byteFeatures.pNext = &atomicInt64Features;
     }
     VkPhysicalDeviceImageRobustnessFeaturesEXT imageRobustnessFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_ROBUSTNESS_FEATURES_EXT, nullptr, VK_TRUE};
     if (imageRobustness) {
