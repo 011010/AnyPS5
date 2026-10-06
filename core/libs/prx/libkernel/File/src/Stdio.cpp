@@ -65,6 +65,10 @@ static int NativeUtimes(const std::filesystem::path& path, const KernelTimeval* 
     struct _utimbuf values{static_cast<time_t>(times[0].tv_sec), static_cast<time_t>(times[1].tv_sec)};
     return ::_wutime(path.wstring().c_str(), &values);
 }
+static int NativeFutimes(int descriptor, const KernelTimeval* times) {
+    const auto path = NativeDescriptorPath(descriptor);
+    return path ? NativeUtimes(*path, times) : -1;
+}
 static int NativeFlock(int descriptor, int operation) {
     HANDLE handle = reinterpret_cast<HANDLE>(::_get_osfhandle(descriptor));
     if (handle == INVALID_HANDLE_VALUE) {
@@ -135,6 +139,12 @@ static int NativeUtimes(const std::filesystem::path& path, const KernelTimeval* 
     struct timeval values[2]{{static_cast<time_t>(times[0].tv_sec), static_cast<suseconds_t>(times[0].tv_usec)},
         {static_cast<time_t>(times[1].tv_sec), static_cast<suseconds_t>(times[1].tv_usec)}};
     return ::utimes(path.c_str(), values);
+}
+static int NativeFutimes(int descriptor, const KernelTimeval* times) {
+    if (times == nullptr) return ::futimes(descriptor, nullptr);
+    struct timeval values[2]{{static_cast<time_t>(times[0].tv_sec), static_cast<suseconds_t>(times[0].tv_usec)},
+        {static_cast<time_t>(times[1].tv_sec), static_cast<suseconds_t>(times[1].tv_usec)}};
+    return ::futimes(descriptor, values);
 }
 static int NativeFlock(int descriptor, int operation) {
     return ::flock(descriptor, operation);
@@ -529,6 +539,17 @@ int APS5_VABI sceKernelUtimes_nid_postfix(const char* path, const KernelTimeval*
 int APS5_VABI utimes_nid_postfix(const char* path, const KernelTimeval* times) {
     if (const int error = PathError(path)) return PosixFailure(error);
     return PosixResult(sceKernelUtimes_nid_postfix(path, times));
+}
+
+int APS5_VABI futimes_nid_postfix(int d, const KernelTimeval* times) {
+    if (d >= GuestSockets::FirstDescriptor) return PosixFailure(GuestSockets::IsOpen(d) ? GUEST_EINVAL : GUEST_EBADF);
+    if (times != nullptr) {
+        for (int i = 0; i < 2; ++i) {
+            if (times[i].tv_usec < 0 || times[i].tv_usec >= 1000000) return PosixFailure(GUEST_EINVAL);
+        }
+    }
+    if (NativeFutimes(d, times) != 0) return PosixResult(SceErrorFromErrno(errno));
+    return 0;
 }
 
 int APS5_VABI fsync_nid_postfix(int fd) {
