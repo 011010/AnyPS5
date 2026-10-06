@@ -48,6 +48,10 @@ enum class Opcode : std::uint32_t {
     AmmMapDirect = 18,
     AmmUnmap = 19,
     MapEnd = 20,
+    AmmRemap = 21,
+    AmmMultiMap = 22,
+    AmmModifyProtect = 23,
+    AmmModifyMtypeProtect = 24,
 };
 
 struct CommandHeader {
@@ -85,6 +89,25 @@ struct AmmUnmapCommand {
 
 struct MapEndCommand {
     CommandHeader header;
+};
+
+struct AmmRemapCommand {
+    CommandHeader header;
+    std::uint64_t address;
+    std::uint64_t source;
+    std::uint64_t size;
+    std::int32_t protection;
+    std::int32_t reserved;
+};
+
+struct AmmProtectCommand {
+    CommandHeader header;
+    std::uint64_t address;
+    std::uint64_t size;
+    std::int32_t type;
+    std::int32_t protection;
+    std::int32_t mask;
+    std::int32_t reserved;
 };
 
 struct WriteAddressCommand {
