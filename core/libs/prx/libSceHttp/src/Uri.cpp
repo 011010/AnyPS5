@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <cctype>
 #include <charconv>
 #include <cstdint>
@@ -260,7 +259,7 @@ int APS5_VABI sceHttpUriSweepPath(char* dst, const char* src, size_t srcSize) {
     if (!dst || !src) return ERROR_INVALID_VALUE;
 
     const size_t length = srcSize - 1;
-    if (src[0] != '/') {
+    if (length == 0 || src[0] != '/') {
         std::memcpy(dst, src, length);
         dst[length] = '\0';
         return 0;
@@ -271,11 +270,11 @@ int APS5_VABI sceHttpUriSweepPath(char* dst, const char* src, size_t srcSize) {
     size_t end = 0;
     size_t pos = 1;
     while (pos < length) {
-        if (src[pos] == '.' && src[pos + 1] == '/') {
+        if (src[pos] == '.' && pos + 1 < length && src[pos + 1] == '/') {
             pos += 2;
             continue;
         }
-        if (src[pos] == '.' && src[pos + 1] == '.' && src[pos + 2] == '/') {
+        if (src[pos] == '.' && pos + 2 < length && src[pos + 1] == '.' && src[pos + 2] == '/') {
             if (end != 0) {
                 dst[end] = '\0';
                 end = static_cast<size_t>(std::strrchr(dst, '/') - dst);
@@ -285,8 +284,8 @@ int APS5_VABI sceHttpUriSweepPath(char* dst, const char* src, size_t srcSize) {
             continue;
         }
         size_t count = length - pos;
-        if (const char* slash = std::strchr(src + pos, '/')) {
-            count = std::min(static_cast<size_t>(slash + 1 - (src + pos)), count);
+        if (const void* slash = std::memchr(src + pos, '/', length - pos)) {
+            count = static_cast<size_t>(static_cast<const char*>(slash) + 1 - (src + pos));
         }
         std::memcpy(dst + end + 1, src + pos, count);
         dst[end + 1 + count] = '\0';
