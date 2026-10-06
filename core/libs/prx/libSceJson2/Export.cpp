@@ -371,8 +371,10 @@ private:
                 }
             }
         }
+        const double real = std::strtod(text.c_str(), nullptr);
+        if (!std::isfinite(real)) throw std::runtime_error("sce::Json::Parser::parse: number " + text + " overflows a double; the console's behaviour is unverified");
         out.type = TypeReal;
-        out.real = std::strtod(text.c_str(), nullptr);
+        out.real = real;
         return true;
     }
     bool value(Node& out) {
@@ -752,7 +754,14 @@ int APS5_VABI _ZN3sce4Json6Parser5parseERNS0_5ValueEPKcm(Value* out, const char*
     if (text == nullptr) throw std::invalid_argument("sce::Json::Parser::parse: null text");
     Node parsed{};
     Parser parser(text, size);
-    if (!parser.Parse(parsed)) {
+    bool parsedOk = false;
+    try {
+        parsedOk = parser.Parse(parsed);
+    } catch (...) {
+        Clear(parsed);
+        throw;
+    }
+    if (!parsedOk) {
         Clear(parsed);
         return JsonErrorParse;
     }
