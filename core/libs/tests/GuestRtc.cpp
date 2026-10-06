@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <initializer_list>
 #include <limits>
 
 extern "C" {
@@ -97,6 +98,22 @@ int main() {
     Require(sceRtcFormatRFC3339(text, &tick, 0) == 0 && std::strcmp(text, "2024-02-29T12:34:56.78Z") == 0);
     Require(sceRtcFormatRFC3339(text, &tick, 90) == 0 && std::strcmp(text, "2024-02-29T14:04:56.78+01:30") == 0);
     Require(sceRtcFormatRFC3339(text, &tick, -300) == 0 && std::strcmp(text, "2024-02-29T07:34:56.78-05:00") == 0);
+    Require(sceRtcFormatRFC3339(text, &tick, 1439) == 0 && std::strcmp(text, "2024-03-01T12:33:56.78+23:59") == 0);
+    Require(sceRtcFormatRFC3339(text, &tick, -1439) == 0 && std::strcmp(text, "2024-02-28T12:35:56.78-23:59") == 0);
+    for (int offset : {0, 1, -1, 59, -59, 60, -60, 90, -300, 1439, -1439}) {
+        RtcTick parsed{};
+        Require(sceRtcFormatRFC3339(text, &tick, offset) == 0);
+        Require(sceRtcParseRFC3339(&parsed, text) == 0 && parsed.tick == leapDayTick - 9000);
+    }
+    for (int offset : {1440, -1440, 6000, -6000, std::numeric_limits<int>::min(), std::numeric_limits<int>::max()}) {
+        std::memset(text, 'x', sizeof(text));
+        char original[sizeof(text)];
+        std::memcpy(original, text, sizeof(text));
+        Require(sceRtcFormatRFC3339(text, &tick, offset) == invalidValue);
+        Require(std::memcmp(text, original, sizeof(text)) == 0);
+    }
+    Require(sceRtcFormatRFC3339(nullptr, &tick, 1440) == invalidPointer);
+    Require(sceRtcFormatRFC3339(text, nullptr, 1440) == invalidPointer);
     Require(sceRtcParseRFC3339(&tick, "2024-02-29T14:04:56.789+01:30") == 0 && tick.tick == leapDayTick);
     Require(sceRtcParseRFC3339(&tick, "2024-02-29t12:34:56.789z") == 0 && tick.tick == leapDayTick);
     Require(sceRtcParseRFC3339(&tick, "1970-01-01T00:00:00Z") == 0 && tick.tick == unixEpochTick);
