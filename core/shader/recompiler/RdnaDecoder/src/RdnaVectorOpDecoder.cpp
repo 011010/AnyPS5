@@ -96,7 +96,7 @@ constexpr Vop2OpcodeInfo vop2Opcodes[] = {
     {0x3cu, RdnaOpcode::VPkFmacF16},
     {0x06u, RdnaOpcode::VMacLegacyF32},
     {0x07u, RdnaOpcode::VMulLegacyF32, Vop2SdwaProfile::Float},
-    {0x3bu, RdnaOpcode::VLdexpF16},
+    {0x3bu, RdnaOpcode::VLdexpF16, Vop2SdwaProfile::Float16},
 };
 
 constexpr VectorOpcodeInfo vop1Opcodes[] = {
@@ -1361,14 +1361,15 @@ void validateVop2Sdwa(const RdnaInstruction& instruction, std::uint32_t opcode, 
     if (fields.src0Sel > 6u || fields.src1Sel > 6u || fields.dstSel > 6u) {
         throw std::invalid_argument("VOP2 SDWA selector is invalid");
     }
-    const bool clampSupported = isVop2FloatOpcode(instruction.op) || supportsVop2SdwaIntegerClamp(instruction.op, opcode);
-    if ((fields.clamp != 0u && !clampSupported) || (fields.omod != 0u && !isVop2FloatOpcode(instruction.op))) {
+    const bool floatResult = isVop2FloatOpcode(instruction.op) || instruction.op == RdnaOpcode::VLdexpF16;
+    const bool clampSupported = floatResult || supportsVop2SdwaIntegerClamp(instruction.op, opcode);
+    if ((fields.clamp != 0u && !clampSupported) || (fields.omod != 0u && !floatResult)) {
         throw std::invalid_argument("VOP2 SDWA output modifiers are not supported");
     }
+    if (hasUnsupportedVop2SourceModifiers(instruction.op, fields.src0Neg != 0u || fields.src0Abs != 0u, fields.src1Neg != 0u || fields.src1Abs != 0u)) {
+        throw std::invalid_argument("VOP2 SDWA source modifiers are not supported");
+    }
     if (isFullWidthVop2Sdwa(fields)) {
-        if (hasUnsupportedVop2SourceModifiers(instruction.op, fields.src0Neg != 0u || fields.src0Abs != 0u, fields.src1Neg != 0u || fields.src1Abs != 0u)) {
-            throw std::invalid_argument("VOP2 SDWA source modifiers are not supported");
-        }
         return;
     }
 
