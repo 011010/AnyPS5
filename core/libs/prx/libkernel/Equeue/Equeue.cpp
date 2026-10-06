@@ -46,7 +46,14 @@ void KernelEqueuePrivate::Close() {
 
 void KernelEqueuePrivate::TriggerExpiredTimers(uint64_t nowNs) {
     for (auto& ev : m_events) {
-        if (!ev.triggered && ev.deadlineNs != 0 && ev.deadlineNs <= nowNs) {
+        if (ev.deadlineNs != 0 && ev.deadlineNs <= nowNs) {
+            if (ev.event.filter == EVFILT_TIMER) {
+                const uint64_t count = ev.intervalNs == 0
+                    ? (ev.triggered ? 0 : 1)
+                    : 1 + (nowNs - ev.deadlineNs) / ev.intervalNs;
+                ev.event.data += static_cast<intptr_t>(count);
+                ev.deadlineNs += count * ev.intervalNs;
+            }
             ev.triggered = true;
         }
     }
@@ -176,7 +183,11 @@ int KernelEqueuePrivate::AddEvent(const KernelEqueueEvent& event) {
         }
     );
     if (it != m_events.end()) {
+        if (event.event.filter == EVFILT_TIMER) {
+            TriggerExpiredTimers(MonotonicNs());
+        }
         it->deadlineNs = event.deadlineNs;
+        it->intervalNs = event.intervalNs;
         it->event.udata = event.event.udata;
         for (auto& pending : it->pendingEvents) {
             pending.udata = event.event.udata;
@@ -401,6 +412,22 @@ int APS5_VABI sceKernelAddHRTimerEvent(KernelEqueue eq, int id, const KernelTime
 
 int APS5_VABI sceKernelDeleteHRTimerEvent(KernelEqueue eq, int id) {
     return EqueueDeleteEvent_nid_postfix(eq, static_cast<uintptr_t>(id), EVFILT_HRTIMER);
+}
+
+int APS5_VABI sceKernelAddTimerEvent(KernelEqueue eq, int id, KernelUseconds usec, void* udata) {
+    const uint64_t intervalNs = static_cast<uint64_t>(usec) * 1000ULL;
+    KernelEqueueEvent event{};
+    event.deadlineNs = KernelEqueuePrivate::MonotonicNs() + intervalNs;
+    event.intervalNs = intervalNs;
+    event.event.ident = static_cast<uintptr_t>(id);
+    event.event.filter = EVFILT_TIMER;
+    event.event.flags = EV_ADD | EV_CLEAR;
+    event.event.udata = udata;
+    return EqueueAddEvent_nid_postfix(eq, event);
+}
+
+int APS5_VABI sceKernelDeleteTimerEvent(KernelEqueue eq, int id) {
+    return EqueueDeleteEvent_nid_postfix(eq, static_cast<uintptr_t>(id), EVFILT_TIMER);
 }
 
 int APS5_VABI sceKernelAddAmprEvent(KernelEqueue eq, int id, void* udata) {
