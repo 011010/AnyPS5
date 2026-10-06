@@ -81,11 +81,6 @@ int APS5_VABI sceAgcUnknown_7Wa3aeJgeVU() {
  return 0;
 }
 
-int APS5_VABI sceAgcAsyncWriteDataPatchSetDst() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
-}
-
 int APS5_VABI sceAgcGetGsPrimPayload() {
  NotImplemented_nid_no_patch(__func__);
  return 0;
@@ -101,28 +96,8 @@ int APS5_VABI sceAgcGetShaderInstrumentation() {
  return 0;
 }
 
-int APS5_VABI sceAgcAsyncWriteDataPatchSetAddressOrOffset() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
-}
-
-int APS5_VABI sceAgcWriteDataPatchSetCachePolicy() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
-}
-
 APS5_EXPORT("rP5xLdOf26k", sceAgcUnknown_rP5xLdOf26k);
 int APS5_VABI sceAgcUnknown_rP5xLdOf26k() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
-}
-
-int APS5_VABI sceAgcWriteDataPatchSetDst() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
-}
-
-int APS5_VABI sceAgcAsyncWriteDataPatchSetCachePolicy() {
  NotImplemented_nid_no_patch(__func__);
  return 0;
 }
