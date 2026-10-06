@@ -107,6 +107,13 @@ std::int64_t localOffsetSeconds(std::uint64_t utcTick) {
     return localSeconds - static_cast<std::int64_t>(seconds);
 }
 
+constexpr const char* WEEKDAY_NAMES[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+constexpr const char* MONTH_NAMES[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+
+int localOffsetMinutes(const RtcTick& utc) {
+    return static_cast<int>(localOffsetSeconds(utc.tick) / 60);
+}
+
 int addTicks(RtcTick* dst, const RtcTick* src, std::int64_t count, std::int64_t unit) {
     if (!dst || !src) return SCE_RTC_ERROR_INVALID_POINTER;
     if (src->tick > MAX_TICK) return SCE_RTC_ERROR_INVALID_VALUE;
@@ -284,6 +291,28 @@ int APS5_VABI sceRtcFormatRFC3339(char* date_time, const RtcTick* utc, int time_
         std::snprintf(date_time + written, 7, "%c%02d:%02d", time_zone_minutes < 0 ? '-' : '+', offset / 60, offset % 60);
     }
     return 0;
+}
+
+int APS5_VABI sceRtcFormatRFC3339LocalTime(char* date_time, const RtcTick* utc) {
+    if (!date_time || !utc) return SCE_RTC_ERROR_INVALID_POINTER;
+    return sceRtcFormatRFC3339(date_time, utc, localOffsetMinutes(*utc));
+}
+
+int APS5_VABI sceRtcFormatRFC2822(char* date_time, const RtcTick* utc, int time_zone_minutes) {
+    if (!date_time || !utc) return SCE_RTC_ERROR_INVALID_POINTER;
+    if (time_zone_minutes < -1439 || time_zone_minutes > 1439) return SCE_RTC_ERROR_INVALID_VALUE;
+    RtcTick local{};
+    if (const int result = addTicks(&local, utc, time_zone_minutes, TICKS_PER_MINUTE); result != 0) return result;
+    const RtcDateTime time = fromTick(local.tick);
+    const int offset = time_zone_minutes < 0 ? -time_zone_minutes : time_zone_minutes;
+    std::snprintf(date_time, 32, "%s, %02u %s %04u %02u:%02u:%02u %c%02d%02d", WEEKDAY_NAMES[(local.tick / TICKS_PER_DAY + 1) % 7], time.day,
+        MONTH_NAMES[time.month - 1], time.year, time.hour, time.minute, time.second, time_zone_minutes < 0 ? '-' : '+', offset / 60, offset % 60);
+    return 0;
+}
+
+int APS5_VABI sceRtcFormatRFC2822LocalTime(char* date_time, const RtcTick* utc) {
+    if (!date_time || !utc) return SCE_RTC_ERROR_INVALID_POINTER;
+    return sceRtcFormatRFC2822(date_time, utc, localOffsetMinutes(*utc));
 }
 
 int APS5_VABI sceRtcParseRFC3339(RtcTick* utc, const char* date_time) {
