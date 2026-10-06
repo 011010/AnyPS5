@@ -71,13 +71,6 @@ extern "C" _Unwind_Reason_Code APS5_VABI __gxx_personality_v0_nid_postfix(
     return _URC_CONTINUE_UNWIND;
 }
 
-extern "C" _Unwind_Reason_Code __gxx_personality_v0(
-    int version, _Unwind_Action actions, std::uint64_t exceptionClass,
-    _Unwind_Exception* exception, _Unwind_Context* context
-) {
-    return __gxx_personality_v0_nid_postfix(version, actions, exceptionClass, exception, context);
-}
-
 extern "C" _Unwind_Reason_Code APS5_VABI __gcc_personality_v0_nid_postfix(
     int version, _Unwind_Action actions, std::uint64_t,
     _Unwind_Exception* exception, _Unwind_Context* context
@@ -108,9 +101,18 @@ extern "C" _Unwind_Reason_Code APS5_VABI __gcc_personality_v0_nid_postfix(
     return _URC_CONTINUE_UNWIND;
 }
 
+#ifndef __APPLE__
+extern "C" _Unwind_Reason_Code __gxx_personality_v0(
+    int version, _Unwind_Action actions, std::uint64_t exceptionClass,
+    _Unwind_Exception* exception, _Unwind_Context* context
+) {
+    return __gxx_personality_v0_nid_postfix(version, actions, exceptionClass, exception, context);
+}
+
 extern "C" _Unwind_Reason_Code __gcc_personality_v0(
     int version, _Unwind_Action actions, std::uint64_t exceptionClass,
     _Unwind_Exception* exception, _Unwind_Context* context
 ) {
     return __gcc_personality_v0_nid_postfix(version, actions, exceptionClass, exception, context);
 }
+#endif
