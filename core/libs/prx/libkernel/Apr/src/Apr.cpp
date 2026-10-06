@@ -19,6 +19,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -257,6 +258,7 @@ struct AmmState {
     std::map<std::uint64_t, std::uint64_t> pool;
     std::map<std::uintptr_t, AmmPage> pages;
     std::map<std::uint64_t, std::uint32_t> pooledUses;
+    std::set<std::uintptr_t> prt;
     std::atomic<std::uint32_t> lastSubmit{0};
 };
 
@@ -363,12 +365,79 @@ void _mapPages(AmmState& state, std::uint64_t address, const std::vector<AmmPage
     for (std::size_t index = 0; index < pages.size(); ++index) _addPage(state, address + index * PS5_PAGE_SIZE, pages[index]);
 }
 
+void _clearPrt(AmmState& state, std::uint64_t address, std::uint64_t size) {
+    state.prt.erase(state.prt.lower_bound(address), state.prt.lower_bound(address + size));
+}
+
+void _requirePrt(AmmState& state, std::uint64_t address, std::uint64_t size) {
+    for (std::uint64_t offset = 0; offset < size; offset += PS5_PAGE_SIZE) {
+        if (!state.prt.contains(address + offset)) throw std::runtime_error("AMM: range is not a PRT range");
+    }
+}
+
+void _zeroPrt(std::uint64_t address, std::uint64_t size) {
+    constexpr int GpuRead = 0x10;
+    void* target = reinterpret_cast<void*>(address);
+    if (DoMapAnon(&target, size, GpuRead, GuestMapFixed) != 0) throw std::runtime_error("AMM: cannot map the unbacked PRT pages");
+}
+
 void _ammUnmap(const Apr::AmmUnmapCommand& command) {
     auto& state = _amm();
     const std::lock_guard lock(state.lock);
     _ammCheckRange(state, command.address, command.size);
     _forgetPages(state, command.address, command.size, true);
+    _clearPrt(state, command.address, command.size);
     _reserve(command.address, command.size);
+}
+
+void _ammMapAsPrt(const Apr::AmmUnmapCommand& command) {
+    auto& state = _amm();
+    const std::lock_guard lock(state.lock);
+    _ammCheckRange(state, command.address, command.size);
+    _forgetPages(state, command.address, command.size, true);
+    _zeroPrt(command.address, command.size);
+    for (std::uint64_t offset = 0; offset < command.size; offset += PS5_PAGE_SIZE) state.prt.insert(command.address + offset);
+}
+
+void _ammUnmapToPrt(const Apr::AmmUnmapCommand& command) {
+    auto& state = _amm();
+    const std::lock_guard lock(state.lock);
+    _ammCheckRange(state, command.address, command.size);
+    _requirePrt(state, command.address, command.size);
+    _forgetPages(state, command.address, command.size, true);
+    _zeroPrt(command.address, command.size);
+}
+
+void _ammAllocatePrt(const Apr::AmmProtectCommand& command) {
+    auto& state = _amm();
+    const std::lock_guard lock(state.lock);
+    _ammCheckRange(state, command.address, command.size);
+    _requirePrt(state, command.address, command.size);
+    for (std::uint64_t offset = 0; offset < command.size;) {
+        const auto address = command.address + offset;
+        const bool backed = state.pages.contains(address);
+        std::uint64_t end = offset + PS5_PAGE_SIZE;
+        while (end < command.size && state.pages.contains(command.address + end) == backed) end += PS5_PAGE_SIZE;
+        const auto bytes = end - offset;
+        if (backed) {
+            for (std::uint64_t page = 0; page < bytes; page += PS5_PAGE_SIZE) {
+                auto& entry = state.pages[address + page];
+                entry.type = command.type;
+                entry.protection = command.protection;
+            }
+            if (DoMprotect(reinterpret_cast<void*>(address), bytes, _ammHostProtection(command.protection)) != 0) throw std::runtime_error("AMM: protection change failed");
+        } else {
+            std::vector<AmmPage> pages;
+            try {
+                for (std::uint64_t page = 0; page < bytes; page += PS5_PAGE_SIZE) pages.push_back({_takePoolPages(state, PS5_PAGE_SIZE), command.type, command.protection, true});
+            } catch (...) {
+                for (const auto& page : pages) _returnPoolPages(state, page.physical, PS5_PAGE_SIZE);
+                throw;
+            }
+            _mapPages(state, address, pages);
+        }
+        offset = end;
+    }
 }
 
 void _ammMap(const Apr::AmmMapCommand& command, bool direct) {
@@ -376,6 +445,7 @@ void _ammMap(const Apr::AmmMapCommand& command, bool direct) {
     const std::lock_guard lock(state.lock);
     _ammCheckRange(state, command.address, command.size);
     _forgetPages(state, command.address, command.size, true);
+    _clearPrt(state, command.address, command.size);
     const auto physical = direct ? command.directOffset : _takePoolPages(state, command.size);
     try {
         _mapRun(command.address, physical, command.size, command.protection);
@@ -386,19 +456,22 @@ void _ammMap(const Apr::AmmMapCommand& command, bool direct) {
     for (std::uint64_t offset = 0; offset < command.size; offset += PS5_PAGE_SIZE) _addPage(state, command.address + offset, {physical + offset, command.type, command.protection, !direct});
 }
 
-void _ammRemap(const Apr::AmmRemapCommand& command, bool alias) {
+void _ammRemap(const Apr::AmmRemapCommand& command, bool alias, bool intoPrt) {
     auto& state = _amm();
     const std::lock_guard lock(state.lock);
     _ammCheckRange(state, command.address, command.size);
     _ammCheckRange(state, command.source, command.size);
-    if (alias && command.address < command.source + command.size && command.source < command.address + command.size) throw std::runtime_error("AMM: multimap onto its own source range");
+    if ((alias || intoPrt) && command.address < command.source + command.size && command.source < command.address + command.size) throw std::runtime_error("AMM: remap onto its own source range");
+    if (intoPrt) _requirePrt(state, command.address, command.size);
     auto pages = _mappedPages(state, command.source, command.size);
     for (auto& page : pages) page.protection = command.protection;
     if (!alias) {
         _forgetPages(state, command.source, command.size, false);
+        _clearPrt(state, command.source, command.size);
         _reserve(command.source, command.size);
     }
     _forgetPages(state, command.address, command.size, true);
+    if (!intoPrt) _clearPrt(state, command.address, command.size);
     _mapPages(state, command.address, pages);
 }
 
@@ -472,7 +545,19 @@ void _execute(const Apr::CommandBufferObject& buffer) {
             break;
         case Apr::Opcode::AmmRemap:
         case Apr::Opcode::AmmMultiMap:
-            _ammRemap(_read<Apr::AmmRemapCommand>(buffer, cursor), header.opcode == Apr::Opcode::AmmMultiMap);
+            _ammRemap(_read<Apr::AmmRemapCommand>(buffer, cursor), header.opcode == Apr::Opcode::AmmMultiMap, false);
+            break;
+        case Apr::Opcode::AmmRemapIntoPrt:
+            _ammRemap(_read<Apr::AmmRemapCommand>(buffer, cursor), false, true);
+            break;
+        case Apr::Opcode::AmmMapAsPrt:
+            _ammMapAsPrt(_read<Apr::AmmUnmapCommand>(buffer, cursor));
+            break;
+        case Apr::Opcode::AmmUnmapToPrt:
+            _ammUnmapToPrt(_read<Apr::AmmUnmapCommand>(buffer, cursor));
+            break;
+        case Apr::Opcode::AmmAllocatePaForPrt:
+            _ammAllocatePrt(_read<Apr::AmmProtectCommand>(buffer, cursor));
             break;
         case Apr::Opcode::AmmModifyProtect:
         case Apr::Opcode::AmmModifyMtypeProtect:

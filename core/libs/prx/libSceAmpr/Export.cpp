@@ -169,6 +169,15 @@ static int RecordAmmProtect(Apr::CommandBufferObject* buffer, Apr::Opcode opcode
     return AppendAmm(buffer, &command, sizeof(command));
 }
 
+static constexpr std::int32_t PrtAllocationMask = 1019;
+
+static int RecordPrt(Apr::CommandBufferObject* buffer, const void* command, std::uint32_t bytes) {
+    if (!buffer) return SCE_KERNEL_ERROR_EINVAL;
+    if (bytes > buffer->size - buffer->offset) return SCE_KERNEL_ERROR_EBUSY;
+    if (!buffer->base) return SCE_KERNEL_ERROR_EPERM;
+    return Append(buffer, command, bytes);
+}
+
 static int RecordMapBegin(Apr::CommandBufferObject* buffer, Apr::Opcode opcode, std::uint64_t address, std::uint64_t directOffset, std::uint64_t size, std::int32_t type, std::int32_t protection) {
     if (!ValidMap(address, directOffset, size, protection)) return SCE_KERNEL_ERROR_EINVAL;
     if (InMap(buffer)) return SCE_KERNEL_ERROR_EPERM;
@@ -712,6 +721,46 @@ std::int64_t APS5_VABI sceAmprAmmMeasureAmmCommandSizeModifyMtypeProtect(std::ui
 std::int64_t APS5_VABI sceAmprAmmMeasureAmmCommandSizeModifyMtypeProtectWithGpuMaskId(std::uint64_t address, std::uint64_t size, std::int32_t type, std::int32_t protection, std::int32_t mask, std::uint8_t gpuMaskId) {
     (void)gpuMaskId;
     return sceAmprAmmMeasureAmmCommandSizeModifyMtypeProtect(address, size, type, protection, mask);
+}
+
+int APS5_VABI sceAmprAmmCommandBufferMapAsPrt(Apr::CommandBufferObject* buffer, std::uint64_t address, std::uint64_t size) {
+    if (!buffer) return SCE_KERNEL_ERROR_EINVAL;
+    if (!ValidMapRange(address, size)) return SCE_KERNEL_ERROR_EINVAL;
+    const Apr::AmmUnmapCommand command{{Apr::Opcode::AmmMapAsPrt, sizeof(command)}, address, size};
+    return RecordPrt(buffer, &command, sizeof(command));
+}
+
+int APS5_VABI sceAmprAmmCommandBufferAllocatePaForPrt(Apr::CommandBufferObject* buffer, std::uint64_t address, std::uint64_t size, std::int32_t type, std::int32_t protection) {
+    if (!ValidAmmProtection(protection)) return SCE_KERNEL_ERROR_EINVAL;
+    if (!buffer) return SCE_KERNEL_ERROR_EINVAL;
+    if (!ValidMapRange(address, size)) return SCE_KERNEL_ERROR_EINVAL;
+    const Apr::AmmProtectCommand command{{Apr::Opcode::AmmAllocatePaForPrt, sizeof(command)}, address, size, type, protection, PrtAllocationMask, 0};
+    return RecordPrt(buffer, &command, sizeof(command));
+}
+
+int APS5_VABI sceAmprAmmCommandBufferRemapIntoPrt(Apr::CommandBufferObject* buffer, std::uint64_t address, std::uint64_t source, std::uint64_t size, std::int32_t protection, std::uint32_t opcode) {
+    if (!buffer) return SCE_KERNEL_ERROR_EINVAL;
+    if (!buffer->base) return SCE_KERNEL_ERROR_EPERM;
+    if (!ValidRemap(address, source, size, protection)) return SCE_KERNEL_ERROR_EINVAL;
+    const Apr::AmmRemapCommand command{{Apr::Opcode::AmmRemapIntoPrt, sizeof(command)}, address, source, size, protection, static_cast<std::int32_t>(opcode ? opcode : 1011u)};
+    return AppendAmm(buffer, &command, sizeof(command));
+}
+
+int APS5_VABI sceAmprAmmCommandBufferUnmapToPrt(Apr::CommandBufferObject* buffer, std::uint64_t address, std::uint64_t size) {
+    if (!buffer) return SCE_KERNEL_ERROR_EINVAL;
+    if (!buffer->base) return SCE_KERNEL_ERROR_EPERM;
+    if (!ValidMapRange(address, size)) return SCE_KERNEL_ERROR_EINVAL;
+    const Apr::AmmUnmapCommand command{{Apr::Opcode::AmmUnmapToPrt, sizeof(command)}, address, size};
+    return AppendAmm(buffer, &command, sizeof(command));
+}
+
+std::int64_t APS5_VABI sceAmprAmmMeasureAmmCommandSizeMapAsPrt(std::uint64_t address, std::uint64_t size) {
+    return ValidMapRange(address, size) ? std::int64_t{sizeof(Apr::AmmUnmapCommand)} : AmmMeasureInvalid;
+}
+
+std::int64_t APS5_VABI sceAmprAmmMeasureAmmCommandSizeAllocatePaForPrt(std::uint64_t address, std::uint64_t size, std::int32_t type, std::int32_t protection) {
+    (void)type;
+    return ValidMapRange(address, size) && ValidAmmProtection(protection) ? std::int64_t{sizeof(Apr::AmmProtectCommand)} : AmmMeasureInvalid;
 }
 
 int APS5_VABI sceAmprAmmGiveDirectMemory(std::int64_t searchStart, std::int64_t searchEnd, std::size_t size, std::size_t alignment, int usage, std::int64_t* offset) {
