@@ -494,6 +494,23 @@ int APS5_VABI sceFontGetCharGlyphCode(FontHandle fontHandle, std::uint32_t code,
     return rc;
 }
 
+int APS5_VABI sceFontGetFontResolution(FontHandle fontHandle, std::uint32_t* pResolution, float* pScalePixel) {
+    std::uint16_t unitsPerEm = 0;
+    float scalePixel = 0.0f;
+    const int rc = CallOpenFontObject(fontHandle, [&](const SysDriver& driver, FontObj* obj) {
+        if (!pResolution && !pScalePixel) return SCE_FONT_ERROR_INVALID_PARAMETER;
+        if (!driver.scale) return SCE_FONT_ERROR_FATAL;
+        return driver.scale(obj, &unitsPerEm, &scalePixel);
+    });
+    if (rc != SCE_FONT_OK) {
+        unitsPerEm = 0;
+        scalePixel = 0.0f;
+    }
+    if (pResolution) *pResolution = unitsPerEm;
+    if (pScalePixel) *pScalePixel = scalePixel;
+    return rc;
+}
+
 int APS5_VABI sceFontBindRenderer(FontHandle fontHandle, FontRenderer renderer) {
     auto* font = GetNativeFont(fontHandle);
     std::uint32_t fontLock = 0;

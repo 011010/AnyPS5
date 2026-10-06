@@ -82,11 +82,6 @@ int APS5_VABI sceFontGetFontMetrics() {
     return 0;
 }
 
-int APS5_VABI sceFontGetFontResolution() {
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
-}
-
 int APS5_VABI sceFontGetFontStyleInformation() {
     NotImplemented_nid_no_patch(__func__);
     return 0;
