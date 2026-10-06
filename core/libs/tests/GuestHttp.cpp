@@ -11,6 +11,7 @@ int APS5_VABI sceHttpSetInflateGZIPEnabled(int, int);
 int APS5_VABI sceHttpUriBuild(char*, std::size_t*, std::size_t, const SceHttpUriElement*, std::uint32_t);
 int APS5_VABI sceHttpUriEscape(char*, std::size_t*, std::size_t, const char*);
 int APS5_VABI sceHttpUriUnescape(char*, std::size_t*, std::size_t, const char*);
+int APS5_VABI sceHttpUriSweepPath(char*, const char*, std::size_t);
 int APS5_VABI sceHttpCreateEpoll(int, HttpEpollHandle*);
 int APS5_VABI sceHttpDestroyEpoll(int, HttpEpollHandle);
 int APS5_VABI sceHttpReadData(int, void*, std::size_t);
@@ -194,4 +195,30 @@ int main() {
     Require(parse(response, 15) == parseInvalidResponse);
     Require(parse(response, 16) == parseInvalidResponse);
     Require(phrase == nullptr && phraseLength == 0);
+    auto sweep = [](const char* src, const char* expected) {
+        char swept[128];
+        std::memset(swept, 'x', sizeof(swept));
+        return sceHttpUriSweepPath(swept, src, std::strlen(src) + 1) == 0 && Equal(swept, expected);
+    };
+    Require(sceHttpUriSweepPath(nullptr, nullptr, 0) == 0);
+    Require(sceHttpUriSweepPath(nullptr, "/foo", 5) == invalidValue);
+    char sweptPath[16];
+    Require(sceHttpUriSweepPath(sweptPath, nullptr, 5) == invalidValue);
+    Require(sweep("foo/../bar", "foo/../bar"));
+    Require(sweep("/foo/../bar", "/bar"));
+    Require(sweep("/foo/./bar", "/foo/bar"));
+    Require(sweep("/foo/.", "/foo/."));
+    Require(sweep("/foo/..", "/foo/.."));
+    Require(sweep("/foo/bar/../foo/././../../../test/index.html", "/test/index.html"));
+    Require(sweep("/", "/"));
+    Require(sweep("", ""));
+    Require(sweep("/a/b/c/../../d/", "/a/d/"));
+    Require(sweep("/../a", "/a"));
+    Require(sweep("/a/..b/.c", "/a/..b/.c"));
+    Require(sceHttpUriSweepPath(sweptPath, "/a/b/../c", 6) == 0 && Equal(sweptPath, "/a/b/"));
+    Require(sceHttpUriSweepPath(sweptPath, "/ab/c", 3) == 0 && Equal(sweptPath, "/a"));
+    Require(sceHttpUriSweepPath(sweptPath, "/a/./b", 5) == 0 && Equal(sweptPath, "/a/."));
+    Require(sceHttpUriSweepPath(sweptPath, "/a/b/../c", 8) == 0 && Equal(sweptPath, "/a/b/.."));
+    char sweptByte[2] = {'x', 'x'};
+    Require(sceHttpUriSweepPath(sweptByte, "/", 1) == 0 && sweptByte[0] == '\0' && sweptByte[1] == 'x');
 }

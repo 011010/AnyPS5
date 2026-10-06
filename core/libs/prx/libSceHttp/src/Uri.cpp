@@ -254,4 +254,45 @@ int APS5_VABI sceHttpUriParse(SceHttpUriElement* out, const char* src_url, void*
     return 0;
 }
 
+int APS5_VABI sceHttpUriSweepPath(char* dst, const char* src, size_t srcSize) {
+    if (srcSize == 0) return 0;
+    if (!dst || !src) return ERROR_INVALID_VALUE;
+
+    const size_t length = srcSize - 1;
+    if (length == 0 || src[0] != '/') {
+        std::memcpy(dst, src, length);
+        dst[length] = '\0';
+        return 0;
+    }
+
+    dst[0] = '/';
+    dst[1] = '\0';
+    size_t end = 0;
+    size_t pos = 1;
+    while (pos < length) {
+        if (src[pos] == '.' && pos + 1 < length && src[pos + 1] == '/') {
+            pos += 2;
+            continue;
+        }
+        if (src[pos] == '.' && pos + 2 < length && src[pos + 1] == '.' && src[pos + 2] == '/') {
+            if (end != 0) {
+                dst[end] = '\0';
+                end = static_cast<size_t>(std::strrchr(dst, '/') - dst);
+                dst[end + 1] = '\0';
+            }
+            pos += 3;
+            continue;
+        }
+        size_t count = length - pos;
+        if (const void* slash = std::memchr(src + pos, '/', length - pos)) {
+            count = static_cast<size_t>(static_cast<const char*>(slash) + 1 - (src + pos));
+        }
+        std::memcpy(dst + end + 1, src + pos, count);
+        dst[end + 1 + count] = '\0';
+        end += count;
+        pos += count;
+    }
+    return 0;
+}
+
 }
