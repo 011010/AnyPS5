@@ -69,6 +69,14 @@ add_test_executable(agc_command_tests EXCLUDE_FROM_ALL tests/Commands.cpp)
 target_include_directories(agc_command_tests PRIVATE ${LIBS_INCLUDE_DIR})
 target_link_libraries(agc_command_tests PRIVATE libSceAgc libc)
 configure_windows_unwind(agc_command_tests)
+if(BUILD_TESTING)
+    set_target_properties(agc_command_tests PROPERTIES EXCLUDE_FROM_ALL OFF)
+    add_test(NAME agc_initialization COMMAND agc_command_tests defaults)
+    if(WIN32)
+        set_tests_properties(agc_initialization PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
 configure_windows_unwind(libSceAgc)
 
 add_test_executable(agc_platform_tests EXCLUDE_FROM_ALL tests/Platform.cpp)
@@ -143,6 +151,26 @@ if(BUILD_TESTING)
     add_test(NAME agc_branch_patch_tests COMMAND agc_branch_patch_tests)
     if(WIN32)
         set_tests_properties(agc_branch_patch_tests PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
+
+add_test_executable(agc_predication_tests EXCLUDE_FROM_ALL
+        tests/Predication.cpp
+        Command/src/Packet.cpp
+        Command/src/Control.cpp
+        DcbState/src/Predication.cpp
+        DcbDraw/src/IndexBuffer.cpp
+        Predication/src/Predication.cpp
+)
+target_include_directories(agc_predication_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_predication_tests PRIVATE libc)
+configure_windows_unwind(agc_predication_tests)
+if(BUILD_TESTING)
+    set_target_properties(agc_predication_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME agc_predication_tests COMMAND agc_predication_tests)
+    if(WIN32)
+        set_tests_properties(agc_predication_tests PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()

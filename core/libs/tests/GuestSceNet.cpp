@@ -29,6 +29,7 @@ int APS5_VABI sceNetEpollDestroy(int);
 int APS5_VABI sceNetResolverCreate(const char*, int, int);
 int APS5_VABI sceNetResolverStartNtoa(int, const char*, void*, int, int, int);
 int APS5_VABI sceNetResolverDestroy(int);
+int APS5_VABI sceNetResolverGetError(int, int*);
 int APS5_VABI sceNetCtlGetState(int*);
 int APS5_VABI sceNetInetPton(int, const char*, void*);
 const char* APS5_VABI sceNetInetNtop(int, const void*, char*, std::uint32_t);
@@ -134,10 +135,24 @@ int main() {
 
     const int resolver = sceNetResolverCreate("guest-sce-net", 0, 0);
     Require(resolver >= 0);
+    int resolver_error = -1;
+    Require(sceNetResolverGetError(resolver, &resolver_error) == 0 && resolver_error == 0);
     std::array<std::uint8_t, 4> ipv4{};
+    Require(sceNetResolverStartNtoa(resolver, "guest-sce-net.invalid", ipv4.data(), 5000000, 1, 0) ==
+        static_cast<int>(0x804101E1));
+    Require(sceNetResolverGetError(resolver, &resolver_error) == 0 &&
+        resolver_error == static_cast<int>(0x804101E1));
+    Require(sceNetResolverStartNtoa(resolver, nullptr, ipv4.data(), 5000000, 1, 0) == static_cast<int>(0x80410116));
+    Require(sceNetResolverGetError(resolver, &resolver_error) == 0 &&
+        resolver_error == static_cast<int>(0x804101E1));
     Require(sceNetResolverStartNtoa(resolver, "localhost", ipv4.data(), 5000000, 1, 0) == 0);
     Require(ipv4[0] == 127);
+    Require(sceNetResolverGetError(resolver, &resolver_error) == 0 && resolver_error == 0);
+    Require(sceNetResolverGetError(resolver, nullptr) == static_cast<int>(0x80410116) && *sceNetErrnoLoc() == 22);
     Require(sceNetResolverDestroy(resolver) == 0);
+    resolver_error = -1;
+    Require(sceNetResolverGetError(resolver, &resolver_error) == static_cast<int>(0x80410109) &&
+        *sceNetErrnoLoc() == 9 && resolver_error == -1);
 
     std::array<std::uint8_t, 16> ipv6{};
     Require(sceNetInetPton(28, "::1", ipv6.data()) == 1);

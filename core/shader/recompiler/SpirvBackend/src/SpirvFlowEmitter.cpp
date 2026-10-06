@@ -34,7 +34,13 @@ void EmitKillIfPixelValidMaskInactive(SpirvEmitterState& state) {
     const auto active = state.module.AllocateId();
     state.module.AddFunction(spv::OpLoad, TypeU32(state), maskValue, state.pixelValidMaskVariable);
     state.module.AddFunction(spv::OpINotEqual, TypeBool(state), active, maskValue, ConstantU32(state, 0u));
-    EmitKillIfBoolFalse(state, active);
+    auto keep = active;
+    if (const auto helperVariable = InputVariableForKind(state, StageInputKind::HelperInvocation); helperVariable != 0u) {
+        const auto helper = state.module.AllocateId();
+        state.module.AddFunction(spv::OpLoad, TypeBool(state), helper, helperVariable);
+        keep = Binary(state, spv::OpLogicalOr, TypeBool(state), active, helper);
+    }
+    EmitKillIfBoolFalse(state, keep);
 }
 
 // Block metadata is paired with BlockOrder by position (as IrProgram validation does); terminator
