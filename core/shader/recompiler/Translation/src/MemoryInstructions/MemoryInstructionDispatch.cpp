@@ -600,6 +600,8 @@ bool TranslationContext::emitMemory(const RdnaInstruction& inst) {
     case RdnaOpcode::ImageLoadMipPck:
     case RdnaOpcode::ImageLoadMipPckSgn:
         return imageLoad(inst);
+    case RdnaOpcode::ImageMsaaLoad:
+        return imageMsaaLoad(inst);
     case RdnaOpcode::ImageStore:
     case RdnaOpcode::ImageStoreMip:
     case RdnaOpcode::ImageStorePck:
