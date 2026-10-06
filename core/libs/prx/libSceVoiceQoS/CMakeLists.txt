@@ -13,9 +13,10 @@ if(BUILD_TESTING)
     target_include_directories(guest_voice_qos_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(guest_voice_qos_tests PRIVATE libSceVoiceQoS libc)
     configure_windows_unwind(guest_voice_qos_tests)
-    add_test(NAME guest_voice_qos COMMAND guest_voice_qos_tests)
+    add_test(NAME guest_voice_qos COMMAND guest_voice_qos_tests 0x20000000)
+    add_test(NAME guest_voice_qos_app_type_0x10000000 COMMAND guest_voice_qos_tests 0x10000000)
     if(WIN32)
-        set_tests_properties(guest_voice_qos PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(guest_voice_qos guest_voice_qos_app_type_0x10000000 PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceVoiceQoS>")
     endif()
 endif()

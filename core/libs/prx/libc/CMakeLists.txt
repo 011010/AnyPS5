@@ -40,7 +40,21 @@ target_include_directories(libc PRIVATE
         ${LIBS_INCLUDE_DIR}
 )
 
+if(WIN32)
+    target_link_libraries(libc PRIVATE advapi32)
+endif()
+
 if(BUILD_TESTING)
+    add_test_executable(guest_access_tests ${LIBS_INCLUDE_DIR}/tests/GuestAccess.cpp)
+    target_include_directories(guest_access_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(guest_access_tests PRIVATE libc)
+    configure_windows_unwind(guest_access_tests)
+    add_test(NAME guest_access COMMAND guest_access_tests)
+    if(WIN32)
+        target_link_libraries(guest_access_tests PRIVATE advapi32)
+        set_tests_properties(guest_access PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
     add_test_executable(file_position_tests ${LIBS_INCLUDE_DIR}/tests/FilePosition.cpp)
     target_include_directories(file_position_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(file_position_tests PRIVATE libc)
@@ -85,6 +99,16 @@ if(BUILD_TESTING)
     set_tests_properties(guest_execute_once PROPERTIES TIMEOUT 20)
     if(WIN32)
         set_tests_properties(guest_execute_once PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+    add_test_executable(guest_fiopen_tests ${LIBS_INCLUDE_DIR}/tests/GuestFiopen.cpp)
+    target_include_directories(guest_fiopen_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(guest_fiopen_tests PRIVATE libc)
+    configure_windows_unwind(guest_fiopen_tests)
+    add_test(NAME guest_fiopen COMMAND guest_fiopen_tests)
+    set_tests_properties(guest_fiopen PROPERTIES TIMEOUT 20)
+    if(WIN32)
+        set_tests_properties(guest_fiopen PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
     add_test_executable(guest_working_directory_tests ${LIBS_INCLUDE_DIR}/tests/GuestWorkingDirectory.cpp)

@@ -151,21 +151,14 @@ IrValue* TranslationContext::readOperand(const RdnaOperand& operand, IrType type
         return &ir.ConstructU64(pair[0].Value(), pair[1].Value());
     }
     IrU32 bits = applyBitSourceModifiers(operand, readRawU32(operand));
-    if (TypesOverlap(type, IrType::F32) && !TypesOverlap(type, IrType::U32)) {
-        IrF32 value(ir.BitCastF32(bits.Value()));
-        if (operand.absolute) {
-            value = IrF32(ir.Emit(IrOpcode::FPAbs32, IrType::F32, {&value.Value()}));
-        }
-        if (operand.negate) {
-            value = IrF32(ir.Emit(IrOpcode::FPNeg32, IrType::F32, {&value.Value()}));
-        }
-        return &value.Value();
-    }
     if (operand.absolute) {
         bits = IrU32(ir.BitwiseAnd(bits.Value(), ir.Constant(0x7fffffffu)));
     }
     if (operand.negate) {
         bits = IrU32(ir.BitwiseXor(bits.Value(), ir.Constant(0x80000000u)));
+    }
+    if (TypesOverlap(type, IrType::F32) && !TypesOverlap(type, IrType::U32)) {
+        return &ir.BitCastF32(bits.Value());
     }
     if (!TypesOverlap(type, IrType::U32)) {
         throw std::runtime_error("TranslationContext::readOperand requested unsupported operand type");
@@ -285,6 +278,16 @@ IrF32 TranslationContext::applyF16ResultModifiers(const RdnaOperand& operand, Ir
     const IrU1 positive(ir.Emit(IrOpcode::FPOrdGreaterThan32, IrType::U1, {&value.Value(), &zero.Value()}));
     const IrF32 limited(ir.Emit(IrOpcode::FPMin32, IrType::F32, {&value.Value(), &ir.ConstantF32(1.0f)}));
     return selectF32(positive, limited, zero);
+}
+
+IrU32 TranslationContext::clampF16Bits(const RdnaOperand& operand, IrU32 bits) {
+    if (!operand.clamp) {
+        return bits;
+    }
+    const IrU32 magnitude(ir.BitwiseAnd(bits.Value(), ir.Constant(0x7fffu)));
+    const IrU1 zero(ir.LogicalOr(ir.UGreaterThan(bits.Value(), ir.Constant(0x7fffu)), ir.UGreaterThan(magnitude.Value(), ir.Constant(0x7c00u))));
+    const IrU32 limited(ir.Select(ir.UGreaterThan(magnitude.Value(), ir.Constant(0x3c00u)), ir.Constant(0x3c00u), bits.Value()));
+    return IrU32(ir.Select(zero.Value(), ir.Constant(0u), limited.Value()));
 }
 
 IrU32 TranslationContext::readScalarCode(std::uint32_t code) {
