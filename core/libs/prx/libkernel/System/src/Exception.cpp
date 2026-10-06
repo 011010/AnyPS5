@@ -13,6 +13,9 @@
 #endif
 
 extern "C" Pthread APS5_VABI scePthreadSelf();
+#ifdef _WIN32
+extern "C" void Aps5RedirectedEntryStub();
+#endif
 
 namespace {
 
@@ -179,6 +182,9 @@ void CALLBACK WaitingEntry(ULONG_PTR parameter) {
     Deliver(handler, signum, context);
 }
 
+static_assert(HomeArea + 8 == 40, "Aps5RedirectedEntryStub finds the delivery 40 bytes above its stack pointer");
+static_assert(offsetof(Delivery, context) == 16 && offsetof(CONTEXT, Rax) == 0x78 && offsetof(CONTEXT, Rbp) == 0xa0 && offsetof(CONTEXT, R15) == 0xf0, "Aps5RedirectedEntryStub stores the live registers into the delivery's context");
+
 void RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
     if (thread == scePthreadSelf()) {
         CONTEXT context{};
@@ -212,8 +218,7 @@ void RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
     std::memcpy(reinterpret_cast<void*>(slot), &delivery, sizeof(Delivery));
     CONTEXT redirected = delivery.context;
     redirected.Rsp = slot - HomeArea - 8;
-    redirected.Rip = reinterpret_cast<DWORD64>(&RedirectedEntry);
-    redirected.Rcx = slot;
+    redirected.Rip = reinterpret_cast<DWORD64>(&Aps5RedirectedEntryStub);
     if (!SetThreadContext(native, &redirected)) {
         ResumeThread(native);
         throw std::runtime_error("sceKernelRaiseException: cannot redirect the target thread");
@@ -223,6 +228,32 @@ void RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
 #endif
 
 }
+
+#ifdef _WIN32
+extern "C" [[noreturn]] void Aps5RedirectedEntry(void* delivery) {
+    RedirectedEntry(static_cast<Delivery*>(delivery));
+}
+asm(".text\n"
+    ".globl Aps5RedirectedEntryStub\n"
+    "Aps5RedirectedEntryStub:\n"
+    "    movq %rax, 176(%rsp)\n"
+    "    movq %rcx, 184(%rsp)\n"
+    "    movq %rdx, 192(%rsp)\n"
+    "    movq %rbx, 200(%rsp)\n"
+    "    movq %rbp, 216(%rsp)\n"
+    "    movq %rsi, 224(%rsp)\n"
+    "    movq %rdi, 232(%rsp)\n"
+    "    movq %r8, 240(%rsp)\n"
+    "    movq %r9, 248(%rsp)\n"
+    "    movq %r10, 256(%rsp)\n"
+    "    movq %r11, 264(%rsp)\n"
+    "    movq %r12, 272(%rsp)\n"
+    "    movq %r13, 280(%rsp)\n"
+    "    movq %r14, 288(%rsp)\n"
+    "    movq %r15, 296(%rsp)\n"
+    "    leaq 40(%rsp), %rcx\n"
+    "    jmp Aps5RedirectedEntry\n");
+#endif
 
 extern "C" {
 

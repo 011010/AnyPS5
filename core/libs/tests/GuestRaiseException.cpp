@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
 
@@ -67,6 +68,22 @@ static void* APS5_VABI Waiting(void* arg) {
     return nullptr;
 }
 
+static std::mutex hostLock;
+
+static constexpr int HostRounds = 20;
+static std::atomic<int> hostRound{0};
+
+static void* APS5_VABI HostBlocked(void* arg) {
+    auto& worker = *static_cast<Worker*>(arg);
+    worker.id = std::this_thread::get_id();
+    for (int round = 0; round < HostRounds; ++round) {
+        while (hostRound.load() != round) std::this_thread::yield();
+        worker.started.store(true);
+        std::lock_guard lock(hostLock);
+    }
+    return nullptr;
+}
+
 static void ExpectDelivery(int before, std::thread::id thread) {
     for (int attempt = 0; attempt < 5000 && calls.load() == before; ++attempt) std::this_thread::sleep_for(std::chrono::milliseconds(1));
     Require(calls.load() == before + 1);
@@ -113,6 +130,23 @@ int main() {
     Require(scePthreadJoin(waitingThread, nullptr) == 0);
     Require(waiting.waitResult == 0);
     Require(sceKernelDeleteSema(waiting.sem) == 0);
+
+    Worker blocked;
+    Pthread blockedThread = nullptr;
+    hostLock.lock();
+    Require(scePthreadCreate(&blockedThread, nullptr, HostBlocked, &blocked, "host blocked") == 0);
+    for (int round = 0; round < HostRounds; ++round) {
+        while (!blocked.started.load()) std::this_thread::yield();
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        Require(sceKernelRaiseException(blockedThread, SIGUSR1) == 0);
+        hostLock.unlock();
+        ExpectDelivery(1 + 2 * Repeats + round, blocked.id);
+        hostLock.lock();
+        blocked.started.store(false);
+        hostRound.store(round + 1);
+    }
+    hostLock.unlock();
+    Require(scePthreadJoin(blockedThread, nullptr) == 0);
 
     Require(sceKernelRemoveExceptionHandler(SIGUSR1) == 0);
 }
