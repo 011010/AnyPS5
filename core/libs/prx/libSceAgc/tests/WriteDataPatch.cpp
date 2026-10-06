@@ -50,9 +50,9 @@ struct Fields {
     std::uint8_t writeConfirm;
 };
 
-using Writer = std::uint32_t* (*)(CommandBuffer*, std::uint8_t, std::uint8_t, std::uint64_t, const void*, std::uint32_t, std::uint8_t, std::uint8_t);
-using AddressPatch = int (*)(std::uint32_t*, std::uint64_t);
-using FieldPatch = int (*)(std::uint32_t*, std::uint8_t);
+using Writer = std::uint32_t* (APS5_VABI *)(CommandBuffer*, std::uint8_t, std::uint8_t, std::uint64_t, const void*, std::uint32_t, std::uint8_t, std::uint8_t);
+using AddressPatch = int (APS5_VABI *)(std::uint32_t*, std::uint64_t);
+using FieldPatch = int (APS5_VABI *)(std::uint32_t*, std::uint8_t);
 
 struct Variant {
     Writer writer;
