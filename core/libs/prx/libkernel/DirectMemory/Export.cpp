@@ -148,6 +148,18 @@ int APS5_VABI sceKernelDirectMemoryQuery(int64_t offset, int flags, void* info, 
  return 0;
 }
 
+int APS5_VABI sceKernelGetDirectMemoryType(int64_t offset, int* memory_type, int64_t* start, int64_t* end) {
+ if (!memory_type || !start || !end) return SCE_KERNEL_ERROR_EINVAL;
+ int64_t blockStart = 0;
+ int64_t blockEnd = 0;
+ int blockType = 0;
+ if (!DirectMemoryFind(offset, false, &blockStart, &blockEnd, &blockType)) return SCE_KERNEL_ERROR_ENOENT;
+ *memory_type = blockType;
+ *start = blockStart;
+ *end = blockEnd;
+ return 0;
+}
+
 size_t APS5_VABI sceKernelGetDirectMemorySize(void) {
  return DIRECT_MEMORY_SIZE;
 }
