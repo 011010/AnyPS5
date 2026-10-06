@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <stdexcept>
@@ -156,6 +157,156 @@ static std::int32_t APS5_VABI Release(Ngs2ContextBufferInfo* info) {
     return SCE_NGS2_OK;
 }
 
+static std::uint32_t FirstReverbSample(const Ngs2ReverbI3DL2Param& params) {
+    const auto system = CreateSystem();
+    const auto master = Mastering(system, 1);
+    const auto reverb = Voice(CreateRack(system, SCE_NGS2_RACK_ID_REVERB));
+    Control(reverb, SCE_NGS2_REVERB_VOICE_PARAM_SETUP, Ngs2ReverbVoiceSetupParam{{}, 1, 1, 0, 0});
+    Control(reverb, SCE_NGS2_REVERB_VOICE_PARAM_I3DL2, Ngs2ReverbVoiceI3DL2Param{{}, params});
+    Patch(reverb, master);
+    Event(reverb, SCE_NGS2_VOICE_EVENT_PLAY);
+    std::vector<std::int16_t> pcm(Grain, 0);
+    pcm[0] = 32767;
+    const auto sampler = Sampler(system, pcm, 0);
+    Patch(sampler, reverb);
+    Event(sampler, SCE_NGS2_VOICE_EVENT_PLAY);
+    std::vector<float> out(Grain);
+    const Ngs2RenderBufferInfo info{out.data(), out.size() * sizeof(float), SCE_NGS2_WAVEFORM_TYPE_PCM_F32L, 1};
+    std::uint32_t first = 0;
+    for (std::uint32_t grain = 0; grain < 48000 / Grain && first == 0; grain++) {
+        Require(sceNgs2SystemRender(system, &info, 1) == SCE_NGS2_OK);
+        for (std::uint32_t i = 0; i < Grain && first == 0; i++) {
+            if (out[i] != 0.0f) first = grain * Grain + i;
+        }
+    }
+    Require(sceNgs2SystemDestroy(system, nullptr) == SCE_NGS2_OK);
+    return first;
+}
+
+static void TestReverbDelays() {
+    const Ngs2ReverbI3DL2Param lateOnly{1.0f, 0.0f, 0, 0, 0, 1.0f, 1.0f, 0, 0.0f, 0, 0.05f, 100.0f, 100.0f, 5000.0f, {}};
+    Require(FirstReverbSample(lateOnly) > 2400);
+    const Ngs2ReverbI3DL2Param withReflections{1.0f, 0.0f, 0, 0, 0, 1.0f, 1.0f, 0, 0.01f, 0, 0.05f, 100.0f, 100.0f, 5000.0f, {}};
+    const auto first = FirstReverbSample(withReflections);
+    Require(first >= 480 && first < 600);
+}
+
+static bool ReverbParamThrows(uintptr_t reverb, Ngs2ReverbI3DL2Param params) {
+    try { Control(reverb, SCE_NGS2_REVERB_VOICE_PARAM_I3DL2, Ngs2ReverbVoiceI3DL2Param{{}, params}); } catch (const std::invalid_argument&) { return true; }
+    return false;
+}
+
+static float RenderPeak(uintptr_t system, std::vector<float>& out, const Ngs2RenderBufferInfo& info) {
+    Require(sceNgs2SystemRender(system, &info, 1) == SCE_NGS2_OK);
+    float peak = 0.0f;
+    for (float sample : out) peak = std::max(peak, std::fabs(sample));
+    return peak;
+}
+
+static void TestReverbLifetime() {
+    const auto system = CreateSystem();
+    const auto master = Mastering(system, 1);
+    const auto reverb = Voice(CreateRack(system, SCE_NGS2_RACK_ID_REVERB));
+    bool flags = false;
+    try { Control(reverb, SCE_NGS2_REVERB_VOICE_PARAM_SETUP, Ngs2ReverbVoiceSetupParam{{}, 1, 1, 1, 0}); } catch (const std::runtime_error&) { flags = true; }
+    Require(flags);
+    Control(reverb, SCE_NGS2_REVERB_VOICE_PARAM_SETUP, Ngs2ReverbVoiceSetupParam{{}, 6, 6, 0, 0});
+    Control(reverb, SCE_NGS2_REVERB_VOICE_PARAM_SETUP, Ngs2ReverbVoiceSetupParam{{}, 1, 1, 0, 0});
+    const Ngs2ReverbI3DL2Param room{1.0f, 0.0f, 0, 0, 0, 0.1f, 1.0f, -10000, 0.0f, 0, 0.0f, 100.0f, 100.0f, 5000.0f, {}};
+    auto bad = room;
+    bad.decay_time = 0.05f;
+    Require(ReverbParamThrows(reverb, bad));
+    bad = room;
+    bad.wet = NAN;
+    Require(ReverbParamThrows(reverb, bad));
+    bad = room;
+    bad.room = 100;
+    Require(ReverbParamThrows(reverb, bad));
+    Control(reverb, SCE_NGS2_REVERB_VOICE_PARAM_I3DL2, Ngs2ReverbVoiceI3DL2Param{{}, room});
+    Patch(reverb, master);
+    Event(reverb, SCE_NGS2_VOICE_EVENT_PLAY);
+
+    std::vector<std::int16_t> pcm(Grain, 0);
+    pcm[0] = 32767;
+    const auto sampler = Sampler(system, pcm, 0);
+    Patch(sampler, reverb);
+    Event(sampler, SCE_NGS2_VOICE_EVENT_PLAY);
+    std::vector<float> out(Grain);
+    const Ngs2RenderBufferInfo info{out.data(), out.size() * sizeof(float), SCE_NGS2_WAVEFORM_TYPE_PCM_F32L, 1};
+    float before = 0.0f;
+    for (std::uint32_t grain = 0; grain < 2400 / Grain; grain++) before = std::max(before, RenderPeak(system, out, info));
+    Require(before > 0.0f);
+    Control(reverb, SCE_NGS2_REVERB_VOICE_PARAM_I3DL2, Ngs2ReverbVoiceI3DL2Param{{}, room});
+    float after = 0.0f;
+    for (std::uint32_t grain = 0; grain < 1200 / Grain; grain++) after = std::max(after, RenderPeak(system, out, info));
+    Require(after > 0.0f);
+
+    Event(reverb, SCE_NGS2_VOICE_EVENT_KILL);
+    Event(reverb, SCE_NGS2_VOICE_EVENT_PLAY);
+    Require(RenderPeak(system, out, info) == 0.0f);
+
+    const auto second = Sampler(system, pcm, 0);
+    Patch(second, reverb);
+    Event(second, SCE_NGS2_VOICE_EVENT_PLAY);
+    float peak = 0.0f;
+    for (std::uint32_t grain = 0; grain < 4800 / Grain; grain++) peak = std::max(peak, RenderPeak(system, out, info));
+    Require(peak > 0.0f);
+    for (std::uint32_t grain = 0; grain < 48000 / Grain; grain++) RenderPeak(system, out, info);
+    Require(RenderPeak(system, out, info) == 0.0f);
+    Require(sceNgs2SystemDestroy(system, nullptr) == SCE_NGS2_OK);
+}
+
+static void TestReverb() {
+    const auto system = CreateSystem();
+    const auto master = Mastering(system, 2);
+    const auto reverb = Voice(CreateRack(system, SCE_NGS2_RACK_ID_REVERB));
+    bool conversion = false;
+    try { Control(reverb, SCE_NGS2_REVERB_VOICE_PARAM_SETUP, Ngs2ReverbVoiceSetupParam{{}, 1, 2, 0, 0}); } catch (const std::runtime_error&) { conversion = true; }
+    Require(conversion);
+    Control(reverb, SCE_NGS2_REVERB_VOICE_PARAM_SETUP, Ngs2ReverbVoiceSetupParam{{}, 2, 2, 0, 0});
+    const Ngs2ReverbI3DL2Param cave{1.0f, 0.0f, -1000, 0, 0, 2.91f, 1.3f, -602, 0.015f, -302, 0.022f, 100.0f, 100.0f, 5000.0f, {}};
+    Control(reverb, SCE_NGS2_REVERB_VOICE_PARAM_I3DL2, Ngs2ReverbVoiceI3DL2Param{{}, cave});
+    Patch(reverb, master);
+    Event(reverb, SCE_NGS2_VOICE_EVENT_PLAY);
+    Ngs2VoiceState state{};
+    Require(sceNgs2VoiceGetState(reverb, &state, sizeof(state) + 1) == SCE_NGS2_ERROR_INVALID_OUT_SIZE);
+    Require(sceNgs2VoiceGetState(reverb, &state, sizeof(state)) == SCE_NGS2_OK && (state.state_flags & SCE_NGS2_VOICE_STATE_FLAG_INUSE) != 0);
+
+    std::vector<std::int16_t> pcm(Grain, 0);
+    pcm[0] = 32767;
+    const auto sampler = Sampler(system, pcm, 0);
+    const float levels[2] = {1.0f, 1.0f};
+    Control(sampler, SCE_NGS2_VOICE_PARAM_MATRIX_LEVELS, Ngs2VoiceMatrixLevelsParam{{}, 0, 2, levels});
+    Control(sampler, SCE_NGS2_VOICE_PARAM_PORT_MATRIX, Ngs2VoicePortMatrixParam{{}, 0, 0});
+    Patch(sampler, reverb);
+    Event(sampler, SCE_NGS2_VOICE_EVENT_PLAY);
+
+    std::vector<float> out(Grain * 2);
+    const Ngs2RenderBufferInfo info{out.data(), out.size() * sizeof(float), SCE_NGS2_WAVEFORM_TYPE_PCM_F32L, 2};
+    Require(sceNgs2SystemRender(system, &info, 1) == SCE_NGS2_OK);
+    for (float sample : out) Require(sample == 0.0f);
+    float early = 0.0f;
+    float late = 0.0f;
+    float lastSecond = 0.0f;
+    bool stereo = false;
+    for (std::uint32_t grain = 1; grain < 2 * 48000 / Grain; grain++) {
+        Require(sceNgs2SystemRender(system, &info, 1) == SCE_NGS2_OK);
+        for (std::uint32_t i = 0; i < Grain; i++) {
+            const float left = out[i * 2];
+            const float right = out[i * 2 + 1];
+            Require(std::isfinite(left) && std::isfinite(right) && std::fabs(left) < 1.0f && std::fabs(right) < 1.0f);
+            if (left != right) stereo = true;
+            const float level = std::max(std::fabs(left), std::fabs(right));
+            if (grain * Grain < 2400) early = std::max(early, level);
+            else if (grain * Grain < 48000) late = std::max(late, level);
+            else lastSecond = std::max(lastSecond, level);
+        }
+    }
+    Require(early > 0.0f && late > 0.0f && stereo);
+    Require(lastSecond < late * 0.5f);
+    Require(sceNgs2SystemDestroy(system, nullptr) == SCE_NGS2_OK);
+}
+
 static void TestSampleRate() {
     const auto system = CreateSystem();
     Require(sceNgs2SystemSetSampleRate(0x1234, 96000) == SCE_NGS2_ERROR_INVALID_SYSTEM_HANDLE);
@@ -240,6 +391,9 @@ int main() {
     TestPcmBlockEnd();
     TestPitchAndRepeat();
     TestSubmixerMatrix();
+    TestReverb();
+    TestReverbDelays();
+    TestReverbLifetime();
     TestSampleRate();
     TestUserData();
     TestLock();

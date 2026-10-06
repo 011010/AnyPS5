@@ -3,6 +3,7 @@ add_library(libSceNgs2.native SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Custom.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Rack.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Render.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/Reverb.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/System.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Unimplemented.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Voice.cpp
