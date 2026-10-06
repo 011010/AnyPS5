@@ -20,6 +20,15 @@ bool isAnisoFilter(std::uint32_t raw) {
     return raw == 2 || raw == 3;
 }
 
+VkSamplerReductionMode toVkReductionMode(std::uint32_t raw) {
+    switch (raw) {
+        case 0: return VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT;
+        case 1: return VK_SAMPLER_REDUCTION_MODE_MIN_EXT;
+        case 2: return VK_SAMPLER_REDUCTION_MODE_MAX_EXT;
+        default: throw std::runtime_error("AGC graphics: guest sampler descriptor uses an unknown reduction filter mode " + std::to_string(raw));
+    }
+}
+
 VkSamplerAddressMode toVkAddressMode(std::uint32_t raw) {
     switch (raw) {
         case 0: return VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -99,15 +108,17 @@ GuestSamplerResource DecodeSamplerResource(std::span<const std::uint32_t> words,
     static_cast<void>(anisoThreshold);
     static_cast<void>(anisoBias);
     Require(!disableCubeWrap, "guest sampler descriptor disables seamless cube filtering which is not implemented");
-    Require(filterMode == 0, "guest sampler descriptor uses a reduction filter mode which is not implemented");
+    const auto reductionMode = toVkReductionMode(filterMode);
     Require(!disableDegamma, "guest sampler descriptor disables degamma which is not implemented");
     Require(lodBiasSec == 0, "guest sampler descriptor uses a secondary LOD bias which is not implemented");
     Require(!pointPreclamp, "guest sampler descriptor uses point preclamping which is not implemented");
     Require(!anisoOverride, "guest sampler descriptor uses an anisotropy override which is not implemented");
     Require(!blendZeroPrt, "guest sampler descriptor uses PRT blend-zero which is not implemented");
     if (mipFilter > 2u) Require(false, "guest sampler descriptor uses an unknown mip filter " + std::to_string(mipFilter));
+    Require(mipFilter != 2u || reductionMode == VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT, "guest sampler descriptor combines a min or max reduction with a linear mip filter, which is not implemented");
 
     const auto aniso = isAnisoFilter(xyMagFilter) || isAnisoFilter(xyMinFilter);
+    Require(!aniso || reductionMode == VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT, "guest sampler descriptor combines a min or max reduction with anisotropic filtering, which is not implemented");
     auto anisoRatio = 1.0f;
     if (aniso) {
         if (maxAnisoRatio > 4u) Require(false, "guest sampler descriptor uses an unknown anisotropy ratio " + std::to_string(maxAnisoRatio));
@@ -147,6 +158,7 @@ GuestSamplerResource DecodeSamplerResource(std::span<const std::uint32_t> words,
     result.maxLod = maxLod;
     result.lodBias = toSignedLodBias(lodBiasRaw);
     result.borderColor = border;
+    result.reductionMode = reductionMode;
     const std::array compareOps{VK_COMPARE_OP_NEVER, VK_COMPARE_OP_LESS, VK_COMPARE_OP_EQUAL, VK_COMPARE_OP_LESS_OR_EQUAL, VK_COMPARE_OP_GREATER, VK_COMPARE_OP_NOT_EQUAL, VK_COMPARE_OP_GREATER_OR_EQUAL, VK_COMPARE_OP_ALWAYS};
     result.compareOp = compareOps.at(depthCompareFunc);
     if (forceUnormCoords) {

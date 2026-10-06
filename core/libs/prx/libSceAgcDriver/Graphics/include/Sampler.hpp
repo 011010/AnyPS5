@@ -20,12 +20,14 @@ public:
     Sampler& operator=(const Sampler&) = delete;
 
     VkSampler Handle() const;
+    bool RequiresFilterMinmax() const;
 
 private:
     void release() noexcept;
 
     Context context;
     VkSampler sampler = VK_NULL_HANDLE;
+    bool requiresFilterMinmax = false;
 };
 
 // One VkSampler per distinct S# (its 4 words plus the shader's depth-compare use and the
@@ -56,6 +58,8 @@ private:
     std::uint64_t hits = 0;
     std::uint64_t misses = 0;
 };
+
+void RequireFilterMinmax(const Context& context, VkFormat format, std::uint32_t samplerMask, std::span<const std::shared_ptr<Sampler>> samplers);
 
 }
 

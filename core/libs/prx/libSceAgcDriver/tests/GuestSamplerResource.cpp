@@ -1,9 +1,14 @@
 #include "GraphicsTests.hpp"
+#include "Optimization/DescriptorBindingBuilder.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/GuestSamplerResource.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/Sampler.hpp"
 #include <array>
 #include <cmath>
+#include <cstring>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 namespace {
 
@@ -82,6 +87,138 @@ void requireUnnormalized(const GuestSamplerResource& result, const char* what) {
 
 bool nearlyEqual(float a, float b) {
     return std::fabs(a - b) < 0.001f;
+}
+
+struct SamplerCapture {
+    bool created = false;
+    const void* next = nullptr;
+    VkSamplerReductionMode reductionMode = VK_SAMPLER_REDUCTION_MODE_MAX_ENUM;
+};
+SamplerCapture samplerCapture;
+
+template<typename THandle>
+THandle fakeHandle(std::uint64_t value) {
+    if constexpr (std::is_pointer_v<THandle>) return reinterpret_cast<THandle>(static_cast<std::uintptr_t>(value));
+    else return static_cast<THandle>(value);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL captureCreateSampler(VkDevice, const VkSamplerCreateInfo* info, const VkAllocationCallbacks*, VkSampler* sampler) {
+    samplerCapture.created = true;
+    samplerCapture.next = info->pNext;
+    const auto* reduction = static_cast<const VkSamplerReductionModeCreateInfoEXT*>(info->pNext);
+    if (reduction != nullptr && reduction->sType == VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT && reduction->pNext == nullptr) samplerCapture.reductionMode = reduction->reductionMode;
+    *sampler = fakeHandle<VkSampler>(0x5a);
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR void VKAPI_CALL captureDestroySampler(VkDevice, VkSampler, const VkAllocationCallbacks*) {}
+
+PFN_vkVoidFunction VKAPI_CALL captureProc(VkDevice, const char* name) {
+    if (std::strcmp(name, "vkCreateSampler") == 0) return reinterpret_cast<PFN_vkVoidFunction>(captureCreateSampler);
+    if (std::strcmp(name, "vkDestroySampler") == 0) return reinterpret_cast<PFN_vkVoidFunction>(captureDestroySampler);
+    return nullptr;
+}
+
+SamplerCapture createSampler(const Context& context, const GuestSamplerResource& resource) {
+    samplerCapture = {};
+    const Sampler sampler(context, resource);
+    Require(sampler.Handle() != VK_NULL_HANDLE, "sampler test did not create a sampler");
+    return samplerCapture;
+}
+
+void RunSamplerReductionTests(const Fields& base) {
+    Context context{};
+    context.limits.maxSamplerAnisotropy = 1.0f;
+    context.deviceProc = captureProc;
+    context.samplerFilterMinmax = true;
+
+    const std::array<std::uint32_t, 4> capturedSampler{0x20000092u, 0x00fff000u, 0x05500000u, 0u};
+    const auto captured = DecodeSamplerResource(capturedSampler);
+    Require(captured.reductionMode == VK_SAMPLER_REDUCTION_MODE_MIN_EXT, "captured min-reduction sampler decoded to another reduction mode");
+    Require(captured.magFilter == VK_FILTER_LINEAR && captured.minFilter == VK_FILTER_LINEAR && captured.mipmapMode == VK_SAMPLER_MIPMAP_MODE_NEAREST, "captured min-reduction sampler filters decoded incorrectly");
+    Require(captured.addressModeU == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE && captured.addressModeV == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE && captured.addressModeW == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, "captured min-reduction sampler address modes decoded incorrectly");
+    Require(!captured.anisotropyEnable && captured.compareOp == VK_COMPARE_OP_NEVER && nearlyEqual(captured.maxLod, 4095.0f / 256.0f), "captured min-reduction sampler fields decoded incorrectly");
+
+    const std::array modes{VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT, VK_SAMPLER_REDUCTION_MODE_MIN_EXT, VK_SAMPLER_REDUCTION_MODE_MAX_EXT};
+    for (std::uint32_t mode = 0; mode < modes.size(); ++mode) {
+        for (const std::uint32_t filter : {0u, 1u}) {
+            Fields reduced = base;
+            reduced.filterMode = mode;
+            reduced.xyMagFilter = filter;
+            reduced.xyMinFilter = filter;
+            reduced.mipFilter = 1;
+            const auto decoded = DecodeSamplerResource(pack(reduced));
+            Require(decoded.reductionMode == modes.at(mode), "sampler reduction mode decoded incorrectly");
+            const auto created = createSampler(context, decoded);
+            Require(created.created, "sampler test did not reach vkCreateSampler");
+            if (mode == 0u) Require(created.next == nullptr, "a weighted-average sampler chained a reduction mode");
+            else Require(created.reductionMode == modes.at(mode), "a min or max sampler did not chain its reduction mode");
+            const Sampler sampler(context, decoded);
+            Require(sampler.RequiresFilterMinmax() == (mode != 0u && filter == 1u), "sampler min/max format requirement is wrong");
+        }
+    }
+    Fields noMip = base;
+    noMip.filterMode = 2;
+    noMip.mipFilter = 0;
+    Require(DecodeSamplerResource(pack(noMip)).reductionMode == VK_SAMPLER_REDUCTION_MODE_MAX_EXT, "a max sampler without mip filtering was not decoded");
+    Fields linearMip = base;
+    linearMip.filterMode = 1;
+    rejectFields(linearMip, "min or max reduction with a linear mip filter");
+    linearMip.xyMagFilter = 0;
+    linearMip.xyMinFilter = 0;
+    rejectFields(linearMip, "min or max reduction with a linear mip filter");
+
+    Fields badFilterMode = base;
+    badFilterMode.filterMode = 3;
+    rejectFields(badFilterMode, "unknown reduction filter mode 3");
+    Fields anisoReduction = base;
+    anisoReduction.filterMode = 1;
+    anisoReduction.xyMagFilter = 3;
+    anisoReduction.xyMinFilter = 3;
+    anisoReduction.maxAnisoRatio = 2;
+    anisoReduction.mipFilter = 1;
+    rejectFields(anisoReduction, "min or max reduction with anisotropic filtering");
+    anisoReduction.filterMode = 0;
+    Require(DecodeSamplerResource(pack(anisoReduction)).anisotropyEnable, "anisotropic weighted-average sampler was rejected");
+
+    auto compared = captured;
+    compared.compareEnable = true;
+    reject([&] { createSampler(context, compared); }, "min or max reduction with depth comparison");
+    auto weightedCompare = DecodeSamplerResource(pack(base));
+    weightedCompare.compareEnable = true;
+    Require(createSampler(context, weightedCompare).created, "weighted-average comparison sampler was rejected");
+    context.samplerFilterMinmax = false;
+    reject([&] { createSampler(context, captured); }, "min or max reduction which the device does not support");
+    Require(createSampler(context, DecodeSamplerResource(pack(base))).created, "weighted-average sampler needs min/max support");
+
+    context.formatProperties = [](VkPhysicalDevice, VkFormat format, VkFormatProperties* properties) {
+        *properties = {};
+        if (format == VK_FORMAT_R32_SFLOAT) properties->optimalTilingFeatures = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_MINMAX_BIT_EXT;
+        if (format == VK_FORMAT_R32G32_SFLOAT) properties->optimalTilingFeatures = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+        if (format == VK_FORMAT_R8G8B8A8_UNORM) properties->linearTilingFeatures = VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_MINMAX_BIT_EXT;
+    };
+    context.samplerFilterMinmax = true;
+    Fields minPoint = base;
+    minPoint.filterMode = 1;
+    minPoint.xyMagFilter = 0;
+    minPoint.xyMinFilter = 0;
+    minPoint.mipFilter = 1;
+    const std::array samplers{std::make_shared<Sampler>(context, DecodeSamplerResource(pack(base))), std::make_shared<Sampler>(context, captured), std::make_shared<Sampler>(context, DecodeSamplerResource(pack(minPoint)))};
+    RequireFilterMinmax(context, VK_FORMAT_R32_SFLOAT, 0b010u, samplers);
+    RequireFilterMinmax(context, VK_FORMAT_R8G8B8A8_UNORM, 0u, samplers);
+    RequireFilterMinmax(context, VK_FORMAT_R8G8B8A8_UNORM, 0b101u, samplers);
+    reject([&] { RequireFilterMinmax(context, VK_FORMAT_R8G8B8A8_UNORM, 0b010u, samplers); }, "format 37 does not support min/max filtering is sampled through a min or max reduction sampler");
+    reject([&] { RequireFilterMinmax(context, VK_FORMAT_R32G32_SFLOAT, 0b011u, samplers); }, "does not support min/max filtering");
+    reject([&] { RequireFilterMinmax(context, VK_FORMAT_R32_SFLOAT, 0b1000u, samplers); }, "sampler element 3, which its shader does not bind");
+
+    const auto pointFiltered = [](const std::array<std::uint32_t, 4>& words) { return ShaderRecompiler::PointFilteredSamplerWord(words[0], words[2]); };
+    Require(pointFiltered(pack(base)) == 0x05000000u, "a point-filtered weighted-average sampler kept its bilinear or linear mip filter");
+    Require(pointFiltered(pack(minPoint)) == pack(minPoint)[2], "a point-filtered min sampler that already point-samples changed");
+    reject([&] { pointFiltered(capturedSampler); }, "needs point filtering");
+    Fields maxLinearMip = minPoint;
+    maxLinearMip.filterMode = 2;
+    maxLinearMip.mipFilter = 2;
+    reject([&] { pointFiltered(pack(maxLinearMip)); }, "needs point filtering");
 }
 
 }
@@ -239,9 +376,7 @@ void RunGuestSamplerResourceTests() {
     badCubeWrap.disableCubeWrap = true;
     rejectFields(badCubeWrap, "seamless cube filtering");
 
-    Fields badFilterMode = base;
-    badFilterMode.filterMode = 1;
-    rejectFields(badFilterMode, "reduction filter mode");
+    RunSamplerReductionTests(base);
 
     Fields badDegamma = base;
     badDegamma.disableDegamma = true;
