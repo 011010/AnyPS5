@@ -14,7 +14,7 @@ extern "C" std::uint32_t* APS5_VABI sceAgcDcbResetQueue(CommandBuffer* buf, std:
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbSetFlip(CommandBuffer* buf, std::uint32_t handle, std::int32_t index, std::uint32_t mode, std::int64_t argument);
 extern "C" int APS5_VABI sceAgcSuspendPoint();
 extern "C" int APS5_VABI sceAgcInit(std::uint32_t version);
-extern "C" int APS5_VABI sceAgcInitState_nid_no_patch(std::uint32_t* state, std::uint32_t version);
+extern "C" int APS5_VABI sceAgcUnknownInitState(std::uint32_t* state, std::uint32_t version);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexAuto(CommandBuffer* buf, std::uint32_t indexCount, std::uint64_t modifier);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexIndirect(CommandBuffer* buf, std::uint32_t dataOffsetInBytes, std::uint64_t modifier);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexIndirectMulti(CommandBuffer* buf, std::uint32_t dataOffsetInBytes, std::uint32_t countIndirect, std::uint32_t maxCountOrCount, const volatile void* countAddress, std::uint32_t strideInBytes, std::uint64_t modifier);
@@ -337,9 +337,10 @@ void testMemory() {
 
 void testDefaults() {
     std::uint32_t state = 0x12345678;
-    check(sceAgcInitState_nid_no_patch(&state, 8) == 0 && state == 0x12345678, "AGC initialization failed or modified caller state");
-    expectFailure([] { sceAgcInitState_nid_no_patch(nullptr, 8); });
-    expectFailure([&] { sceAgcInitState_nid_no_patch(&state, 14); });
+    check(sceAgcUnknownInitState(&state, 8) == 0 && state == 0x12345678, "AGC initialization failed or modified caller state");
+    check(sceAgcUnknownInitState(&state, 13) == 0 && state == 0x12345678, "AGC version 13 initialization changed caller state");
+    expectFailure([] { sceAgcUnknownInitState(nullptr, 8); });
+    expectFailure([&] { sceAgcUnknownInitState(&state, 14); });
     check(sceAgcInit(8) == 0, "AGC version initialization failed");
     expectFailure([] { sceAgcInit(14); });
     expectFailure([] { sceAgcInit(0xffffffffu); });

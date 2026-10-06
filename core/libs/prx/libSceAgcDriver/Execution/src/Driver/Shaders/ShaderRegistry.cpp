@@ -6,6 +6,7 @@
 #include "Optimization/ResourceProgram.hpp"
 #include <cstdlib>
 #include <cstring>
+#include <list>
 #include <stdexcept>
 #include "RdnaDecoder/RdnaInstructionDecoder.hpp"
 
@@ -13,6 +14,25 @@ namespace AgcDriver::DriverDetail {
 
 std::shared_ptr<const ShaderSnapshot> ReadRawComputeShader(std::uint64_t address) {
     GuestMemory::CheckRange(reinterpret_cast<const void*>(address), sizeof(std::uint32_t), 256);
+    static std::mutex cacheMutex;
+    static std::list<std::shared_ptr<const ShaderSnapshot>> cache;
+    static std::size_t cacheBytes = 0;
+    std::shared_ptr<const ShaderSnapshot> cached;
+    {
+        std::lock_guard lock(cacheMutex);
+        const auto found = std::find_if(cache.begin(), cache.end(), [address](const auto& entry) { return entry->codeAddress == address; });
+        if (found != cache.end()) cached = *found;
+    }
+    if (cached) {
+        const auto code = std::as_bytes(std::span(cached->code));
+        GuestMemory::FlushGpuWrites(address, code.size());
+        if (GuestMemory::CompareMapped(address, code) == GuestMemory::Compare::Equal) {
+            std::lock_guard lock(cacheMutex);
+            const auto found = std::find(cache.begin(), cache.end(), cached);
+            if (found != cache.end()) cache.splice(cache.begin(), cache, found);
+            return cached;
+        }
+    }
     constexpr std::size_t limit = 1024 * 1024;
     const auto ranges = GuestMemory::CommittedRanges(address, limit);
     std::uint64_t end = address;
@@ -31,7 +51,26 @@ std::shared_ptr<const ShaderSnapshot> ReadRawComputeShader(std::uint64_t address
             const auto decoded = ShaderRecompiler::RdnaInstructionDecoder{}.Decode(snapshot.code);
             const auto& last = decoded.instructions.back();
             snapshot.code.resize(last.programCounter / sizeof(std::uint32_t) + last.wordCount);
-            return std::make_shared<const ShaderSnapshot>(std::move(snapshot));
+            auto result = std::make_shared<const ShaderSnapshot>(std::move(snapshot));
+            std::lock_guard lock(cacheMutex);
+            const auto found = std::find_if(cache.begin(), cache.end(), [address](const auto& entry) { return entry->codeAddress == address; });
+            if (found != cache.end()) {
+                if ((*found)->code == result->code) {
+                    result = *found;
+                    cache.splice(cache.begin(), cache, found);
+                    return result;
+                }
+                cacheBytes -= (*found)->code.size() * sizeof(std::uint32_t);
+                cache.erase(found);
+            }
+            const auto bytes = result->code.size() * sizeof(std::uint32_t);
+            while (!cache.empty() && (cache.size() >= 64 || cacheBytes + bytes > 8 * 1024 * 1024)) {
+                cacheBytes -= cache.back()->code.size() * sizeof(std::uint32_t);
+                cache.pop_back();
+            }
+            cache.push_front(result);
+            cacheBytes += bytes;
+            return result;
         } catch (const std::out_of_range&) {
             if (snapshot.code.size() == available) break;
         }
