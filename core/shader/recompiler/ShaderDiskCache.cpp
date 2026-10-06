@@ -64,7 +64,7 @@ namespace ShaderRecompiler::ShaderDiskCache {
 
 #if defined(__linux__) && defined(__x86_64__) && defined(__GLIBCXX__)
 static_assert(sizeof(RecompileResult) == 176, "RecompileResult changed: update EncodeResult and DecodeResult");
-static_assert(sizeof(DescriptorBinding) == 408, "DescriptorBinding changed: update the binding encoder");
+static_assert(sizeof(DescriptorBinding) == 448, "DescriptorBinding changed: update the binding encoder");
 static_assert(sizeof(VertexAttribute) == 28, "VertexAttribute changed: update the attribute encoder");
 static_assert(sizeof(FragmentParameter) == 12, "FragmentParameter changed: update the parameter encoder");
 static_assert(sizeof(CompiledShaderInfo) == 304, "CompiledShaderInfo changed: update the info encoder");
@@ -249,6 +249,7 @@ void encodeBinding(Writer& writer, const DescriptorBinding& binding) {
     writer.Flags(binding.imageWritten);
     writer.Flags(binding.imageDepthCompare);
     writer.Flags(binding.imageAtomic);
+    writer.Flags(binding.imageAtomic64);
     writer.Flags(binding.bufferAtomic);
     writer.Flags(binding.bufferWritten);
     writer.Flags(binding.samplerUnnormalized);
@@ -271,6 +272,7 @@ void decodeBinding(Reader& reader, DescriptorBinding& binding) {
     reader.Flags(binding.imageWritten);
     reader.Flags(binding.imageDepthCompare);
     reader.Flags(binding.imageAtomic);
+    reader.Flags(binding.imageAtomic64);
     reader.Flags(binding.bufferAtomic);
     reader.Flags(binding.bufferWritten);
     reader.Flags(binding.samplerUnnormalized);
@@ -407,6 +409,7 @@ void encodeInfo(Writer& writer, const CompiledShaderInfo& compiled) {
         out.Value(image.read);
         out.Value(image.written);
         out.Value(image.atomic);
+        out.Value(image.atomic64);
         out.Value(image.depthCompare);
         out.Value(image.cube);
         out.Value(image.r128);
@@ -498,6 +501,7 @@ void decodeInfo(Reader& reader, CompiledShaderInfo& compiled) {
         in.Value(image.read);
         in.Value(image.written);
         in.Value(image.atomic);
+        in.Value(image.atomic64);
         in.Value(image.depthCompare);
         in.Value(image.cube);
         in.Value(image.r128);

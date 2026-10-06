@@ -122,6 +122,15 @@ void DefineModule(SpirvEmitterState& state) {
     if (state.requirements.sharedInt64Atomics) {
         state.module.EmitCapability(spv::CapabilityInt64);
     }
+    if (state.requirements.imageInt64Atomics) {
+        if (std::find(state.supportedCapabilities.begin(), state.supportedCapabilities.end(), static_cast<std::uint32_t>(spv::CapabilityInt64ImageEXT)) == state.supportedCapabilities.end()) {
+            FailEmit("64-bit image atomics need VK_EXT_shader_image_atomic_int64");
+        }
+        state.module.EmitCapability(spv::CapabilityInt64);
+        state.module.EmitCapability(spv::CapabilityInt64Atomics);
+        state.module.EmitCapability(spv::CapabilityInt64ImageEXT);
+        state.module.EmitExtension("SPV_EXT_shader_image_int64");
+    }
     if (state.clipDistanceVariable != 0) {
         state.module.EmitCapability(spv::CapabilityClipDistance);
     }

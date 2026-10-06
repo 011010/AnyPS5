@@ -307,6 +307,9 @@ SpirvRequirements AnalyzeProgramRequirements(const IrProgram& program) {
             if ((BufferAccessOf(inst->Opcode()) == BufferAccess::Atomic || addressAccess == AddressAccess::Atomic) && inst->Type() == IrType::U64) {
                 requirements.bufferInt64Atomics = true;
             }
+            if (IsImageAtomic64Opcode(inst->Opcode())) {
+                requirements.imageInt64Atomics = true;
+            }
             if (IsFloat64Opcode(inst->Opcode())) {
                 requirements.float64 = true;
             }

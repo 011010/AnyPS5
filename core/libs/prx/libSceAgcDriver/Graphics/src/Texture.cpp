@@ -1018,6 +1018,16 @@ VkImageView StorageTexture::AtomicView(std::uint32_t mip, bool firstLayer) {
     return created;
 }
 
+VkImageView StorageTexture::Atomic64View(std::uint32_t mip, bool firstLayer) {
+    if (storageFormat == VK_FORMAT_R64_UINT) return firstLayer ? FirstLayerView(mip) : View(mip);
+    Require(storageFormat == VK_FORMAT_R32G32_UINT || storageFormat == VK_FORMAT_R32G32_SINT || storageFormat == VK_FORMAT_R32G32_SFLOAT, "64-bit storage image atomics need a surface of two 32-bit components");
+    const auto found = atomicViews.find({mip, firstLayer});
+    if (found != atomicViews.end()) return found->second;
+    const auto created = createView(mip, firstLayer, VK_FORMAT_R64_UINT);
+    atomicViews.emplace(std::pair{mip, firstLayer}, created);
+    return created;
+}
+
 const char* LookupOutcomes::Name(Kind kind) {
     static constexpr const char* names[Count] = {"sampled fast hit", "sampled fast miss", "sampled hit view", "sampled hit cleared view", "sampled hit snapshot", "sampled made view", "sampled made snapshot", "storage hit", "storage made", "refresh unchanged", "refresh compared", "upload direct", "upload cpu", "upload clear", "dcc scan", "pending flush"};
     return kind < Count ? names[kind] : "?";
