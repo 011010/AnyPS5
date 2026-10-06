@@ -31,6 +31,7 @@ int APS5_VABI sceFontSetupRenderScalePoint(FontHandle, float, float);
 int APS5_VABI sceFontGetKerning(FontHandle, std::uint32_t, std::uint32_t, FontKerning*);
 int APS5_VABI sceFontGetFontGlyphsCount(FontHandle, std::uint32_t*);
 int APS5_VABI sceFontGetCharGlyphCode(FontHandle, std::uint32_t, std::uint32_t*);
+int APS5_VABI sceFontGetFontResolution(FontHandle, std::uint32_t*, float*);
 int APS5_VABI sceFontGetRenderScaledKerning(FontHandle, std::uint32_t, std::uint32_t, FontKerning*);
 const void* APS5_VABI sceFontSelectLibraryFt(int);
 const void* APS5_VABI sceFontSelectRendererFt(int);
@@ -187,6 +188,18 @@ int main() {
     Require(sceFontGetCharGlyphCode(nullptr, 'A', &glyphCode) == SCE_FONT_ERROR_INVALID_FONT_HANDLE && glyphCode == 0);
     glyphCode = 1;
     Require(sceFontGetCharGlyphCode(&unopened, 'A', &glyphCode) == SCE_FONT_ERROR_INVALID_FONT_HANDLE && glyphCode == 0);
+    std::uint32_t resolution = 0;
+    float scalePixel = 0.0f;
+    Require(sceFontGetFontResolution(font, &resolution, &scalePixel) == SCE_FONT_OK && resolution == 1000 && scalePixel == 15.625f);
+    resolution = 0;
+    Require(sceFontGetFontResolution(font, &resolution, nullptr) == SCE_FONT_OK && resolution == 1000);
+    scalePixel = 0.0f;
+    Require(sceFontGetFontResolution(font, nullptr, &scalePixel) == SCE_FONT_OK && scalePixel == 15.625f);
+    Require(sceFontGetFontResolution(font, nullptr, nullptr) == SCE_FONT_ERROR_INVALID_PARAMETER);
+    Require(sceFontGetFontResolution(nullptr, &resolution, &scalePixel) == SCE_FONT_ERROR_INVALID_FONT_HANDLE && resolution == 0 && scalePixel == 0.0f);
+    resolution = 1;
+    scalePixel = 1.0f;
+    Require(sceFontGetFontResolution(&unopened, &resolution, &scalePixel) == SCE_FONT_ERROR_INVALID_FONT_HANDLE && resolution == 0 && scalePixel == 0.0f);
     Require(sceFontCloseFont(font) == SCE_FONT_OK);
 
     FontRenderer renderer = nullptr;
