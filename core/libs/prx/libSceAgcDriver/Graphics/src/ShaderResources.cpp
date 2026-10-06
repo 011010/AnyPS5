@@ -1202,6 +1202,8 @@ std::vector<std::uint32_t> ShaderResources::ContentKey(const CompiledShader& sha
         packBits(binding.samplerDepthCompare);
         packBits(binding.imageDepthCompare);
         packBits(binding.imageAtomic);
+        packBits(binding.samplerUnnormalized);
+        packBits(binding.imageUnnormalized);
         // Read-only elements are bound without a write set: an object built for one written set
         // must not serve a build with another (the variant implies it, this makes it explicit).
         packBits(binding.bufferWritten);
@@ -2367,14 +2369,16 @@ void ShaderResources::addImageBinding(const ShaderRecompiler::DescriptorBinding&
         Require(elementWords == 4, "guest sampler descriptor must contain 4 dwords");
         Require(binding.count <= context.limits.maxPerStageDescriptorSamplers, "shader sampler descriptors exceed per-stage limits");
         Require(binding.samplerDepthCompare.size() == binding.count, "guest sampler binding is missing depth comparison metadata");
+        Require(binding.samplerUnnormalized.empty() || binding.samplerUnnormalized.size() == binding.count, "guest sampler binding has unnormalized coordinate metadata of another size");
         for (std::uint32_t element = 0; element < binding.count; ++element) {
             const auto words = std::span<const std::uint32_t>(binding.guestDescriptor).subspan(static_cast<std::size_t>(element) * elementWords, elementWords);
             const bool compareEnable = binding.samplerDepthCompare.at(element);
+            const bool unnormalized = element < binding.samplerUnnormalized.size() && binding.samplerUnnormalized[element];
             static const bool noSamplerCache = std::getenv("APS5_NO_SAMPLER_CACHE") != nullptr;
             if (context.samplerCache != nullptr && !noSamplerCache) {
-                samplers.push_back(context.samplerCache->Get(context, words, compareEnable));
+                samplers.push_back(context.samplerCache->Get(context, words, compareEnable, unnormalized));
             } else {
-                auto resource = DecodeSamplerResource(words);
+                auto resource = DecodeSamplerResource(words, unnormalized);
                 resource.compareEnable = compareEnable;
                 samplers.push_back(std::make_shared<Sampler>(context, resource));
             }
@@ -2533,6 +2537,11 @@ void ShaderResources::resolveImageBinding(const ShaderRecompiler::DescriptorBind
                 (texture != nullptr ? counters.fastHits : counters.fastMisses).fetch_add(1, std::memory_order_relaxed);
             }
             if (texture == nullptr) texture = cachedTexture(context, words, resource, components, guestBytes, !binding.imageDepthCompare.empty() && binding.imageDepthCompare.at(element));
+            if (element < binding.imageUnnormalized.size() && binding.imageUnnormalized[element]) {
+                const auto range = texture->SampledViewRange(firstLayer);
+                const bool singleLevel = range.levels == 1u && range.layers == 1u && resource.baseLevel == 0u && EffectiveMinLod(resource) == 0.0f;
+                if (!singleLevel || (range.type != VK_IMAGE_VIEW_TYPE_1D && range.type != VK_IMAGE_VIEW_TYPE_2D)) throw std::runtime_error("AGC graphics: guest texture sampled with unnormalized coordinates is not a single-level, single-layer 1D or 2D view starting at mip 0, which is not implemented (base level " + std::to_string(resource.baseLevel) + ", levels " + std::to_string(range.levels) + ", layers " + std::to_string(range.layers) + ", view type " + std::to_string(static_cast<int>(range.type)) + ")");
+            }
             textures.push_back(std::move(texture));
             textureFirstLayer.push_back(firstLayer);
             describedRanges.push_back({"texture", resource.baseAddress, guestBytes, resource.width, resource.height, resource.format, static_cast<int>(resource.tileMode), resource.dccAddress});

@@ -41,7 +41,7 @@ float toSignedLodBias(std::uint32_t raw) {
 
 }
 
-GuestSamplerResource DecodeSamplerResource(std::span<const std::uint32_t> words) {
+GuestSamplerResource DecodeSamplerResource(std::span<const std::uint32_t> words, bool unnormalizedProven) {
     Require(words.size() == 4, "guest sampler descriptor must contain 4 dwords");
 
     const auto clampX = (words[0] >> 0u) & 0x7u;
@@ -51,6 +51,7 @@ GuestSamplerResource DecodeSamplerResource(std::span<const std::uint32_t> words)
     const auto depthCompareFunc = (words[0] >> 12u) & 0x7u;
     const auto forceUnormCoords = ((words[0] >> 15u) & 0x1u) != 0;
     const auto anisoThreshold = (words[0] >> 16u) & 0x7u;
+    const auto mcCoordTrunc = ((words[0] >> 19u) & 0x1u) != 0;
     const auto forceSrgb = ((words[0] >> 20u) & 0x1u) != 0;
     const auto anisoBias = (words[0] >> 21u) & 0x3fu;
     const auto truncCoord = ((words[0] >> 27u) & 0x1u) != 0;
@@ -74,7 +75,17 @@ GuestSamplerResource DecodeSamplerResource(std::span<const std::uint32_t> words)
 
     const auto borderColorType = (words[3] >> 30u) & 0x3u;
 
-    Require(!forceUnormCoords, "guest sampler descriptor uses unnormalized coordinates which are not implemented");
+    Require(!forceUnormCoords || unnormalizedProven, "guest sampler descriptor uses unnormalized coordinates which are not implemented");
+    if (forceUnormCoords) {
+        Require(xyMagFilter == xyMinFilter, "guest sampler descriptor uses unnormalized coordinates with different minification and magnification filters, which is not implemented");
+        Require(!isAnisoFilter(xyMagFilter), "guest sampler descriptor uses unnormalized coordinates with anisotropic filtering, which is not implemented");
+        Require(clampX == 2u || clampX == 6u, "guest sampler descriptor uses unnormalized coordinates with clamp mode " + std::to_string(clampX) + " on X; only clamp-to-last-texel and clamp-to-border are implemented");
+        Require(clampY == 2u || clampY == 6u, "guest sampler descriptor uses unnormalized coordinates with clamp mode " + std::to_string(clampY) + " on Y; only clamp-to-last-texel and clamp-to-border are implemented");
+        Require(!truncCoord, "guest sampler descriptor uses unnormalized coordinates with TRUNC_COORD, which is not implemented");
+        Require(!mcCoordTrunc, "guest sampler descriptor uses unnormalized coordinates with MC_COORD_TRUNC, which is not implemented");
+    } else {
+        Require(!unnormalizedProven, "guest sampler descriptor is bound as unnormalized without FORCE_UNNORMALIZED");
+    }
     Require(!forceSrgb, "guest sampler descriptor forces sRGB decoding which is not implemented");
     // TRUNC_COORD picks point-sampled texels by truncation instead of rounding, and the perf fields
     // trade mip/depth precision for speed; Vulkan's nearest filtering already floors, so these only
@@ -131,6 +142,15 @@ GuestSamplerResource DecodeSamplerResource(std::span<const std::uint32_t> words)
     result.borderColor = border;
     const std::array compareOps{VK_COMPARE_OP_NEVER, VK_COMPARE_OP_LESS, VK_COMPARE_OP_EQUAL, VK_COMPARE_OP_LESS_OR_EQUAL, VK_COMPARE_OP_GREATER, VK_COMPARE_OP_NOT_EQUAL, VK_COMPARE_OP_GREATER_OR_EQUAL, VK_COMPARE_OP_ALWAYS};
     result.compareOp = compareOps.at(depthCompareFunc);
+    if (forceUnormCoords) {
+        result.unnormalizedCoordinates = true;
+        result.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        result.minLod = 0.0f;
+        result.maxLod = 0.0f;
+        result.lodBias = 0.0f;
+        result.anisotropyEnable = false;
+        result.maxAnisotropy = 1.0f;
+    }
     return result;
 }
 

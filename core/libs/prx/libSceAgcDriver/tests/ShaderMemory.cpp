@@ -1,5 +1,6 @@
 #include "prx/libSceAgcDriver/Execution/include/ShaderMemory.hpp"
 #include "ControlFlow/RequestSerializer.hpp"
+#include "Optimization/DescriptorBindingBuilder.hpp"
 #include "Optimization/RequestMemoryView.hpp"
 #include "Optimization/ResourceMaterializer.hpp"
 #include "Optimization/ResourceProgram.hpp"
@@ -800,6 +801,159 @@ void verifyComputedTexelOffsets() {
     }
 }
 
+void verifyUnnormalizedSamplers() {
+    using namespace ShaderRecompiler;
+    constexpr std::uint32_t Format8888UNorm = 56;
+    constexpr std::uint32_t Format11_11_10UInt = 34;
+    constexpr std::uint32_t Format32Float = 22;
+    constexpr std::uint32_t Type2D = 9;
+    constexpr std::uint32_t Type3D = 10;
+    constexpr std::uint32_t TypeCube = 11;
+    constexpr std::uint32_t Type2DArray = 13;
+    struct alignas(256) Texture { std::array<std::uint8_t, 4096> bytes{}; };
+    static Texture texture;
+    static std::array<std::uint32_t, 64> output{};
+    const auto textureBase = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(texture.bytes.data()));
+    const auto outputBase = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(output.data()));
+    const std::array<std::uint32_t, 4> unnormalized{0x00008092u, 0x00fff000u, 0x05500000u, 0u};
+    const std::array<std::uint32_t, 4> normalized{0x00000092u, 0x00fff000u, 0x05500000u, 0u};
+    const auto imageData = [&](const std::array<std::uint32_t, 4>& sampler, std::uint32_t type, std::uint32_t format, std::uint32_t depth) {
+        return std::array<std::uint32_t, 16>{
+            static_cast<std::uint32_t>(textureBase >> 8u), static_cast<std::uint32_t>((textureBase >> 40u) & 0xffu) | (format << 20u) | (3u << 30u), 3u << 14u, 0xfacu | (type << 28u), depth, 0u, 0u, 0u,
+            sampler[0], sampler[1], sampler[2], sampler[3],
+            static_cast<std::uint32_t>(outputBase), static_cast<std::uint32_t>((outputBase >> 32u) & 0xffffu), 64u, 0xfacu};
+    };
+    const auto userData = [&](const std::array<std::uint32_t, 4>& sampler) {
+        return imageData(sampler, Type2D, Format8888UNorm, 0u);
+    };
+    const auto program = [](std::uint32_t mimg) {
+        return std::vector<std::uint32_t>{0x7e020280u, 0x7e040280u, 0x7e060280u, 0x7e080280u, 0x7e0a0280u, 0x7e0c0280u, mimg, 0x00400801u, 0xe0700000u, 0x80030800u, 0xbf810000u};
+    };
+    const std::array<std::uint32_t, 3> capabilities{1u, static_cast<std::uint32_t>(spv::CapabilityImageGatherExtended), static_cast<std::uint32_t>(spv::CapabilityMinLod)};
+    std::uint64_t nextAddress = 0x40000u;
+    const auto recompile = [&](const std::vector<std::uint32_t>& code, const std::array<std::uint32_t, 16>& data, std::uint64_t address = 0u) {
+        RecompileRequest request{};
+        request.shader = {ShaderStage::Compute, address != 0u ? address : (nextAddress += 0x1000u), code, 0, {}};
+        request.context.waveSize = 32;
+        request.context.userDataBaseRegister = 0;
+        request.context.userData = data;
+        request.context.compute = ShaderComputeStageInfo{{32u, 1u, 1u}, 0u, {false, false, false}, false, 1u};
+        request.target.vulkanVersion = 0x00401000u;
+        request.target.spirvVersion = 0x00010300u;
+        request.target.subgroupSize = 32;
+        request.target.supportedCapabilities = capabilities;
+        request.target.fragmentShaderBarycentricEnabled = false;
+        request.layout.pushConstantSizeBytes = 128;
+        AgcDriver::ShaderMemory memory({});
+        static_cast<void>(memory.Capture(request));
+        request.context.memory = memory.Regions();
+        return Recompile(request);
+    };
+    const auto flags = [](const RecompileResult& result, DescriptorRole role) {
+        for (const auto& binding : result.bindings) {
+            if (binding.role == role) return role == DescriptorRole::GuestSamplers ? binding.samplerUnnormalized : binding.imageUnnormalized;
+        }
+        throw std::runtime_error("unnormalized samplers: the program has no sampler or image binding");
+    };
+    const auto proven = [&](const RecompileResult& result, bool expected) {
+        return flags(result, DescriptorRole::GuestSamplers) == std::vector<bool>{expected} && flags(result, DescriptorRole::GuestImages) == std::vector<bool>{expected};
+    };
+    const auto auditSpirv = [](const std::vector<std::uint32_t>& words) {
+        std::size_t samples = 0;
+        for (std::size_t cursor = 5; cursor < words.size();) {
+            const auto count = words[cursor] >> 16u;
+            require(count != 0 && count <= words.size() - cursor, "unnormalized samplers: truncated SPIR-V instruction");
+            const auto op = words[cursor] & 0xffffu;
+            require(op != spv::OpImageSampleImplicitLod && op != spv::OpImageSampleDrefImplicitLod && op != spv::OpImageSampleDrefExplicitLod && op != spv::OpImageGather && op != spv::OpImageDrefGather && op != spv::OpImageQueryLod, "unnormalized samplers: the SPIR-V samples in a form an unnormalized sampler does not allow");
+            if (op == spv::OpImageSampleExplicitLod) {
+                require(count == 7u && words[cursor + 5] == spv::ImageOperandsLodMask, "unnormalized samplers: an explicit-LOD sample has operands other than Lod");
+                ++samples;
+            }
+            cursor += count;
+        }
+        require(samples != 0u, "unnormalized samplers: the SPIR-V does not sample");
+    };
+
+    const auto lz = program(0xf09c0f08u);
+    const auto accepted = recompile(lz, userData(unnormalized), 0x40000u);
+    require(proven(accepted, true), "unnormalized samplers: image_sample_lz through an unnormalized S# was not flagged");
+    auditSpirv(accepted.spirv.Words());
+    const auto plain = recompile(lz, userData(normalized), 0x40000u);
+    require(proven(plain, false), "unnormalized samplers: a normalized S# was flagged");
+    require(plain.variantId == accepted.variantId && plain.spirv.Words() == accepted.spirv.Words(), "unnormalized samplers: the unnormalized S# compiled another variant");
+
+    for (const std::uint32_t mimg : {0xf0900f08u, 0xf0800f08u, 0xf0940f08u, 0xf0840f08u}) {
+        const auto result = recompile(program(mimg), userData(unnormalized));
+        require(proven(result, true), "unnormalized samplers: a compute image_sample_l, image_sample, image_sample_b or image_sample_cl was not flagged");
+        auditSpirv(result.spirv.Words());
+    }
+
+    const auto reject = [&](std::uint32_t mimg, const std::array<std::uint32_t, 16>& data, const char* reason, const char* what) {
+        expectFailure([&] { static_cast<void>(recompile(program(mimg), data)); }, reason, what);
+    };
+    reject(0xf0c00f08u, userData(unnormalized), "unnormalized guest sampler is used with a texel offset, which is not implemented", "unnormalized samplers: image_sample_o was accepted");
+    reject(0xf0bc0f08u, imageData(unnormalized, Type2D, Format32Float, 0u), "unnormalized guest sampler is used with depth comparison, which is not implemented", "unnormalized samplers: image_sample_c_lz was accepted");
+    reject(0xf11c0108u, userData(unnormalized), "unnormalized guest sampler is used by a gather, which is not implemented", "unnormalized samplers: image_gather4_lz was accepted");
+    reject(0xf1800308u, userData(unnormalized), "unnormalized guest sampler is used by image_get_lod, which is not implemented", "unnormalized samplers: image_get_lod was accepted");
+    reject(0xf0880f08u, userData(unnormalized), "unnormalized guest sampler is used by a sample with derivatives, which is not implemented", "unnormalized samplers: image_sample_d was accepted");
+    reject(0xf0800f09u, userData(unnormalized), "unnormalized guest sampler is used by an image_sample_*_a variant, which is not implemented", "unnormalized samplers: image_sample_a was accepted");
+    reject(0xf09c0f18u, imageData(unnormalized, TypeCube, Format8888UNorm, 5u), "unnormalized guest sampler samples a 1D-array, 2D-array, 3D, cube or multisampled image", "unnormalized samplers: a cube T# was accepted");
+    reject(0xf09c0f10u, imageData(unnormalized, Type3D, Format8888UNorm, 3u), "unnormalized guest sampler samples a 1D-array, 2D-array, 3D, cube or multisampled image", "unnormalized samplers: a 3D T# was accepted");
+    reject(0xf09c0f28u, imageData(unnormalized, Type2DArray, Format8888UNorm, 5u), "unnormalized guest sampler samples a 1D-array, 2D-array, 3D, cube or multisampled image", "unnormalized samplers: a 2D-array sample was accepted");
+    reject(0xf09c0f08u, imageData(unnormalized, Type2D, Format11_11_10UInt, 0u), "unnormalized guest sampler samples an image that needs a format conversion or packed access", "unnormalized samplers: a T# with a format conversion was accepted");
+    for (const std::uint32_t mimg : {0xf0c00f08u, 0xf11c0108u, 0xf09c0f18u}) {
+        static_cast<void>(recompile(program(mimg), imageData(normalized, mimg == 0xf09c0f18u ? TypeCube : Type2D, Format8888UNorm, mimg == 0xf09c0f18u ? 5u : 0u)));
+    }
+
+    const std::array<std::uint32_t, 5> pixelCode{0xf0800f08u, 0x00400801u, 0xf800180fu, 0x0b0a0908u, 0xbf810000u};
+    const auto pixelData = userData(unnormalized);
+    RecompileRequest pixel{};
+    pixel.shader = {ShaderStage::Fragment, 0x4f000u, pixelCode, 0, {}};
+    pixel.context.waveSize = 64;
+    pixel.context.userDataBaseRegister = 0;
+    pixel.context.userData = pixelData;
+    pixel.context.pixel = twoParameterPixel();
+    pixel.target.vulkanVersion = 0x00401000u;
+    pixel.target.spirvVersion = 0x00010300u;
+    pixel.target.subgroupSize = 64;
+    pixel.layout.pushConstantSizeBytes = 128;
+    pixel.useCache = false;
+    expectFailure([&] { static_cast<void>(Recompile(pixel)); }, "unnormalized guest sampler is used by an implicit-LOD sample, which is not implemented", "unnormalized samplers: a pixel image_sample was accepted");
+}
+
+void verifyUnusedUnnormalizedSampler() {
+    using namespace ShaderRecompiler;
+    ImageResource image{};
+    image.resourceClass = ImageResourceClass::Sampled;
+    image.numericClass = IrTextureNumericClass::Float;
+    image.dimension = RdnaImageDimension::Dim2D;
+    image.read = true;
+    ShaderInfo info;
+    info.images = {image};
+    info.samplers = {SamplerResource{}};
+    info.sampledPairs = {{0u, 0u, 0u}};
+    ResourceSnapshot snapshot;
+    snapshot.images = {DescriptorValue{{0x00001000u, 0x03800000u, 0x0000c000u, 0x90000facu, 0u, 0u, 0u, 0u}, 8u}};
+    snapshot.samplers = {DescriptorValue{{0x00008092u, 0x00fff000u, 0x05500000u, 0u}, 4u}};
+    const auto populate = [&](const ShaderInfo& shader) {
+        BindingAllocationResult allocation;
+        allocation.layout.descriptors = {{DescriptorBindingForImage(shader.images[0]), {0u}}, {DescriptorBindingKind::Samplers, {0u}}};
+        DescriptorBindingBuilder{}.Populate(allocation, shader, IrShaderStage::Compute, 0u, snapshot, {});
+        return allocation.bindings;
+    };
+    const auto bindings = populate(info);
+    require(bindings.size() == 2u && bindings[0].imageUnnormalized == std::vector<bool>{true} && bindings[1].samplerUnnormalized == std::vector<bool>{true}, "unnormalized samplers: an S# without live uses was not flagged");
+    auto selected = info;
+    selected.images[0].indirectRoot = 0u;
+    expectFailure([&] { static_cast<void>(populate(selected)); }, "unnormalized guest sampler samples an image selected at run time, which is not implemented", "unnormalized samplers: an image table root was accepted");
+    auto compared = info;
+    compared.samplers[0].depthCompare = true;
+    expectFailure([&] { static_cast<void>(populate(compared)); }, "unnormalized guest sampler is used with depth comparison, which is not implemented", "unnormalized samplers: a depth-compare S# without live uses was accepted");
+    snapshot.samplers[0].dwords[0] = 0x00000092u;
+    const auto normalized = populate(info);
+    require(normalized[0].imageUnnormalized == std::vector<bool>{false} && normalized[1].samplerUnnormalized == std::vector<bool>{false}, "unnormalized samplers: a normalized S# was flagged");
+}
+
 void verifyWaveUniformValues() {
     using namespace ShaderRecompiler;
     IrProgram program;
@@ -1046,6 +1200,8 @@ int main() {
         verifyPixelInputs();
         verifyPixelParameterSlots();
         verifyComputedTexelOffsets();
+        verifyUnnormalizedSamplers();
+        verifyUnusedUnnormalizedSampler();
         verifyWaveUniformValues();
         verifyTwoLaneUniformValues();
         verifyFunctionLdsBound();
