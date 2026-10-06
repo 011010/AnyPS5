@@ -24,6 +24,7 @@ int APS5_VABI sceAjmBatchJobSetGaplessDecode(AjmBatchInfo*, std::uint32_t, const
 int APS5_VABI sceAjmBatchJobControl(AjmBatchInfo*, std::uint32_t, std::uint64_t, const void*, std::size_t, void*, std::size_t);
 int APS5_VABI sceAjmBatchJobGetGaplessDecode(AjmBatchInfo*, std::uint32_t, void*);
 int APS5_VABI sceAjmBatchJobGetCodecInfo(AjmBatchInfo*, std::uint32_t, void*, std::size_t);
+int APS5_VABI sceAjmBatchJobGetInfo(AjmBatchInfo*, std::uint32_t, void*);
 int APS5_VABI sceAjmBatchStart(std::uint32_t, const AjmBatchInfo*, int, AjmBatchError*, std::uint32_t*);
 int APS5_VABI sceAjmBatchWait(std::uint32_t, std::uint32_t, std::uint32_t, AjmBatchError*);
 int APS5_VABI sceAjmBatchCancel(std::uint32_t, std::uint32_t);
@@ -428,6 +429,52 @@ void TestCodecInfo(std::uint32_t context) {
     Require(sceAjmInstanceDestroy(context, instance) == 0);
 }
 
+struct FormatSideband {
+    std::int32_t result;
+    std::int32_t internalResult;
+    std::uint32_t numChannels;
+    std::uint32_t channelMask;
+    std::uint32_t sampleRate;
+    std::uint32_t sampleEncoding;
+    std::uint32_t bitrate;
+    std::uint32_t reserved;
+};
+
+void TestGetInfo(std::uint32_t context) {
+    std::uint32_t instance = 0;
+    Require(sceAjmInstanceCreate(context, 1, 0, &instance) == 0);
+    std::vector<std::uint8_t> batch(4096);
+    AjmBatchInfo info{};
+    FormatSideband early{-1, -1, 0xaaaaaaaau, 0xaaaaaaaau, 0xaaaaaaaau, 0xaaaaaaaau, 0xaaaaaaaau, 0xaaaaaaaau};
+    Require(sceAjmBatchInitialize(batch.data(), batch.size(), &info) == 0);
+    Require(sceAjmBatchJobGetInfo(&info, instance, &early) == 0);
+    Submit(context, info);
+    Require(early.result == 1 && early.numChannels == 0xaaaaaaaau && early.sampleRate == 0xaaaaaaaau);
+
+    const std::uint8_t config[8] = {0xFE, 0x72, 0x1F, 0xF0};
+    std::int32_t initResult[2] = {-1, -1};
+    FormatSideband at9{-1, -1, 0, 0, 0, 0xaaaaaaaau, 0, 0xaaaaaaaau};
+    Require(sceAjmBatchInitialize(batch.data(), batch.size(), &info) == 0);
+    Require(sceAjmBatchJobInitialize(&info, instance, config, sizeof(config), initResult) == 0);
+    Require(sceAjmBatchJobGetInfo(&info, instance, &at9) == 0);
+    Submit(context, info);
+    Require(initResult[0] == 0);
+    Require(at9.result == 0 && at9.internalResult == 0 && at9.numChannels == 2 && at9.channelMask == 0x3 && at9.sampleRate == 48000 && at9.sampleEncoding == 0 && at9.reserved == 0);
+    Require(sceAjmInstanceDestroy(context, instance) == 0);
+
+    Require(sceAjmInstanceCreate(context, 0, 0, &instance) == 0);
+    std::vector<std::int16_t> pcm(1152);
+    DecodeSideband decoded{};
+    FormatSideband mp3{-1, -1, 0, 0, 0, 0xaaaaaaaau, 0, 0xaaaaaaaau};
+    Require(sceAjmBatchInitialize(batch.data(), batch.size(), &info) == 0);
+    Require(sceAjmBatchJobDecodeSingle(&info, instance, MP3_MONO, sizeof(MP3_MONO), pcm.data(), pcm.size() * sizeof(std::int16_t), &decoded) == 0);
+    Require(sceAjmBatchJobGetInfo(&info, instance, &mp3) == 0);
+    Submit(context, info);
+    Require(decoded.result == 0 && decoded.inputConsumed == 96);
+    Require(mp3.result == 0 && mp3.internalResult == 0 && mp3.numChannels == 1 && mp3.channelMask == 0x4 && mp3.sampleRate == 48000 && mp3.sampleEncoding == 0 && mp3.bitrate == 32000 && mp3.reserved == 0);
+    Require(sceAjmInstanceDestroy(context, instance) == 0);
+}
+
 void TestBatchWaitRelease(std::uint32_t context) {
     constexpr int invalidBatch = static_cast<int>(0x80930004);
     std::vector<std::uint8_t> batch(64);
@@ -639,6 +686,7 @@ int main() {
     TestDecodeSingle(context);
     TestGaplessDecode(context);
     TestCodecInfo(context);
+    TestGetInfo(context);
     TestBatchWaitRelease(context);
     TestBatchCancel(context);
     TestControlAt9(context);
