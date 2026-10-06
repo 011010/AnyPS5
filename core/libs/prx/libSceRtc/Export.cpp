@@ -384,10 +384,6 @@ int APS5_VABI sceRtcGetDosTime(const RtcDateTime* time, uint32_t* dos_time) {
 
 int APS5_VABI sceRtcSetDosTime(RtcDateTime* time, uint32_t dos_time) {
     if (!time) return SCE_RTC_ERROR_INVALID_POINTER;
-    if (dos_time >> 31 != 0) {
-        NotImplemented_nid_no_patch(__func__);
-        return SCE_RTC_ERROR_INVALID_VALUE;
-    }
     time->year = static_cast<std::uint16_t>(1980 + (dos_time >> 25));
     time->month = static_cast<std::uint16_t>(dos_time >> 21 & 0x0f);
     time->day = static_cast<std::uint16_t>(dos_time >> 16 & 0x1f);

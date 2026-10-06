@@ -128,9 +128,8 @@ int main() {
     Require(sceRtcSetDosTime(&converted, 0x7f9fbf7du) == 0 && Equal(converted, RtcDateTime{2043, 12, 31, 23, 59, 58, 0}));
     Require(sceRtcSetDosTime(&converted, 0) == 0 && Equal(converted, RtcDateTime{1980, 0, 0, 0, 0, 0, 0}));
     Require(sceRtcSetDosTime(nullptr, 0) == invalidPointer);
-    bool dosHighThrew = false;
-    try { sceRtcSetDosTime(&converted, 0x80210000u); } catch (const std::exception&) { dosHighThrew = true; }
-    Require(dosHighThrew);
+    Require(sceRtcSetDosTime(&converted, 0xff9fbf7du) == 0 && Equal(converted, RtcDateTime{2107, 12, 31, 23, 59, 58, 0}));
+    Require(sceRtcSetDosTime(&converted, 0x80210000u) == 0 && Equal(converted, RtcDateTime{2044, 1, 1, 0, 0, 0, 0}));
 
     char text[32];
     tick.tick = leapDayTick;
