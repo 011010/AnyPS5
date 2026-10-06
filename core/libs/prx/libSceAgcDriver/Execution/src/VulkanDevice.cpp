@@ -2,6 +2,7 @@
 #include "prx/libSceAgcDriver/Execution/include/CaptureTrace.hpp"
 #include "BdaAbi.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
+#include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include "prx/libSceAgcDriver/Execution/include/BdaFeatures.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PresentationScaler.hpp"
@@ -570,6 +571,10 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     if (state->instanceProc == nullptr) {
         throw std::runtime_error("Vulkan loader: vkGetInstanceProcAddr missing");
     }
+    AgcDriverLockVulkanLoader_nid_postfix();
+    struct LoaderUnlock {
+        ~LoaderUnlock() { AgcDriverUnlockVulkanLoader_nid_postfix(); }
+    } loaderUnlock;
     VkApplicationInfo application{VK_STRUCTURE_TYPE_APPLICATION_INFO};
     application.pApplicationName = "AnyPS5 libSceAgcDriver";
     application.apiVersion = VK_API_VERSION_1_1;
