@@ -124,6 +124,25 @@ if(BUILD_TESTING)
     endif()
 endif()
 
+add_test_executable(agc_cb_cond_write_tests EXCLUDE_FROM_ALL
+        tests/CbCondWrite.cpp
+        Command/src/Packet.cpp
+        Command/src/Memory.cpp
+        Command/src/Control.cpp
+        Cb/src/Branch.cpp
+)
+target_include_directories(agc_cb_cond_write_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_cb_cond_write_tests PRIVATE libc)
+configure_windows_unwind(agc_cb_cond_write_tests)
+if(BUILD_TESTING)
+    set_target_properties(agc_cb_cond_write_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME agc_cb_cond_write_tests COMMAND agc_cb_cond_write_tests)
+    if(WIN32)
+        set_tests_properties(agc_cb_cond_write_tests PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
+
 add_test_executable(agc_payload_range_tests EXCLUDE_FROM_ALL tests/PayloadRange.cpp)
 target_include_directories(agc_payload_range_tests PRIVATE ${LIBS_INCLUDE_DIR})
 target_link_libraries(agc_payload_range_tests PRIVATE libSceAgc libc)
