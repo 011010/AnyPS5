@@ -1938,7 +1938,11 @@ bool supportsNativeVop3ResultModifiers(RdnaOpcode opcode) {
         case RdnaOpcode::VFmaF16:
         case RdnaOpcode::VCvtPkrtzF16F32:
         case RdnaOpcode::VLdexpF32:
+        case RdnaOpcode::VDivScaleF32:
+        case RdnaOpcode::VDivFmasF32:
+        case RdnaOpcode::VDivFixupF32:
         case RdnaOpcode::VFmaF64:
+        case RdnaOpcode::VDivScaleF64:
         case RdnaOpcode::VDivFmasF64:
         case RdnaOpcode::VDivFixupF64:
         case RdnaOpcode::VAddF64:
@@ -1996,7 +2000,8 @@ void checkNativeVop3Modifiers(RdnaOpcode opcode, bool permlane, bool carryInOut,
     }
     if (carryInOut || scalarDst) {
         const bool floatCompare = scalarDst && isVopcFloatCompareOpcode(opcode);
-        if ((clamp != 0u && !isVop3BMadU64Opcode(opcode)) || omod != 0u || (neg != 0u && !floatCompare && opcode != RdnaOpcode::VDivScaleF32 && opcode != RdnaOpcode::VDivScaleF64)) {
+        const bool divScale = opcode == RdnaOpcode::VDivScaleF32 || opcode == RdnaOpcode::VDivScaleF64;
+        if ((clamp != 0u && !isVop3BMadU64Opcode(opcode)) || (omod != 0u && !divScale) || (neg != 0u && !floatCompare && !divScale)) {
             throw std::invalid_argument("VOP3 source modifiers are not implemented");
         }
         return;
