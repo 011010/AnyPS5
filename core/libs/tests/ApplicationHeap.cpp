@@ -4,10 +4,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 #include <limits>
 #include <stdexcept>
 
 extern "C" {
+int APS5_VABI posix_memalign_nid_postfix(void**, std::size_t, std::size_t);
 void* APS5_VABI _Znwm_nid_postfix(std::size_t);
 void* APS5_VABI _ZnamRKSt9nothrow_t_nid_postfix(std::size_t, const void*);
 void APS5_VABI _ZdlPv_nid_postfix(void*);
@@ -24,6 +26,7 @@ namespace {
 alignas(64) std::array<std::byte, 256> storage{};
 std::size_t lastSize = 0;
 std::size_t lastAlignment = 0;
+unsigned posixCalls = 0;
 unsigned initializes = 0;
 unsigned frees = 0;
 bool fail = false;
@@ -75,7 +78,8 @@ void* APS5_VABI realign(void* pointer, std::size_t bytes, std::size_t alignment)
 }
 
 int APS5_VABI posixAlign(void** pointer, std::size_t alignment, std::size_t bytes) {
-    if (fail) return 12;
+    ++posixCalls;
+    if (fail) { *__error_nid_postfix() = 12; *pointer = nullptr; return 12; }
     *pointer = align(alignment, bytes);
     return 0;
 }
@@ -188,9 +192,25 @@ int main(int argc, char** argv) {
     reject([] { ApplicationHeapAlign_nid_no_patch(4, 64); });
     reject([] { ApplicationHeapAllocate_nid_no_patch(64); });
     void* unchanged = storage.data();
-    reject([&] { ApplicationHeapPosixAlign_nid_no_patch(&unchanged, 64, 64); });
+    *__error_nid_postfix() = 77;
+    try {
+        const int error = posix_memalign_nid_postfix(&unchanged, 64, 64);
+        if (error != 12) { std::fprintf(stderr, "posix_memalign callback: expected ENOMEM 12, received %d\n", error); return 1; }
+    } catch (const std::exception&) {
+        std::fputs("posix_memalign callback: expected ENOMEM 12, received exception\n", stderr);
+        return 1;
+    }
+    require(*__error_nid_postfix() == 77);
     require(unchanged == storage.data());
     fail = false;
+    const auto beforeInvalid = posixCalls;
+    for (const std::size_t alignment : {std::size_t{0}, std::size_t{1}, std::size_t{4}, std::size_t{24}}) {
+        require(posix_memalign_nid_postfix(&unchanged, alignment, 32) == 22);
+        require(unchanged == storage.data() && *__error_nid_postfix() == 77);
+    }
+    require(posix_memalign_nid_postfix(nullptr, 64, 32) == 22 && posixCalls == beforeInvalid);
+    require(posix_memalign_nid_postfix(&unchanged, 64, 31) == 0 && unchanged == storage.data());
+    require(lastSize == 31 && lastAlignment == 64 && *__error_nid_postfix() == 77);
     recurse = true;
     reject([] { ApplicationHeapAllocate_nid_no_patch(64); });
     recurse = false;
