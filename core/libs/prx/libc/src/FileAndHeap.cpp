@@ -12,6 +12,14 @@
 #include "prx/libc/include/ApplicationHeap.hpp"
 #include "prx/libc/include/General.hpp"
 
+static std::string NativeFileMode(const char* mode) {
+    std::string result(mode);
+#ifdef _WIN32
+    if (!result.empty() && result.find('b') == std::string::npos) result.insert(1, 1, 'b');
+#endif
+    return result;
+}
+
 extern "C" {
 
 [[noreturn]] void APS5_VABI _ZSt11_Xbad_allocv_nid_postfix();
@@ -49,7 +57,7 @@ FileStream* APS5_VABI freopen_nid_postfix(const char* filename, const char* mode
     if (!valid) { errno = 22; return nullptr; }
     try {
         const auto path = *filename ? ResolvePath_nid_no_patch(filename).string() : std::string{};
-        if (stream->Reopen(path.c_str(), mode)) return stream;
+        if (stream->Reopen(path.c_str(), NativeFileMode(mode).c_str())) return stream;
         const int error = errno;
         if (stream->IsDynamic()) delete stream;
         errno = error;
@@ -62,7 +70,7 @@ FileStream* APS5_VABI fopen_nid_postfix(const char* filename, const char* mode) 
     if (!filename || !mode) throw std::runtime_error(std::string(__func__) + ": " + FOPEN_MSG_NULL_ARG);
     const std::filesystem::path fpath = ResolvePath_nid_no_patch(filename);
     const auto abs_path = fpath.string();
-    std::unique_ptr<std::FILE, decltype(&std::fclose)> handle(std::fopen(abs_path.c_str(), mode), std::fclose);
+    std::unique_ptr<std::FILE, decltype(&std::fclose)> handle(std::fopen(abs_path.c_str(), NativeFileMode(mode).c_str()), std::fclose);
     if (!handle) {
         const int error = errno;
         if (error == ENOENT) {
