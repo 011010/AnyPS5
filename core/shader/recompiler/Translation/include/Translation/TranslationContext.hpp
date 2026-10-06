@@ -79,7 +79,7 @@ private:
     IrValue* getScalarAddressResource(std::uint32_t base);
     IrValue* getImageResource(const MemoryInfo& memory);
     IrValue* getSamplerResource(const MemoryInfo& memory);
-    IrValue* makeImageAddress(const RdnaInstruction& inst, const RdnaOperand& base);
+    IrValue* makeImageAddress(const RdnaInstruction& inst, const RdnaOperand& base, std::uint32_t fragmentOffset = 0u);
     IrValue* constructU32x4(const RdnaOperand& base, std::uint32_t count);
     void writeImageComponents(const RdnaOperand& dst, IrValue* value, const MemoryInfo& memory, std::uint32_t componentLimit);
     BufferAddress readBufferAddress(const RdnaInstruction& inst);
@@ -100,6 +100,7 @@ private:
     bool imageGetResinfo(const RdnaInstruction& inst);
     bool imageGetLod(const RdnaInstruction& inst);
     bool imageLoad(const RdnaInstruction& inst);
+    bool imageMsaaLoad(const RdnaInstruction& inst);
     bool imageStore(const RdnaInstruction& inst);
     bool imageSample(const RdnaInstruction& inst);
     bool imageGather(const RdnaInstruction& inst);
