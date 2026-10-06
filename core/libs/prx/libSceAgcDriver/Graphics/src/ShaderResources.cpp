@@ -1469,7 +1469,7 @@ bool ShaderResources::fastRevalidate(std::uint64_t serialBefore, std::span<const
             // since its generation (the query below). The surface's own keys come from the same
             // proof when they are the image's, else from the texture's.
             const auto& own = source->Descriptor();
-            const auto sourceKeys = own.dccAddress != 0 ? ProvedClearKeys(own, source->GuestBytes(), source->KeyProof()) : DccKeys::Uncompressed;
+            const auto sourceKeys = source->ProvedKeys();
             if (sourceKeys != source->UploadedKeys()) return fail(FastFail::Keys);
             const auto keys = surface.resource.dccAddress == 0 ? DccKeys::Uncompressed : SameKeySurface(source, surface.resource, surface.bytes) ? sourceKeys : ProvedClearKeys(surface.resource, surface.bytes, textures[i]->KeyProof());
             if (surface.resource.dccAddress != 0 && surface.resource.dccAddress != own.dccAddress && (keys != DccKeys::Uncompressed || !StorageImageServesKeys(*source, surface.resource.dccAddress))) return fail(FastFail::Keys);
@@ -1511,7 +1511,7 @@ bool ShaderResources::fastRevalidate(std::uint64_t serialBefore, std::span<const
             // Refresh's unchanged branch (its key compare against the keys the content was
             // uploaded under, through the image's proof; the memory query below), minus its
             // byte-compare fallback; the image's generation is left where it is.
-            if (!keyProofs || ProvedClearKeys(own, bytes, image->KeyProof()) != image->UploadedKeys()) return fail(FastFail::StorageKeys);
+            if (!keyProofs || image->ProvedKeys() != image->UploadedKeys()) return fail(FastFail::StorageKeys);
             countKeysProven(true);
         }
         if (!unchanged) query(address, address + bytes, image, nullptr, {i, true, false});

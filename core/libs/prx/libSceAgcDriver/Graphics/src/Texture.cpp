@@ -1145,7 +1145,7 @@ bool StorageTexture::Refresh() {
             tracked = GuestMemory::ChangedBlocks(descriptor.baseAddress, static_cast<std::size_t>(guestBytes), generations, stampedBlocks, cpuBlocks);
         };
         const auto keysStart = profile ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-        keys = ProvedClearKeys(descriptor, guestBytes, keyProof);
+        keys = ProvedKeys();
         if (profile && descriptor.dccAddress != 0) LookupOutcomes::Add(LookupOutcomes::DccScan, keysStart);
         if (keys != uploadedKeys) {
             changed.assign(trackedLayers, true);
@@ -1321,6 +1321,16 @@ bool StorageTexture::Refresh() {
         uploadedKeys = keys;
     }
     return false;
+}
+
+DccKeys StorageTexture::ProvedKeys() const {
+    if (descriptor.dccAddress != 0 && uploadedKeys == DccKeys::Uncompressed) {
+        if (const auto keys = WaitForKeyWriters(descriptor, guestBytes)) {
+            keyProof = {};
+            return *keys;
+        }
+    }
+    return ProvedClearKeys(descriptor, guestBytes, keyProof);
 }
 
 bool StorageTexture::ServesKeysAt(std::uint64_t dccAddress) const {
@@ -2093,6 +2103,11 @@ bool StorageTexture::overlaps(std::uint64_t address, std::size_t bytes) const {
 }
 
 void StorageTexture::MarkDirty() {
+    if (descriptor.dccAddress != 0 && IsDccClear(uploadedKeys) && !IsDccClear(filledKeys)) {
+        traceKeyStore("first write", descriptor, guestBytes);
+        MarkDccUncompressed(context, descriptor.dccAddress, guestBytes);
+        uploadedKeys = DccKeys::Uncompressed;
+    }
     markLayersPending(0, trackedLayers);
 }
 
