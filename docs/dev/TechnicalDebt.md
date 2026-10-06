@@ -135,6 +135,7 @@ Throughout the project, every function at every stage either **does exactly what
 
 ### Functional
 
+- [sceNetSendmsg and sceNetRecvmsg](../../core/libs/prx/libSceNet/Export.cpp) (libSceNet) copy the scatter/gather list through one host buffer and accept only the flags `sceNetSend`/`sceNetRecv` accept. Sending control data throws; a receive never returns control data (`msg_controllen` 0), since no socket option that queues it is supported
 - [Additional content](../../core/libs/prx/libSceAppContent/Export.cpp) (libSceAppContent) is not installed or mounted: `sceAppContentAddcontMount` answers `NOT_FOUND` for every entitlement label and `sceAppContentAddcontUnmount` for every mount point, as no add-content mount is ever handed out
 - [libSceUlt queues](../../core/libs/prx/libSceUlt/Export.cpp) use preallocated host storage instead of the supplied guest work area; its existing size formula and the 512-byte object layouts remain unverified. Waiting-queue pool thread limits and waiter priority ordering are not implemented. Finalization wakes blocked queue callers with `ULT_ERROR_STATE`.
 - [MIMG `tfe` and `lwe`](../../core/shader/recompiler/RdnaDecoder/src/RdnaImageOpDecoder.cpp) never write the status VGPR after the data. On hardware it is written only when a texel fetch hits an unmapped page of a partially resident texture, or, for `lwe` on sample/gather, when the LOD is below the T# `MIN_LOD_WARN`; texture memory is always resident here, and `lwe` on sample, gather and `image_get_lod` throws.
