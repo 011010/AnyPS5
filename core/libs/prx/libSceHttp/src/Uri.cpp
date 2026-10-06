@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cctype>
 #include <charconv>
 #include <cstdint>
@@ -19,6 +20,7 @@ constexpr uint32_t URI_BUILD_WITH_USERNAME = 0x10;
 constexpr uint32_t URI_BUILD_WITH_PASSWORD = 0x20;
 constexpr uint32_t URI_BUILD_WITH_QUERY = 0x40;
 constexpr uint32_t URI_BUILD_WITH_FRAGMENT = 0x80;
+constexpr size_t URI_MAX_LENGTH = 0x3FFF;
 
 struct UriParts {
     bool opaque = false;
@@ -140,6 +142,13 @@ int parseUri(std::string_view uri, UriParts& parts) {
     return 0;
 }
 
+size_t poolSize(const UriParts& parts) {
+    const std::string_view fields[] = {parts.scheme, parts.username, parts.password, parts.hostname, parts.path, parts.query, parts.fragment};
+    size_t size = 0;
+    for (const std::string_view field : fields) size += field.size() + 1;
+    return size;
+}
+
 int copyOut(const std::string& value, char* out, size_t* require, size_t prepare) {
     if (require) *require = value.size() + 1;
     if (!out) return 0;
@@ -218,6 +227,47 @@ int APS5_VABI sceHttpUriUnescape(char* out, size_t* require, size_t prepare, con
     return copyOut(decoded, out, require, prepare);
 }
 
+int APS5_VABI sceHttpUriMerge(char* merged_url, const char* url, const char* relative_uri, size_t* require, size_t prepare, uint32_t option) {
+    if (option != 0 || !url || !relative_uri) return ERROR_INVALID_VALUE;
+
+    UriParts base;
+    if (const int result = parseUri(url, base); result != 0) return result;
+    UriParts relative;
+    if (const int result = parseUri(relative_uri, relative); result != 0) return result;
+
+    const size_t urlLength = strnlen(url, URI_MAX_LENGTH);
+    const size_t relativeLength = strnlen(relative_uri, URI_MAX_LENGTH);
+    const size_t size = poolSize(base) + 2 + (urlLength + relativeLength) * 2;
+    if (require) *require = size;
+    if (!merged_url) return 0;
+    if (prepare < size) return ERROR_OUT_OF_MEMORY;
+
+    if (!relative.opaque) {
+        std::strncpy(merged_url, relative_uri, size);
+        if (require) *require = relativeLength + 1;
+        return 0;
+    }
+
+    std::string path = base.path;
+    const size_t slash = path.rfind('/');
+    if (slash == std::string::npos) path.push_back('/');
+    else path.erase(slash + 1);
+    if (relative_uri[0] == '/') path.clear();
+    path.append(relative_uri, std::min(relativeLength, URI_MAX_LENGTH - std::min(path.size(), URI_MAX_LENGTH)));
+
+    std::string scheme(base.scheme), username(base.username), password(base.password), hostname(base.hostname);
+    SceHttpUriElement element;
+    element.opaque = base.opaque;
+    element.scheme = scheme.data();
+    element.username = username.data();
+    element.password = password.data();
+    element.hostname = hostname.data();
+    element.path = path.data();
+    element.port = base.port;
+    return sceHttpUriBuild(merged_url, nullptr, prepare - (urlLength + relativeLength + 1), &element,
+        URI_BUILD_WITH_SCHEME | URI_BUILD_WITH_HOSTNAME | URI_BUILD_WITH_PORT | URI_BUILD_WITH_PATH | URI_BUILD_WITH_USERNAME | URI_BUILD_WITH_PASSWORD);
+}
+
 int APS5_VABI sceHttpUriParse(SceHttpUriElement* out, const char* src_url, void* pool, size_t* require, size_t prepare) {
     if (!src_url) return ERROR_INVALID_URL;
     const bool write = out && pool;
@@ -227,8 +277,7 @@ int APS5_VABI sceHttpUriParse(SceHttpUriElement* out, const char* src_url, void*
     if (const int result = parseUri(src_url, parts); result != 0) return result;
 
     const std::string_view fields[] = {parts.scheme, parts.username, parts.password, parts.hostname, parts.path, parts.query, parts.fragment};
-    size_t size = 0;
-    for (const std::string_view field : fields) size += field.size() + 1;
+    const size_t size = poolSize(parts);
     if (require) *require = size;
     if (!write) return 0;
     if (prepare < size) return ERROR_OUT_OF_MEMORY;

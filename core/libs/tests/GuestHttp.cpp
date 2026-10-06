@@ -7,6 +7,7 @@
 
 extern "C" {
 int APS5_VABI sceHttpUriParse(SceHttpUriElement*, const char*, void*, std::size_t*, std::size_t);
+int APS5_VABI sceHttpUriMerge(char*, const char*, const char*, std::size_t*, std::size_t, std::uint32_t);
 int APS5_VABI sceHttpSetInflateGZIPEnabled(int, int);
 int APS5_VABI sceHttpUriBuild(char*, std::size_t*, std::size_t, const SceHttpUriElement*, std::uint32_t);
 int APS5_VABI sceHttpUriEscape(char*, std::size_t*, std::size_t, const char*);
@@ -124,6 +125,53 @@ int main() {
     Require(sceHttpUriEscape(encodedBytes, nullptr, sizeof(encodedBytes), bytes) == 0);
     Require(sceHttpUriUnescape(decodedBytes, &required, sizeof(decodedBytes), encodedBytes) == 0);
     Require(required == sizeof(bytes) && std::memcmp(bytes, decodedBytes, sizeof(bytes)) == 0);
+
+    const char* base = "http://foo.com/foo/index.html";
+    const std::size_t baseMergeSize = 5 + 1 + 1 + 8 + 16 + 1 + 1 + 2;
+    char merged[512];
+    auto merge = [&](const char* mergeBase, const char* relative, const char* expected) {
+        std::memset(merged, 'Z', sizeof(merged));
+        return sceHttpUriMerge(merged, mergeBase, relative, &required, sizeof(merged), 0) == 0 && Equal(merged, expected);
+    };
+    Require(merge(base, "./default.html", "http://foo.com/foo/./default.html"));
+    Require(required == baseMergeSize + 2 * (29 + 14));
+    Require(merge(base, "../sibling.html", "http://foo.com/foo/../sibling.html"));
+    Require(merge(base, "", "http://foo.com/foo/"));
+    Require(merge(base, "/root.html", "http://foo.com/root.html"));
+    Require(merge(base, "a?q=1#f", "http://foo.com/foo/a?q=1#f"));
+    Require(merge("https://u:p@foo.com:8443/a/b?x=1#top", "c", "https://u:p@foo.com:8443/a/c"));
+    Require(merge("http://foo.com", "x", "http://foo.com/x"));
+    Require(merge("http://foo.com:80/", "x", "http://foo.com/x"));
+    Require(merge("http://foo.com/a/b", "mailto:x", "http://foo.com/a/mailto:x"));
+
+    Require(merge(base, "http://bar.com/other", "http://bar.com/other") && required == 21);
+    const std::size_t absoluteSize = baseMergeSize + 2 * (29 + 20);
+    for (std::size_t i = 21; i < absoluteSize; ++i) Require(merged[i] == '\0');
+    Require(merged[absoluteSize] == 'Z');
+    Require(merge(base, "//bar.com/x", "//bar.com/x") && required == 12);
+
+    required = 0;
+    Require(sceHttpUriMerge(nullptr, base, "./default.html", &required, 0, 0) == 0);
+    Require(required == baseMergeSize + 2 * (29 + 14));
+    Require(sceHttpUriMerge(nullptr, base, "http://bar.com/other", &required, 0, 0) == 0);
+    Require(required == absoluteSize);
+    Require(sceHttpUriMerge(nullptr, base, "x", nullptr, 0, 0) == 0);
+    std::memset(merged, 'Z', sizeof(merged));
+    Require(sceHttpUriMerge(merged, base, "./default.html", &required, baseMergeSize + 2 * (29 + 14) - 1, 0) == outOfMemory);
+    Require(required == baseMergeSize + 2 * (29 + 14) && merged[0] == 'Z');
+    Require(sceHttpUriMerge(merged, base, "http://bar.com/other", &required, absoluteSize - 1, 0) == outOfMemory);
+    Require(merged[0] == 'Z');
+    Require(sceHttpUriMerge(merged, base, "./default.html", nullptr, baseMergeSize + 2 * (29 + 14), 0) == 0);
+    Require(Equal(merged, "http://foo.com/foo/./default.html"));
+
+    required = 123;
+    Require(sceHttpUriMerge(merged, nullptr, "./x", &required, sizeof(merged), 0) == invalidValue);
+    Require(sceHttpUriMerge(merged, base, nullptr, &required, sizeof(merged), 0) == invalidValue);
+    Require(sceHttpUriMerge(merged, base, "./x", &required, sizeof(merged), 1) == invalidValue);
+    Require(sceHttpUriMerge(nullptr, nullptr, nullptr, &required, 0, 1) == invalidValue);
+    Require(sceHttpUriMerge(merged, "http://bad host/", "./x", &required, sizeof(merged), 0) == invalidUrl);
+    Require(sceHttpUriMerge(merged, base, "http://bad host/", &required, sizeof(merged), 0) == invalidUrl);
+    Require(required == 123);
 
     HttpEpollHandle epoll = nullptr;
     Require(sceHttpCreateEpoll(1, nullptr) == invalidValue);
