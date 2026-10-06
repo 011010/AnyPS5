@@ -77,7 +77,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [_sceLibcInternalThreadAtexit, _sceLibcInternalThreadDtors](../../core/libs/prx/libSceLibcInternal/Export.cpp) (libSceLibcInternal) - FreeBSD `__cxa_thread_atexit` semantics assumed; a null or non-image destructor and an allocation failure throw
 - [_sceLibcInternalForceTlsDestructor](../../core/libs/prx/libSceLibcInternal/Export.cpp) (libSceLibcInternal) - unknown return type and behaviour; a title's `libc.prx` calls it from `__cxa_finalize` with the module handle of a non-null dso
 - [__progname](../../core/libs/prx/libkernel/System/src/Process.cpp) (libkernel) - unknown data export
-- [pthread_barrierattr_setpshared](../../core/libs/prx/libkernel/Pthread/Posix/Barrier.cpp) (libkernel) - PTHREAD_PROCESS_SHARED throws: FreeBSD 9.0 libthr rejects it with EINVAL and 11.0 accepts it, and which one the console follows is unknown
+- [pthread_barrierattr_setpshared](../../core/libs/prx/libkernel/Pthread/Posix/Barrier.cpp) (libkernel) - PTHREAD_PROCESS_SHARED is accepted on the assumption that the console follows FreeBSD 11.0 libthr, which accepts it (9.0 rejects it with EINVAL); unverified on hardware. Guest code runs in one process, so a shared barrier behaves as a private one
 - [sceSslClose](../../core/libs/prx/libSceSsl/Export.cpp) (libSceSsl) - unknown signature
 - [sceSslGetSerialNumber](../../core/libs/prx/libSceSsl/Export.cpp) (libSceSsl) - unknown signature
 - [X+4jdIS75P0](../../core/libs/prx/libSceAudioIn/Export.cpp) (libSceAudioIn) - unknown name, signature
