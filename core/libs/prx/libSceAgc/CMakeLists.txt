@@ -291,6 +291,7 @@ add_test_executable(agc_cond_exec_patch_tests EXCLUDE_FROM_ALL
         Command/src/Memory.cpp
         Command/src/Control.cpp
         DcbFlow/src/Sync.cpp
+        Acb/src/Sync.cpp
         Patch/src/CondExec.cpp
 )
 target_include_directories(agc_cond_exec_patch_tests PRIVATE ${LIBS_INCLUDE_DIR})
