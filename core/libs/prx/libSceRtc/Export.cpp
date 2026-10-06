@@ -272,6 +272,7 @@ int APS5_VABI sceRtcSetWin32FileTime(RtcDateTime* time, uint64_t win32_time) {
 
 int APS5_VABI sceRtcFormatRFC3339(char* date_time, const RtcTick* utc, int time_zone_minutes) {
     if (!date_time || !utc) return SCE_RTC_ERROR_INVALID_POINTER;
+    if (time_zone_minutes < -1439 || time_zone_minutes > 1439) return SCE_RTC_ERROR_INVALID_VALUE;
     RtcTick local{};
     if (const int result = addTicks(&local, utc, time_zone_minutes, TICKS_PER_MINUTE); result != 0) return result;
     const RtcDateTime time = fromTick(local.tick);

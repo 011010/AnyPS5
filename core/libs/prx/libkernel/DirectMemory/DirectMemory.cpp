@@ -226,7 +226,12 @@ public:
 #ifdef _WIN32
         const auto size = static_cast<std::uint64_t>(bytes);
         section = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_EXECUTE_READWRITE, static_cast<DWORD>(size >> 32), static_cast<DWORD>(size), nullptr);
-        if (!section) throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "create direct memory backing");
+        if (!section) {
+            const auto error = static_cast<int>(GetLastError());
+            char message[96];
+            std::snprintf(message, sizeof(message), "create direct memory backing of 0x%llx bytes (%llu MiB)", static_cast<unsigned long long>(size), static_cast<unsigned long long>((size + 0xFFFFF) >> 20));
+            throw std::system_error(error, std::system_category(), message);
+        }
 #else
         file = memfd_create("direct memory", MFD_CLOEXEC);
         if (file < 0) throw std::system_error(errno, std::generic_category(), "create direct memory backing");
@@ -294,6 +299,27 @@ void EraseMappings(std::uintptr_t start, std::uintptr_t end) {
         it = g_directMappings.erase(it);
         if (base < start) g_directMappings.emplace(base, DirectMapping{start, mapping.phys, mapping.memoryType, mapping.backing});
         if (mapping.end > end) it = g_directMappings.emplace(end, DirectMapping{mapping.end, mapping.phys + end - base, mapping.memoryType, mapping.backing}).first;
+    }
+}
+
+void ErasePhysMappings(std::uint64_t first, std::uint64_t last) {
+    for (auto it = g_directMappings.begin(); it != g_directMappings.end();) {
+        const auto base = it->first;
+        const auto mapping = it->second;
+        const auto mappingLast = mapping.phys + (mapping.end - base);
+        if (mapping.phys >= last || mappingLast <= first) {
+            ++it;
+            continue;
+        }
+        it = g_directMappings.erase(it);
+        if (mapping.phys < first) {
+            const auto keep = first - mapping.phys;
+            g_directMappings.emplace(base, DirectMapping{base + keep, mapping.phys, mapping.memoryType, mapping.backing});
+        }
+        if (mappingLast > last) {
+            const auto skip = last - mapping.phys;
+            it = g_directMappings.emplace(base + skip, DirectMapping{mapping.end, last, mapping.memoryType, mapping.backing}).first;
+        }
     }
 }
 
@@ -656,6 +682,7 @@ void ForgetDirectMemory(int64_t start, size_t len) {
     std::lock_guard lock(g_directLock);
     ValidatePhysicalRange(first, len);
     g_physPages.erase(g_physPages.lower_bound(first), g_physPages.lower_bound(first + len));
+    ErasePhysMappings(first, first + len);
     Trace("release physical 0x%llx+0x%zx", static_cast<unsigned long long>(first), len);
 }
 
