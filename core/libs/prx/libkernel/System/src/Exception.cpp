@@ -96,6 +96,7 @@ GuestExceptionHandler Handler(int signum) {
 
 #ifdef _WIN32
 constexpr std::size_t RedZone = 128;
+constexpr std::size_t HomeArea = 32;
 
 struct Delivery {
     GuestExceptionHandler handler;
@@ -153,12 +154,19 @@ void Deliver(GuestExceptionHandler handler, int signum, CONTEXT& context) {
 
 [[noreturn]] void RedirectedEntry(Delivery* delivery) {
     CONTEXT context = delivery->context;
-    const auto handler = delivery->handler;
-    const int signum = delivery->signum;
-    delete delivery;
-    Deliver(handler, signum, context);
+    Deliver(delivery->handler, delivery->signum, context);
     RtlRestoreContext(&context, nullptr);
     std::abort();
+}
+
+bool StackWritable(DWORD64 low, DWORD64 high) {
+    for (DWORD64 address = low; address < high;) {
+        MEMORY_BASIC_INFORMATION info{};
+        if (VirtualQuery(reinterpret_cast<void*>(address), &info, sizeof(info)) != sizeof(info)) return false;
+        if (info.State != MEM_COMMIT || (info.Protect & PAGE_GUARD) != 0 || (info.Protect & (PAGE_READWRITE | PAGE_EXECUTE_READWRITE)) == 0) return false;
+        address = reinterpret_cast<DWORD64>(info.BaseAddress) + info.RegionSize;
+    }
+    return true;
 }
 
 void CALLBACK WaitingEntry(ULONG_PTR parameter) {
@@ -190,20 +198,24 @@ void RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
         }
         return;
     }
-    auto* delivery = new Delivery{handler, signum, {}};
-    delivery->context.ContextFlags = CONTEXT_FULL | CONTEXT_FLOATING_POINT;
-    if (!GetThreadContext(native, &delivery->context)) {
+    alignas(16) Delivery delivery{handler, signum, {}};
+    delivery.context.ContextFlags = CONTEXT_FULL | CONTEXT_FLOATING_POINT;
+    if (!GetThreadContext(native, &delivery.context)) {
         ResumeThread(native);
-        delete delivery;
         throw std::runtime_error("sceKernelRaiseException: cannot read the target thread context");
     }
-    CONTEXT redirected = delivery->context;
-    redirected.Rsp = ((delivery->context.Rsp - RedZone) & ~static_cast<DWORD64>(15)) - 8;
+    const DWORD64 slot = (delivery.context.Rsp - RedZone - sizeof(Delivery)) & ~static_cast<DWORD64>(15);
+    if (!StackWritable(slot - HomeArea - 8, delivery.context.Rsp - RedZone)) {
+        ResumeThread(native);
+        throw std::runtime_error("sceKernelRaiseException: the target thread stack below its red zone is not committed");
+    }
+    std::memcpy(reinterpret_cast<void*>(slot), &delivery, sizeof(Delivery));
+    CONTEXT redirected = delivery.context;
+    redirected.Rsp = slot - HomeArea - 8;
     redirected.Rip = reinterpret_cast<DWORD64>(&RedirectedEntry);
-    redirected.Rcx = reinterpret_cast<DWORD64>(delivery);
+    redirected.Rcx = slot;
     if (!SetThreadContext(native, &redirected)) {
         ResumeThread(native);
-        delete delivery;
         throw std::runtime_error("sceKernelRaiseException: cannot redirect the target thread");
     }
     ResumeThread(native);
