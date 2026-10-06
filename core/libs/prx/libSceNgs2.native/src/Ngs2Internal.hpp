@@ -166,6 +166,7 @@ void Ngs2CleanupUserFx(Ngs2Rack& rack);
 void Ngs2ApplyCustomParam(Ngs2Voice& voice, const Ngs2VoiceParamHeader& param);
 void Ngs2ProcessUserFx(Ngs2Voice& voice, std::uint32_t grain, std::uint32_t sampleRate);
 void Ngs2SetReverbParams(Ngs2Voice& voice, const Ngs2ReverbI3DL2Param& params);
+void Ngs2SetupReverb(Ngs2Voice& voice);
 void Ngs2ClearReverb(Ngs2Voice& voice);
 bool Ngs2ProcessReverb(Ngs2Voice& voice, std::uint32_t grain, std::uint32_t sampleRate);
 void Ngs2RenderSystem(Ngs2System& system, const Ngs2RenderBufferInfo* bufferInfo, std::uint32_t numBufferInfo);
