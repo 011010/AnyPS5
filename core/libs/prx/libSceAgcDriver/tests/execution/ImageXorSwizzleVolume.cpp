@@ -8,6 +8,7 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <iostream>
@@ -31,7 +32,9 @@ constexpr std::uint32_t TileS64KBX = 0x19;
 
 alignas(256) std::array<std::uint32_t, Threads * 4> Input{};
 alignas(256) std::array<float, Threads * 4> Output{};
-alignas(65536) std::array<std::uint8_t, 2u << 20u> Texels{};
+constexpr std::size_t TexelBytes = 2u << 20u;
+alignas(4096) std::array<std::uint8_t, TexelBytes + 65536u> TexelStorage{};
+const std::span<std::uint8_t, TexelBytes> Texels(TexelStorage.data() + ((0u - reinterpret_cast<std::uintptr_t>(TexelStorage.data())) & 0xffffu), TexelBytes);
 
 alignas(256) constexpr std::array<std::uint32_t, 10> Code{
     0x34020084, 0xe0381000, 0x80000201, 0xbf8c3f70, 0xf0001f10, 0x00020602, 0xbf8c3f70, 0xe0781000,
@@ -69,7 +72,7 @@ std::uint64_t EquationOffset(const TextureSwizzleEquation& equation, std::uint32
 }
 
 void FillTexels(std::uint32_t tileMode) {
-    Texels.fill(0);
+    std::ranges::fill(Texels, std::uint8_t{0});
     const auto descriptor = DecodeTextureResource(TextureDescriptor(tileMode));
     const auto geometry = DescribeSurface(descriptor);
     Require(geometry.guestBytes <= Texels.size(), "volume does not fit the test allocation");
