@@ -363,6 +363,7 @@ SpirvRequirements AnalyzeProgramRequirements(const IrProgram& program) {
                     requirements.functionLds = true;
                 } else if (sharedAccess == SharedAccess::Atomic && inst->Type() == IrType::U64 && kind == ResourceKind::Lds) {
                     requirements.ldsLock = true;
+                    requirements.subgroupBallot = true;
                 }
                 if (sharedAccess == SharedAccess::Append || sharedAccess == SharedAccess::Consume) {
                     requirements.subgroupBallot = true;
