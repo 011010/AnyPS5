@@ -158,7 +158,12 @@ int KernelEqueuePrivate::WaitForEvents(KernelEvent* ev, int num, uint32_t micros
             return SCE_KERNEL_ERROR_EBADF;
         }
         if (micros == 0) {
-            m_cond.Wait(lock);
+            uint32_t timerWait = 0;
+            if (NextTimerWaitMicros(MonotonicNs(), &timerWait)) {
+                m_cond.WaitUntil(lock, TimedWait::NowNanos() + static_cast<std::uint64_t>(timerWait) * 1000ULL);
+            } else {
+                m_cond.Wait(lock);
+            }
         } else {
             uint32_t timerWait = 0;
             const bool hasTimer = NextTimerWaitMicros(MonotonicNs(), &timerWait);
