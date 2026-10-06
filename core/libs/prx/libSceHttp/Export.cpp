@@ -370,27 +370,23 @@ int APS5_VABI sceHttpGetLastErrno(int request_id, int* errno_out) {
     return 0;
 }
 
-APS5_EXPORT("JBN6N-EY+3M", sceHttpUnknown_JBN6N_MEY_P3M);
-int APS5_VABI sceHttpUnknown_JBN6N_MEY_P3M(void) {
-    NotImplemented_nid_no_patch("JBN6N-EY+3M");
+int APS5_VABI sceHttpsGetSslError(void) {
+    NotImplemented_nid_no_patch(__func__);
     return 0;
 }
 
-APS5_EXPORT("Kh6bS2HQKbo", sceHttpUnknown_Kh6bS2HQKbo);
-int APS5_VABI sceHttpUnknown_Kh6bS2HQKbo(void) {
-    NotImplemented_nid_no_patch("Kh6bS2HQKbo");
+int APS5_VABI sceHttpSetCookieRecvCallback(void) {
+    NotImplemented_nid_no_patch(__func__);
     return 0;
 }
 
-APS5_EXPORT("U5ExQGyyx9s", sceHttpUnknown_U5ExQGyyx9s);
-int APS5_VABI sceHttpUnknown_U5ExQGyyx9s(void) {
-    NotImplemented_nid_no_patch("U5ExQGyyx9s");
+int APS5_VABI sceHttpsSetSslVersion(void) {
+    NotImplemented_nid_no_patch(__func__);
     return 0;
 }
 
-APS5_EXPORT("h9wmFZX4i-4", sceHttpUnknown_h9wmFZX4i_M4);
-int APS5_VABI sceHttpUnknown_h9wmFZX4i_M4(void) {
-    NotImplemented_nid_no_patch("h9wmFZX4i-4");
+int APS5_VABI sceHttpSetRedirectCallback(void) {
+    NotImplemented_nid_no_patch(__func__);
     return 0;
 }
 

@@ -1048,9 +1048,8 @@ int APS5_VABI sceNetResolverGetError(int rid, int* status) {
     return 0;
 }
 
-APS5_EXPORT("AzqoBha7js4", sceNetUnknown_AzqoBha7js4);
-int APS5_VABI sceNetUnknown_AzqoBha7js4(void) {
-    NotImplemented_nid_no_patch("AzqoBha7js4");
+int APS5_VABI sceNetResolverAbort(void) {
+    NotImplemented_nid_no_patch(__func__);
     return 0;
 }
 
