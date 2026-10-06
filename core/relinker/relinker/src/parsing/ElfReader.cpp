@@ -1,8 +1,11 @@
 #include <relinker/parsing/ElfReader.hpp>
+#include <elfpatcher/general/ElfConstants.hpp>
 #include <relinker/domain/Types.hpp>
 #include <cstring>
 
 namespace Relinker {
+
+using namespace Elfpatcher;
 
 namespace {
 
@@ -200,8 +203,6 @@ FileByteOffset ElfReader::TranslateVirtualAddress(VirtualAddress address) const 
         const FileByteOffset segOffset = _readU64At(offset + 0x08);
         const VirtualAddress segVAddr = _readU64At(offset + 0x10);
         const ByteCount segFileSize = _readU64At(offset + 0x20);
-
-        static constexpr std::uint32_t PT_LOAD = 1;
 
         if (type == PT_LOAD && address >= segVAddr && address < segVAddr + segFileSize) {
             return segOffset + (address - segVAddr);

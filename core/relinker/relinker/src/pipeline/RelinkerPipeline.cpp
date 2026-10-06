@@ -1,4 +1,5 @@
 #include <relinker/pipeline/RelinkerPipeline.hpp>
+#include <elfpatcher/general/ElfConstants.hpp>
 #include <relinker/analysis/ValidationPolicy.hpp>
 #include <relinker/analysis/UnusedNidFilter/PltCompactor.hpp>
 #include <sstream>
@@ -6,6 +7,8 @@
 #include <cstring>
 
 namespace Relinker {
+
+using namespace Elfpatcher;
 
 RelinkerPipeline::RelinkerPipeline(std::shared_ptr<IElfReader> elfReader, std::shared_ptr<ISyscallScanner> syscallScanner, std::shared_ptr<ICallSiteResolver> callSiteResolver, std::shared_ptr<IValidationPolicy> validationPolicy, std::shared_ptr<ISysVDynamicSectionBuilder> dynamicSectionBuilder, std::shared_ptr<IUnusedNidFilter> unusedNidFilter, std::uint32_t unusedFilterLevel)
     : _elfReader(std::move(elfReader))
@@ -218,8 +221,6 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
 
     _validationPolicy->ValidateSyscallAbsence();
 
-    static constexpr std::uint32_t R_X86_64_JUMP_SLOT = 7;
-
     const std::size_t originalNidCount = nidRefs.size();
     const auto originalNidRefs = nidRefs;
     std::cout << "NID input: " << originalNidCount << " references\n";
@@ -272,8 +273,6 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
         pltCount = compacted.SlotCount;
     }
     auto dynSection = _dynamicSectionBuilder->BuildDynamicSection(dynamicRefs, neededLibraries, dynJmpRelOffset, pltCount);
-
-    static constexpr std::uint32_t R_X86_64_RELATIVE = 8;
 
     auto appendRela = [&](std::vector<std::uint8_t>& buf, std::uint64_t offset, std::uint64_t info, std::int64_t addend) {
         std::size_t pos = buf.size();
