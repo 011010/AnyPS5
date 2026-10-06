@@ -30,6 +30,18 @@ Throughout the project, every function at every stage either **does exactly what
 
 ### Unknown function info
 
+- [iE8trxPKnAg](../../core/libs/prx/libSceAudioOut/src/AudioOut2System.cpp) (libSceAudioOut2) - unknown names and signatures, imported by PPSA23566; declared without parameters
+- [S-Gni2KIJRY](../../core/libs/prx/libSceConvertKeycode/Export.cpp) (libSceConvertKeycode) - unknown names and signatures, imported by PPSA23566; declared without parameters
+- [JBN6N-EY+3M, Kh6bS2HQKbo, U5ExQGyyx9s, h9wmFZX4i-4](../../core/libs/prx/libSceHttp/Export.cpp) (libSceHttp) - unknown names and signatures, imported by PPSA23566; declared without parameters
+- [FIjXN2TkuTs, i-XwZjw0OOY](../../core/libs/prx/libSceJson2/Export.cpp) (libSceJson2) - unknown names and signatures, imported by PPSA23566; declared without parameters
+- [AzqoBha7js4](../../core/libs/prx/libSceNet/Export.cpp) (libSceNet) - unknown names and signatures, imported by PPSA23566; declared without parameters
+- [IXmfUaze9So](../../core/libs/prx/libSceNpCommerce/Export.cpp) (libSceNpCommerce) - unknown names and signatures, imported by PPSA23566; declared without parameters
+- [eDXKe9FndlE](../../core/libs/prx/libSceNpEntitlementAccess/Export.cpp) (libSceNpEntitlementAccessPft) - unknown names and signatures, imported by PPSA23566; declared without parameters
+- [7CxI50-xlCk, pMxXhNozUX8](../../core/libs/prx/libSceNpPartner001/Export.cpp) (libSceNpPartner001) - unknown names and signatures, imported by PPSA23566; declared without parameters
+- [Asuucx2vvaE, LDjk9ULlN34, QJy6V9QAXXE, lrswogWNZyM](../../core/libs/prx/libSceProprietaryVoiceChatHelperPrx/Export.cpp) (libSceProprietaryVoiceChatHelper) - unknown names and signatures, imported by PPSA23566; declared without parameters
+- [0GAw7SmkwII, 1ic5q-kdOsc, 5z2gBlqxJ+0, Kyy1baXgaVU, ZLL31lzzxr4, gMduXCLYrNg, lrJwpLjKXRc, m9JLPc3wOQw, o+NM86gEwFE](../../core/libs/prx/libScePsml_debug/Export.cpp) (libScePsml_mfsr2) - unknown names and signatures, imported by PPSA23566; declared without parameters
+- [Z6QV6j7igvE, lLkJVewQK68, udAxvCePkUs, xHSNCLrQq3A](../../core/libs/prx/libSceVoice/Export.cpp) (libSceVoice) - unknown names and signatures, imported by PPSA23566; declared without parameters
+- [0wu33hunNdE](../../core/libs/prx/libkernel/Pthread/Posix/Thread.cpp) (libScePosix) - unknown names and signatures, imported by PPSA23566; declared without parameters
 - [sceAvPlayerAddSource](../../core/libs/prx/libSceAvPlayer/src/Source.cpp) (libSceAvPlayer) - requests up to 4 additional decode-ahead video framebuffers from the memory replacement beyond `num_output_video_framebuffers` when memory is available; the console's internal buffering behaviour is unknown
 - [sceVideoOutRegisterBuffers2](../../core/libs/prx/libSceVideoOut/src/Buffer.cpp) (libSceVideoOut) - buffer option 8 (STRICT_COLORIMETRY) is presented as option 0, with the stored values unchanged; what the console changes for it is unknown. Only options 0 and 8 are accepted
 - [sceVideoOutRegisterBuffers2](../../core/libs/prx/libSceVideoOut/src/Buffer.cpp) (libSceVideoOut) - DCC buffers (category 1): `dcc_control` is taken as the CB_DCC_CONTROL block layout, only bits 0x10026c are accepted; `dcc_cb_register_clear_color` as the register-clear texel, only 32-bit values are presented
