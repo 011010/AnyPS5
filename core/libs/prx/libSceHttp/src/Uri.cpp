@@ -74,14 +74,23 @@ std::string removeDotSegments(std::string_view input) {
     return output;
 }
 
-int parseUri(std::string_view uri, UriParts& parts) {
+size_t schemeLength(std::string_view uri) {
     size_t schemeEnd = 0;
     if (!uri.empty() && std::isalpha(static_cast<unsigned char>(uri[0]))) {
         schemeEnd = 1;
         while (schemeEnd < uri.size() && (std::isalnum(static_cast<unsigned char>(uri[schemeEnd])) || uri[schemeEnd] == '+'
             || uri[schemeEnd] == '-' || uri[schemeEnd] == '.')) ++schemeEnd;
     }
-    if (schemeEnd > 0 && schemeEnd < uri.size() && uri[schemeEnd] == ':') {
+    return schemeEnd > 0 && schemeEnd < uri.size() && uri[schemeEnd] == ':' ? schemeEnd : 0;
+}
+
+bool isOpaque(std::string_view uri) {
+    const size_t schemeEnd = schemeLength(uri);
+    return !uri.substr(schemeEnd == 0 ? 0 : schemeEnd + 1).starts_with("//");
+}
+
+int parseUri(std::string_view uri, UriParts& parts) {
+    if (const size_t schemeEnd = schemeLength(uri); schemeEnd != 0) {
         parts.scheme = uri.substr(0, schemeEnd);
         uri.remove_prefix(schemeEnd + 1);
     }
@@ -232,8 +241,10 @@ int APS5_VABI sceHttpUriMerge(char* merged_url, const char* url, const char* rel
 
     UriParts base;
     if (const int result = parseUri(url, base); result != 0) return result;
-    UriParts relative;
-    if (const int result = parseUri(relative_uri, relative); result != 0) return result;
+    const bool relativeOpaque = isOpaque(relative_uri);
+    if (UriParts relative; !relativeOpaque) {
+        if (const int result = parseUri(relative_uri, relative); result != 0) return result;
+    }
 
     const size_t urlLength = strnlen(url, URI_MAX_LENGTH);
     const size_t relativeLength = strnlen(relative_uri, URI_MAX_LENGTH);
@@ -242,8 +253,9 @@ int APS5_VABI sceHttpUriMerge(char* merged_url, const char* url, const char* rel
     if (!merged_url) return 0;
     if (prepare < size) return ERROR_OUT_OF_MEMORY;
 
-    if (!relative.opaque) {
+    if (!relativeOpaque) {
         std::strncpy(merged_url, relative_uri, size);
+        merged_url[size - 1] = '\0';
         if (require) *require = relativeLength + 1;
         return 0;
     }

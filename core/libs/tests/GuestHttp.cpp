@@ -143,6 +143,10 @@ int main() {
     Require(merge("http://foo.com", "x", "http://foo.com/x"));
     Require(merge("http://foo.com:80/", "x", "http://foo.com/x"));
     Require(merge("http://foo.com/a/b", "mailto:x", "http://foo.com/a/mailto:x"));
+    Require(merge(base, "a%20b.html", "http://foo.com/foo/a%20b.html"));
+    Require(merge(base, "~user/x", "http://foo.com/foo/~user/x"));
+    Require(merge(base, "file(1).png", "http://foo.com/foo/file(1).png"));
+    Require(merge(base, "a+b=c;d!e", "http://foo.com/foo/a+b=c;d!e"));
 
     Require(merge(base, "http://bar.com/other", "http://bar.com/other") && required == 21);
     const std::size_t absoluteSize = baseMergeSize + 2 * (29 + 20);
