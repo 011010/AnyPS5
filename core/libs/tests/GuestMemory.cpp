@@ -48,6 +48,7 @@ int APS5_VABI sceKernelClearVirtualRangeName(const void*, std::uint64_t);
 int APS5_VABI sceKernelAllocateDirectMemory(std::int64_t, std::int64_t, std::size_t, std::size_t, int, std::int64_t*);
 int APS5_VABI sceKernelMapDirectMemory(void**, std::size_t, int, int, std::int64_t, std::size_t);
 int APS5_VABI sceKernelReleaseDirectMemory(std::int64_t, std::size_t);
+int APS5_VABI sceKernelCheckedReleaseDirectMemory(std::int64_t, std::size_t);
 int APS5_VABI sceKernelReserveVirtualRange(void**, std::size_t, int, std::size_t);
 int APS5_VABI sceKernelMemoryPoolReserve(void*, std::size_t, std::size_t, int, void**);
 int APS5_VABI sceKernelOpen(const char*, int, std::uint16_t);
@@ -119,6 +120,23 @@ static void CheckInternalNamedFlexibleMapping() {
     try { sceKernelMapNamedFlexibleMemoryInternal(&unknown, length, 3, 0x8000, "internal mapping"); } catch (const std::exception&) { rejected = true; }
     Require(rejected && unknown == nullptr);
     Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == before);
+}
+
+static void CheckCheckedReleaseDirectMemory() {
+    constexpr std::size_t page = 0x4000;
+    std::int64_t phys = 0;
+    Require(sceKernelAllocateDirectMemory(0, 0x7fffffffffll, page * 2, 0, 0, &phys) == 0);
+    Require(sceKernelCheckedReleaseDirectMemory(phys + 1, page) == SCE_KERNEL_ERROR_EINVAL);
+    Require(sceKernelCheckedReleaseDirectMemory(phys, page + 1) == SCE_KERNEL_ERROR_EINVAL);
+    Require(sceKernelCheckedReleaseDirectMemory(phys, 0) == 0);
+    Require(sceKernelCheckedReleaseDirectMemory(phys, page * 3) == SCE_KERNEL_ERROR_ENOENT);
+    void* mapped = nullptr;
+    Require(sceKernelMapDirectMemory(&mapped, page * 2, 3, 0, phys, 0) == 0);
+    Require(sceKernelMunmap(mapped, page * 2) == 0);
+    Require(sceKernelCheckedReleaseDirectMemory(phys + page, page) == 0);
+    Require(sceKernelCheckedReleaseDirectMemory(phys, page * 2) == SCE_KERNEL_ERROR_ENOENT);
+    Require(sceKernelCheckedReleaseDirectMemory(phys, page) == 0);
+    Require(sceKernelCheckedReleaseDirectMemory(phys, page) == SCE_KERNEL_ERROR_ENOENT);
 }
 
 static void CheckDirectMemoryFollowsPhysicalPages() {
@@ -748,6 +766,7 @@ static void CheckDirectMemoryWriteWatch() {
 int main() {
     CheckNamedAndHintedMappings();
     CheckInternalNamedFlexibleMapping();
+    CheckCheckedReleaseDirectMemory();
     CheckDirectMemoryFollowsPhysicalPages();
     CheckReleaseDirectMemoryClearsMappings();
     CheckFixedVirtualReservation();
