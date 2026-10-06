@@ -379,6 +379,10 @@ int APS5_VABI scePthreadEqual(Pthread thread1, Pthread thread2) {
     return thread1 == thread2 ? 1 : 0;
 }
 
+KernelCpumask APS5_VABI sceKernelGetAvailableCpumask(void) {
+    return DEFAULT_THREAD_AFFINITY;
+}
+
 int APS5_VABI scePthreadGetaffinity(Pthread thread, KernelCpumask* mask) {
     if (!thread || !mask) return SCE_KERNEL_ERROR_EINVAL;
     *mask = thread->affinity.load(std::memory_order_relaxed);
