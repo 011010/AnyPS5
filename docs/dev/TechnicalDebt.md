@@ -81,7 +81,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceSslClose](../../core/libs/prx/libSceSsl/Export.cpp) (libSceSsl) - unknown signature
 - [sceSslGetSerialNumber](../../core/libs/prx/libSceSsl/Export.cpp) (libSceSsl) - unknown signature
 - [X+4jdIS75P0](../../core/libs/prx/libSceAudioIn/Export.cpp) (libSceAudioIn) - unknown name, signature
-- [sceAudioOut2Set3DLatency](../../core/libs/prx/libSceAudioOut/src/AudioOut2System.cpp) (libSceAudioOut) - assumed to take `(user_id, latency)`: KytyPS5 reads `(user_id, output, latency_us)`, but the only known call sets just edi and esi; only `(0xFF, 2)` is accepted
+- [sceAudioOut2Set3DLatency](../../core/libs/prx/libSceAudioOut/src/AudioOut2System.cpp) (libSceAudioOut) - assumed to take `(user_id, latency)`: KytyPS5 reads `(user_id, output, latency_us)`, but the known calls set just edi and esi; only `(0xFF, 2)` (PPSA26344) and `(0xFF, 1)` (PPSA14632) are accepted
 - [sceAudioOut2MasteringInit](../../core/libs/prx/libSceAudioOut/src/AudioOut2Mastering.cpp) (libSceAudioOut) - flag values unknown; only 0 is accepted
 - [sceAudioOutSetMixLevelPadSpk](../../core/libs/prx/libSceAudioOut/src/AudioOut.cpp) (libSceAudioOut) - effect of a negative mix level unknown; only 0 to 32768 (0 dB) is accepted
 - [sceAudioOutSetMixLevelPadSpk](../../core/libs/prx/libSceAudioOut/src/AudioOut.cpp) (libSceAudioOut) - no source applies the level (shadPS4 only stores it); it is assumed to be a linear gain on the port's own output, and the -9 dB default (11626) is applied to every pad speaker port, including those of titles that never call the function
