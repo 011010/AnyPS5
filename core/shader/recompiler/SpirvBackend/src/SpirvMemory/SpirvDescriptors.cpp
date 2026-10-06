@@ -12,10 +12,6 @@ namespace ShaderRecompiler
 {
 namespace {
 
-[[noreturn]] void FailEmit(const std::string& reason) {
-    throw std::runtime_error("SPIR-V module emission failed: " + reason);
-}
-
 IrShaderStage StageOf(const SpirvEmitterState& state) {
     return state.program.Resources().stage;
 }
