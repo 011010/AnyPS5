@@ -125,6 +125,12 @@ def main():
             run = subprocess.run([str(output)], capture_output=True, text=True, timeout=30)
             assert run.returncode == 22, (run.returncode, run.stdout, run.stderr)
 
+        result, output = convert('unmatched-module', 'libFoo2.prx', module_name='libFoo', provider_name='libFoo2.prx')
+        assert result.returncode == 0, result.stderr
+        if os.name == 'nt':
+            run = subprocess.run([str(output)], capture_output=True, text=True, timeout=30)
+            assert run.returncode == 11, (run.returncode, run.stdout, run.stderr)
+
         for symbol, message in [('shared#A#C', 'Unknown import module ID'),
                                 ('shared#A#', 'Invalid qualified import'),
                                 ('shared#A#?', 'Invalid import module ID'),

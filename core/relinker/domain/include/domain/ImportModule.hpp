@@ -44,8 +44,7 @@ inline std::string ImportModule(const std::string& symbol, const std::map<std::u
         if (!matched.empty() && matched != dependency) throw RelinkerException("Ambiguous import module dependency: " + name);
         matched = dependency;
     }
-    if (!matched.empty()) return matched;
-    return name;
+    return matched;
 }
 
 }

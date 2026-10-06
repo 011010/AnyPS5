@@ -67,7 +67,9 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         for (const auto& symbol : image.Symbols) {
             if (symbol.Section == 0 || symbol.Section == AbsoluteSection || (symbol.Info >> 4) == 0 || symbol.Visibility == 1 || symbol.Visibility == 2) continue;
             auto& providers = exports[symbol.Name];
-            if (std::find(providers.begin(), providers.end(), images.size()) == providers.end()) providers.push_back(images.size());
+            const bool repeated = std::find(providers.begin(), providers.end(), images.size()) != providers.end();
+            if (!windows && repeated) throw Domain::RelinkerException("Duplicate guest export after stripping #: " + symbol.Name + " in " + path.string() + " and " + path.string());
+            if (!repeated) providers.push_back(images.size());
             if (!windows && providers.size() > 1) sharedExports[symbol.Name].insert(providers.begin(), providers.end());
         }
         std::vector<Domain::ProgramHeader> codeHeaders;
