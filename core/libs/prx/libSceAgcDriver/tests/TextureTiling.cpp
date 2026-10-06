@@ -60,7 +60,7 @@ void requireThickAddresses(const GuestTextureResource& resource, std::uint32_t b
     Require(geometry.thick && geometry.mips.size() == resource.mipCount && geometry.guestBytes == guestBytes, what + ": guest size differs from addrlib");
     for (std::uint32_t level = 0; level < resource.mipCount; ++level) Require(geometry.mips[level].tail == (level >= firstTailLevel), what + ": mip " + std::to_string(level) + " is on the wrong side of the mip tail");
     const auto blockBytes = resource.tileMode == TextureTileMode::kStandard4KB ? 4096u : 65536u;
-    const auto* equation = FindTextureSwizzleEquation(resource.tileMode == TextureTileMode::kStandard4KB ? 0x105u : 0x109u, bytesPerElement);
+    const auto* equation = FindTextureSwizzleEquation(0x100u | (resource.tileMode == TextureTileMode::kStandard4KB ? 5u : resource.tileMode == TextureTileMode::kStandard64KB ? 9u : XorSwizzleMode(resource.tileMode)), bytesPerElement);
     Require(equation != nullptr, what + ": missing thick swizzle equation");
     const auto block = ThickBlockExtent(resource.tileMode, bytesPerElement);
     for (const auto& element : expected) {
@@ -71,6 +71,25 @@ void requireThickAddresses(const GuestTextureResource& resource, std::uint32_t b
             address += equationOffset(*equation, element.x + mip.tailX, element.y + mip.tailY, element.z);
         } else {
             address += (static_cast<std::uint64_t>(element.y / block[1]) * mip.blocksPerRow + element.x / block[0]) * blockBytes + equationOffset(*equation, element.x, element.y, element.z);
+        }
+        Require(address == element.address, what + ": mip " + std::to_string(element.mip) + " element (" + std::to_string(element.x) + ", " + std::to_string(element.y) + ", " + std::to_string(element.z) + ") detiles from " + std::to_string(address) + " instead of addrlib's " + std::to_string(element.address));
+    }
+}
+
+void requireSliceAddresses(const GuestTextureResource& resource, std::uint32_t bytesPerElement, std::uint64_t guestBytes, std::span<const ElementAddress> expected, const std::string& what) {
+    const auto geometry = DescribeSurface(resource);
+    Require(!geometry.thick && geometry.mips.size() == resource.mipCount && geometry.guestBytes == guestBytes, what + ": guest size differs from addrlib");
+    const auto* equation = FindTextureSwizzleEquation(XorSwizzleMode(resource.tileMode), bytesPerElement);
+    Require(equation != nullptr, what + ": missing swizzle equation");
+    const auto block = ThinBlockLayout(resource.tileMode, bytesPerElement);
+    for (const auto& element : expected) {
+        Require(geometry.HasLayer(element.mip, element.z), what + ": sample slice lies outside its level");
+        const auto& mip = geometry.mips.at(element.mip);
+        auto address = geometry.GuestLayerOffset(element.z) + mip.tiledOffset;
+        if (mip.tail) {
+            address += equationOffset(*equation, element.x + mip.tailX, element.y + mip.tailY, element.z);
+        } else {
+            address += (static_cast<std::uint64_t>(element.y / block[2]) * mip.blocksPerRow + element.x / block[1]) * block[0] + equationOffset(*equation, element.x, element.y, element.z);
         }
         Require(address == element.address, what + ": mip " + std::to_string(element.mip) + " element (" + std::to_string(element.x) + ", " + std::to_string(element.y) + ", " + std::to_string(element.z) + ") detiles from " + std::to_string(address) + " instead of addrlib's " + std::to_string(element.address));
     }
@@ -209,6 +228,14 @@ void RunTextureTilingTests() {
         requireThickAddresses(thickVolume(TextureTileMode::kStandard64KB, 1, 100, 60, 70, 7), 1, 2, 1179648, byteTail, "SW_64KB_S 8 bpp 100x60x70, 7 levels");
         constexpr ElementAddress wideElementTail[] = {{0, 0, 0, 0, 0x3000}, {0, 8, 4, 2, 0x5880}, {0, 4, 1, 1, 0x4030}, {0, 3, 4, 0, 0x3a40}, {0, 8, 0, 2, 0x5080}, {1, 0, 0, 0, 0x1000}, {1, 3, 1, 0, 0x1260}, {1, 2, 0, 0, 0x1200}, {1, 1, 1, 0, 0x1060}, {1, 3, 0, 0, 0x1240}, {2, 0, 0, 0, 0x800}, {2, 1, 0, 0, 0x840}, {3, 0, 0, 0, 0x300}};
         requireThickAddresses(thickVolume(TextureTileMode::kStandard4KB, 77, 9, 5, 3, 4), 16, 2, 24576, wideElementTail, "SW_4KB_S 128 bpp 9x5x3, 4 levels");
+        constexpr ElementAddress xorZx32[] = {{0, 0, 0, 0, 0x8400}, {0, 39, 23, 19, 0x1382fc}, {0, 20, 8, 10, 0xab240}, {0, 13, 23, 0, 0x87ec}, {0, 39, 0, 19, 0x138054}, {1, 0, 0, 0, 0x4800}, {1, 19, 11, 9, 0x9723c}, {1, 10, 4, 5, 0x54390}, {1, 6, 11, 0, 0x5978}, {1, 19, 0, 9, 0x96314}, {2, 0, 0, 0, 0x800}, {2, 9, 5, 4, 0x40b8c}, {2, 5, 2, 2, 0x20c64}, {2, 3, 5, 0, 0x89c}, {2, 9, 0, 4, 0x40b04}, {3, 0, 0, 0, 0x400}, {3, 4, 2, 1, 0x10c60}, {3, 2, 1, 1, 0x10c18}, {3, 1, 2, 0, 0x424}, {3, 4, 0, 1, 0x10c40}};
+        requireSliceAddresses(thickVolume(TextureTileMode::kZ64KBX, 56, 40, 24, 20, 4), 4, 1310720, xorZx32, "thin SW_64KB_Z_X 32 bpp 40x24x20, 4 levels");
+        constexpr ElementAddress xorSx8[] = {{0, 0, 0, 0, 0x20000}, {0, 99, 59, 69, 0x11caaf}, {0, 50, 20, 35, 0x8db16}, {0, 33, 59, 0, 0x4ca29}, {0, 99, 0, 69, 0xf8487}, {1, 0, 0, 0, 0x10000}, {1, 49, 29, 34, 0x7d319}, {1, 25, 10, 17, 0x13a25}, {1, 16, 29, 0, 0x15508}, {1, 49, 0, 34, 0x79e11}, {2, 0, 0, 0, 0x8400}, {2, 24, 14, 16, 0xbf20}, {2, 12, 5, 8, 0x8348}, {2, 8, 14, 0, 0x8f20}, {2, 24, 0, 16, 0xb600}, {3, 0, 0, 0, 0x4400}, {3, 11, 6, 7, 0x47b7}, {3, 6, 2, 4, 0x44e2}, {3, 4, 6, 0, 0x4560}, {3, 11, 0, 7, 0x4697}, {4, 0, 0, 0, 0x1800}, {4, 5, 2, 3, 0x1875}, {4, 3, 1, 2, 0x181b}, {4, 2, 2, 0, 0x1822}, {4, 5, 0, 3, 0x1855}, {5, 0, 0, 0, 0xa00}, {5, 2, 0, 1, 0xa06}, {5, 1, 0, 1, 0xa05}, {5, 1, 0, 0, 0xa01}, {5, 2, 0, 1, 0xa06}, {6, 0, 0, 0, 0x900}, {6, 0, 0, 0, 0x900}, {6, 0, 0, 0, 0x900}, {6, 0, 0, 0, 0x900}, {6, 0, 0, 0, 0x900}};
+        requireThickAddresses(thickVolume(TextureTileMode::kS64KBX, 1, 100, 60, 70, 7), 1, 2, 1179648, xorSx8, "SW_64KB_S_X 8 bpp 100x60x70, 7 levels");
+        constexpr ElementAddress xorSx128[] = {{0, 0, 0, 0, 0x10000}, {0, 8, 4, 2, 0x18c80}, {0, 4, 1, 1, 0x11830}, {0, 3, 4, 0, 0x10a40}, {0, 8, 0, 2, 0x18480}, {1, 0, 0, 0, 0x8400}, {1, 3, 1, 0, 0x8660}, {1, 2, 0, 0, 0x8600}, {1, 1, 1, 0, 0x8460}, {1, 3, 0, 0, 0x8640}, {2, 0, 0, 0, 0x4400}, {2, 1, 0, 0, 0x4440}, {2, 1, 0, 0, 0x4440}, {2, 0, 0, 0, 0x4400}, {2, 1, 0, 0, 0x4440}, {3, 0, 0, 0, 0x1800}, {3, 0, 0, 0, 0x1800}, {3, 0, 0, 0, 0x1800}, {3, 0, 0, 0, 0x1800}, {3, 0, 0, 0, 0x1800}};
+        requireThickAddresses(thickVolume(TextureTileMode::kS64KBX, 77, 9, 5, 3, 4), 16, 1, 131072, xorSx128, "SW_64KB_S_X 128 bpp 9x5x3, 4 levels");
+        constexpr ElementAddress xorZx64[] = {{0, 0, 0, 0, 0x8400}, {0, 32, 19, 11, 0xbc350}, {0, 16, 6, 6, 0x69040}, {0, 11, 19, 0, 0xe778}, {0, 32, 0, 11, 0xb8100}, {1, 0, 0, 0, 0x400}, {1, 15, 9, 5, 0x52eb8}, {1, 8, 3, 3, 0x32950}, {1, 5, 9, 0, 0x598}, {1, 15, 0, 5, 0x52fa8}, {2, 0, 0, 0, 0x800}, {2, 7, 4, 2, 0x21ca8}, {2, 4, 1, 1, 0x10090}, {2, 2, 4, 0, 0x1820}, {2, 7, 0, 2, 0x20ca8}, {3, 0, 0, 0, 0x4200}, {3, 3, 1, 0, 0x4238}, {3, 2, 0, 0, 0x4220}, {3, 1, 1, 0, 0x4218}, {3, 3, 0, 0, 0x4228}, {4, 0, 0, 0, 0x200}, {4, 1, 0, 0, 0x208}, {4, 1, 0, 0, 0x208}, {4, 0, 0, 0, 0x200}, {4, 1, 0, 0, 0x208}, {5, 0, 0, 0, 0x2000}, {5, 0, 0, 0, 0x2000}, {5, 0, 0, 0, 0x2000}, {5, 0, 0, 0, 0x2000}, {5, 0, 0, 0, 0x2000}};
+        requireSliceAddresses(thickVolume(TextureTileMode::kZ64KBX, 71, 33, 20, 12, 6), 8, 786432, xorZx64, "thin SW_64KB_Z_X 64 bpp 33x20x12, 6 levels");
     }
 
     {
