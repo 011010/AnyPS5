@@ -11,6 +11,7 @@
 #include "SpirvBackend/SpirvOptimizer.hpp"
 #endif
 #include "CacheKey.hpp"
+#include "BdaAbi.hpp"
 #include <spirv/unified1/spirv.hpp>
 #include <algorithm>
 #include <array>
@@ -893,6 +894,78 @@ void verifyTwoLaneUniformValues() {
     require(multiplies(32u) == oneLane, "two-lane uniform values: a two-lane invocation computes a scalar value once per lane");
 }
 
+void verifyBdaReadFallbackFunctions() {
+    using namespace ShaderRecompiler;
+    const std::array<std::uint32_t, 3> capabilities{spv::CapabilityInt64, spv::CapabilityPhysicalStorageBufferAddresses, spv::CapabilityStorageBuffer8BitAccess};
+    const std::array<std::string_view, 2> extensions{"SPV_KHR_physical_storage_buffer", "SPV_KHR_8bit_storage"};
+    alignas(256) static std::array<std::uint32_t, 32> output{};
+    const auto outputAddress = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(output.data()));
+    const std::array<std::uint32_t, 8> userData{0x10000000u, 0u, 0u, 0u, static_cast<std::uint32_t>(outputAddress), static_cast<std::uint32_t>((outputAddress >> 32u) & 0xffffu), 128u, 0x01016facu};
+    const auto compile = [&](std::uint32_t loads, bool barrier, bool coherent) {
+        std::vector<std::uint32_t> code{0x7e020200u, 0x7e040201u};
+        for (std::uint32_t load = 0; load < loads; ++load) {
+            code.push_back(0xdc308000u | (coherent ? 0x10000u : 0u) | (4u * load + 4u));
+            code.push_back(((3u + load) << 24u) | 0x007d0001u);
+        }
+        code.push_back(0xbf8c3f70u);
+        for (std::uint32_t load = 1; load < loads; ++load) code.push_back(0x4a060103u | ((3u + load) << 9u));
+        if (barrier) code.push_back(0xbf8a0000u);
+        code.insert(code.end(), {0xe0700000u, 0x80010300u, 0xbf810000u});
+        RecompileRequest request{};
+        request.shader = {ShaderStage::Compute, 0x50000u, code, 0, {}};
+        request.context.waveSize = 32;
+        request.context.userDataBaseRegister = 0;
+        request.context.userData = userData;
+        request.context.compute = ShaderComputeStageInfo{{32u, 1u, 1u}, 0u, {false, false, false}, false, 1u};
+        request.target.vulkanVersion = 0x00401000u;
+        request.target.spirvVersion = 0x00010300u;
+        request.target.subgroupSize = 32;
+        request.target.bdaAbiVersion = BdaAbi::Version;
+        request.target.supportedCapabilities = capabilities;
+        request.target.supportedExtensions = extensions;
+        request.target.fragmentShaderBarycentricEnabled = false;
+        request.layout.pushConstantSizeBytes = 128;
+        request.useCache = false;
+        return Recompile(request).spirv;
+    };
+    for (const bool barrier : {false, true}) {
+        for (const bool coherent : {false, true}) {
+            const auto one = compile(1u, barrier, coherent);
+            const auto five = compile(5u, barrier, coherent);
+            std::map<std::uint32_t, std::string> names;
+            std::map<std::string, std::uint32_t> definitions;
+            const auto reader = std::string("read_bda_dword_bytes") + (barrier ? "" : "_stop") + (coherent ? "_coherent" : "");
+            std::string function;
+            std::size_t compareExchanges = 0;
+            std::size_t mainLookups = 0;
+            std::array<std::size_t, 2> readerLoads{};
+            for (std::size_t cursor = 5; cursor < five.size();) {
+                const auto length = five[cursor] >> 16u;
+                require(length != 0 && length <= five.size() - cursor, "BDA read functions: truncated SPIR-V instruction");
+                const auto op = five[cursor] & 0xffffu;
+                if (op == spv::OpName) names[five[cursor + 1]] = reinterpret_cast<const char*>(&five[cursor + 2]);
+                if (op == spv::OpFunction) {
+                    function = names[five[cursor + 2]];
+                    if (function == "record_bda_fault" || function.starts_with("read_bda_dword_bytes")) {
+                        require((five[cursor + 3] & spv::FunctionControlDontInlineMask) != 0u, "BDA read functions: a fault or byte read function may be inlined");
+                        ++definitions[function];
+                    }
+                }
+                if (op == spv::OpAtomicCompareExchange) ++compareExchanges;
+                if (op == spv::OpFunctionCall && function == "main" && names[five[cursor + 3]] == "get_bda_pointer") ++mainLookups;
+                if (op == spv::OpLoad && function == reader) ++readerLoads[length > 4u && (five[cursor + 4] & spv::MemoryAccessVolatileMask) != 0u];
+                cursor += length;
+            }
+            require(definitions["record_bda_fault"] == 1u && definitions[reader] == 1u, "BDA read functions: the fault and byte read functions are not defined");
+            for (const auto& [name, count] : definitions) require(count == 1u, "BDA read functions: a function is defined twice");
+            require(compareExchanges == 1u, "BDA read functions: a fault is recorded outside record_bda_fault");
+            require(mainLookups == 0u, "BDA read functions: a read site looks up its bytes inline");
+            require(readerLoads[coherent] == 4u && readerLoads[!coherent] == 0u, "BDA read functions: the byte loads do not keep the access's coherence");
+            require(five.size() - one.size() < 4u * 300u, "BDA read functions: a read site takes 300 SPIR-V words or more");
+        }
+    }
+}
+
 void verifyFunctionLdsBound() {
     using namespace ShaderRecompiler;
     const auto build = [](const auto& body) {
@@ -1048,6 +1121,7 @@ int main() {
         verifyComputedTexelOffsets();
         verifyWaveUniformValues();
         verifyTwoLaneUniformValues();
+        verifyBdaReadFallbackFunctions();
         verifyFunctionLdsBound();
 #if ANYPS5_ENABLE_SPIRV_TOOLS
         const std::vector<std::uint32_t> minimalSpirv{
