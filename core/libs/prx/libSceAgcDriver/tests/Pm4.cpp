@@ -317,6 +317,14 @@ void testCopies() {
     check(destination[0] == 11 && destination[1] == 12 && destination[2] == 0, "64-bit COPY_DATA failed");
     execute(state, makePacket(0x40, {0x105, 0x12345678, 0, low(destination.data()), high(destination.data())}));
     check(destination[0] == 0x12345678, "immediate COPY_DATA failed");
+    alignas(8) std::array<std::uint64_t, 2> clock{};
+    const auto clockCopy = [&](std::uint64_t* target) { return makePacket(0x40, {0x06016209, 0, 0, low(target), high(target)}); };
+    execute(state, clockCopy(&clock[0]));
+    execute(state, clockCopy(&clock[1]));
+    check(clock[0] != 0 && clock[1] >= clock[0], "GPU clock COPY_DATA failed");
+    const auto clockStore = AgcDriver::Pm4::ResolveStore(clockCopy(&clock[0]), state, 64);
+    check(clockStore.has_value() && clockStore->Bytes().size() == 8, "GPU clock COPY_DATA did not resolve as an 8-byte store");
+    expectFailure([&] { AgcDriver::Pm4::Validate(makePacket(0x40, {0x1020a, 0, 0, low(&clock[0]), high(&clock[0])}), 0); }, "reference-clock");
     execute(state, makePacket(0x50, {0x60000000, low(source.data()), high(source.data()), low(destination.data()), high(destination.data()), 16}));
     check(source == destination, "DMA_DATA copy failed");
     execute(state, makePacket(0x50, {0x40000000, 0x44332211, 0, low(destination.data()), high(destination.data()), 6}));
