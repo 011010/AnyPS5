@@ -14,51 +14,13 @@ namespace {
 using AgcDriver::Graphics::Require;
 using ShaderRecompiler::ShaderStage;
 
-// A single-pass decoupled look-back over one aggregate per block (wave64, one wave per block, lane 0
-// active). The block takes its index from an atomic counter, publishes {flag 1, aggregate} with
-// buffer_atomic_swap_x2 (block 0 publishes {2, aggregate}), walks back over earlier blocks with glc
-// buffer_load_dwordx2, adding aggregates until it reads an inclusive prefix {2, prefix}, publishes
-// {2, prefix + aggregate} and stores its exclusive prefix. A dwordx2 load that sees half of a
-// swap_x2 (a new flag with an old value, or an old flag with a new value) gives a wrong prefix.
-// s[0:3] counter, s[4:7] aggregates, s[8:11] {flag, value} pairs, s[12:15] prefixes.
 alignas(256) constexpr std::array<std::uint32_t, 43> ScanCode{
-    0xbefe0481, // s_mov_b64 exec, 1
-    0x7e020281, // v_mov_b32 v1, 1
-    0x7e000280, // v_mov_b32 v0, 0
-    0xe0c85000, 0x80000100, // buffer_atomic_add v1, v0, s[0:3], 0 offen glc
-    0xbf8c3f70, // s_waitcnt vmcnt(0)
-    0x7e200501, // v_readfirstlane_b32 s16, v1
-    0x34040282, // v_lshlrev_b32 v2, 2, v1
-    0xe0301000, 0x80010302, // buffer_load_dword v3, v2, s[4:7], 0 offen
-    0x34080283, // v_lshlrev_b32 v4, 3, v1
-    0xbf8c3f70, // s_waitcnt vmcnt(0)
-    0xbf068010, // s_cmp_eq_u32 s16, 0
-    0x85118182, // s_cselect_b32 s17, 2, 1
-    0x7e0c0211, // v_mov_b32 v6, s17
-    0x7e0e0303, // v_mov_b32 v7, v3
-    0xe1401000, 0x80020604, // buffer_atomic_swap_x2 v[6:7], v4, s[8:11], 0 offen
-    0x7e100280, // v_mov_b32 v8, 0
-    0xbf068010, // s_cmp_eq_u32 s16, 0
-    0xbf85000f, // s_cbranch_scc1 publish
-    0x80928110, // s_sub_u32 s18, s16, 1
-    0x8f138312, // look: s_lshl_b32 s19, s18, 3
-    0x7e120213, // v_mov_b32 v9, s19
-    0xe0345000, 0x80020a09, // buffer_load_dwordx2 v[10:11], v9, s[8:11], 0 offen glc
-    0xbf8c3f70, // s_waitcnt vmcnt(0)
-    0x7e28050a, // v_readfirstlane_b32 s20, v10
-    0x7e2a050b, // v_readfirstlane_b32 s21, v11
-    0xbf068014, // s_cmp_eq_u32 s20, 0
-    0xbf85fff7, // s_cbranch_scc1 look
-    0x4a101015, // v_add_nc_u32 v8, s21, v8
-    0xbf068214, // s_cmp_eq_u32 s20, 2
-    0xbf850002, // s_cbranch_scc1 publish
-    0x80928112, // s_sub_u32 s18, s18, 1
-    0xbf82fff2, // s_branch look
-    0x4a1a0708, // publish: v_add_nc_u32 v13, v8, v3
-    0x7e180282, // v_mov_b32 v12, 2
-    0xe1401000, 0x80020c04, // buffer_atomic_swap_x2 v[12:13], v4, s[8:11], 0 offen
-    0xe0701000, 0x80030802, // buffer_store_dword v8, v2, s[12:15], 0 offen
-    0xbf810000, // s_endpgm
+    0xbefe0481, 0x7e020281, 0x7e000280, 0xe0c85000, 0x80000100, 0xbf8c3f70, 0x7e200501, 0x34040282,
+    0xe0301000, 0x80010302, 0x34080283, 0xbf8c3f70, 0xbf068010, 0x85118182, 0x7e0c0211, 0x7e0e0303,
+    0xe1401000, 0x80020604, 0x7e100280, 0xbf068010, 0xbf85000f, 0x80928110, 0x8f138312, 0x7e120213,
+    0xe0345000, 0x80020a09, 0xbf8c3f70, 0x7e28050a, 0x7e2a050b, 0xbf068014, 0xbf85fff7, 0x4a101015,
+    0xbf068214, 0xbf850002, 0x80928112, 0xbf82fff2, 0x4a1a0708, 0x7e180282, 0xe1401000, 0x80020c04,
+    0xe0701000, 0x80030802, 0xbf810000,
 };
 
 constexpr std::uint32_t Lanes = 64;
@@ -101,7 +63,6 @@ void Run(AgcDriver::VulkanDevice& device, std::uint32_t groups) {
     device.WaitIdle();
 }
 
-// One block against published earlier blocks: aggregates (flag 1) except block 0's inclusive prefix.
 void CheckLookBack(AgcDriver::VulkanDevice& device, std::uint32_t block) {
     const auto name = "look-back from block " + std::to_string(block);
     Pairs.fill(0u);
