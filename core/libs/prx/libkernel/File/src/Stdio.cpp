@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdint>
 #include <cstddef>
 #include <limits>
@@ -13,10 +14,12 @@
 #include <cerrno>
 #include <cstring>
 #include <cstdarg>
+#include <deque>
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 struct KernelIovec {
     void* base;
@@ -101,18 +104,33 @@ static std::int64_t NativePositioned(int descriptor, void* buf, std::size_t nbyt
         errno = EBADF;
         return -1;
     }
+    LARGE_INTEGER position{};
+    if (::GetFileType(handle) != FILE_TYPE_DISK || !::SetFilePointerEx(handle, LARGE_INTEGER{}, &position, FILE_CURRENT)) {
+        errno = ESPIPE;
+        return -1;
+    }
     OVERLAPPED overlapped{};
     overlapped.Offset = static_cast<DWORD>(offset);
     overlapped.OffsetHigh = static_cast<DWORD>(static_cast<std::uint64_t>(offset) >> 32u);
     DWORD done = 0;
     const BOOL ok = write ? ::WriteFile(handle, buf, static_cast<DWORD>(nbytes), &done, &overlapped)
                           : ::ReadFile(handle, buf, static_cast<DWORD>(nbytes), &done, &overlapped);
+    const DWORD error = ok ? ERROR_SUCCESS : ::GetLastError();
+    if (!::SetFilePointerEx(handle, position, nullptr, FILE_BEGIN)) {
+        throw std::runtime_error("NativePositioned: cannot restore the file offset");
+    }
     if (!ok) {
-        if (!write && ::GetLastError() == ERROR_HANDLE_EOF) return 0;
+        if (!write && error == ERROR_HANDLE_EOF) return 0;
         errno = EIO;
         return -1;
     }
     return done;
+}
+static std::int64_t NativeTransfer(int descriptor, void* buf, std::size_t nbytes, bool write) {
+    if (nbytes > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+        throw std::runtime_error("NativeTransfer: nbytes exceeds platform limit");
+    }
+    return write ? ::_write(descriptor, buf, static_cast<unsigned int>(nbytes)) : ::_read(descriptor, buf, static_cast<unsigned int>(nbytes));
 }
 static std::int64_t NativePread(int descriptor, void* buf, std::size_t nbytes, std::int64_t offset) {
     return NativePositioned(descriptor, buf, nbytes, offset, false);
@@ -128,8 +146,6 @@ static std::int64_t NativePwrite(int descriptor, const void* buf, std::size_t nb
 #include <dirent.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
-#include <deque>
-#include <vector>
 static int NativeRmdir(const std::filesystem::path& path) {
     return ::rmdir(path.c_str());
 }
@@ -486,6 +502,19 @@ int APS5_VABI sceKernelMkdir(const char* path, uint16_t mode) {
     return 0;
 }
 
+static int CheckIovecs(const KernelIovec* iov, int iovcnt) {
+    if (iovcnt < 0 || iovcnt > KERNEL_IOV_MAX) return SceErrorFromErrno(GUEST_EINVAL);
+    if (iov == nullptr && iovcnt != 0) return SceErrorFromErrno(GUEST_EFAULT);
+    return 0;
+}
+
+static bool OpenIovecs(const KernelIovec* iov, int iovcnt, std::deque<GuestArena::HostWrite>& destinations) {
+    for (int i = 0; i < iovcnt; ++i) {
+        if (!destinations.emplace_back(iov[i].base, iov[i].length).Open()) return false;
+    }
+    return true;
+}
+
 #ifdef _WIN32
 
 int64_t APS5_VABI sceKernelPread(int d, void* buf, size_t nbytes, int64_t offset) {
@@ -496,20 +525,53 @@ int64_t APS5_VABI sceKernelPwrite(int d, const void* buf, size_t nbytes, int64_t
  return pwrite_nid_disambig1_nid_postfix(d, buf, nbytes, offset);
 }
 
-int64_t APS5_VABI sceKernelReadv(int, const KernelIovec*, int) {
-    throw std::runtime_error(std::string(__func__) + ": not implemented on Windows");
+static std::int64_t TransferIovecs(int d, const KernelIovec* iov, int iovcnt, const std::int64_t* offset, bool write) {
+    if (const int error = CheckIovecs(iov, iovcnt)) return error;
+    if (offset != nullptr && *offset < 0) return SceErrorFromErrno(GUEST_EINVAL);
+    std::size_t total = 0;
+    for (int i = 0; i < iovcnt; ++i) {
+        if (iov[i].base == nullptr && iov[i].length != 0) return SceErrorFromErrno(GUEST_EFAULT);
+        if (iov[i].length > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max()) - total) return SceErrorFromErrno(GUEST_EINVAL);
+        total += iov[i].length;
+    }
+    std::deque<GuestArena::HostWrite> destinations;
+    if (!write && !OpenIovecs(iov, iovcnt, destinations)) return SceErrorFromErrno(GUEST_EFAULT);
+    std::vector<char> buffer(std::max<std::size_t>(total, 1));
+    if (write) {
+        std::size_t position = 0;
+        for (int i = 0; i < iovcnt; ++i) {
+            if (iov[i].length != 0) std::memcpy(buffer.data() + position, iov[i].base, iov[i].length);
+            position += iov[i].length;
+        }
+    }
+    const auto result = offset != nullptr ? NativePositioned(d, buffer.data(), total, *offset, write) : NativeTransfer(d, buffer.data(), total, write);
+    if (result < 0) return SceErrorFromErrno(errno);
+    if (!write) {
+        const auto received = static_cast<std::size_t>(result);
+        std::size_t position = 0;
+        for (int i = 0; i < iovcnt && position < received; ++i) {
+            const auto count = std::min(iov[i].length, received - position);
+            std::memcpy(iov[i].base, buffer.data() + position, count);
+            position += count;
+        }
+    }
+    return result;
 }
 
-int64_t APS5_VABI sceKernelWritev(int, const KernelIovec*, int) {
-    throw std::runtime_error(std::string(__func__) + ": not implemented on Windows");
+int64_t APS5_VABI sceKernelReadv(int d, const KernelIovec* iov, int iovcnt) {
+    return TransferIovecs(d, iov, iovcnt, nullptr, false);
 }
 
-int64_t APS5_VABI sceKernelPreadv(int, const KernelIovec*, int, int64_t) {
-    throw std::runtime_error(std::string(__func__) + ": not implemented on Windows");
+int64_t APS5_VABI sceKernelWritev(int d, const KernelIovec* iov, int iovcnt) {
+    return TransferIovecs(d, iov, iovcnt, nullptr, true);
 }
 
-int64_t APS5_VABI sceKernelPwritev(int, const KernelIovec*, int, int64_t) {
-    throw std::runtime_error(std::string(__func__) + ": not implemented on Windows");
+int64_t APS5_VABI sceKernelPreadv(int d, const KernelIovec* iov, int iovcnt, int64_t offset) {
+    return TransferIovecs(d, iov, iovcnt, &offset, false);
+}
+
+int64_t APS5_VABI sceKernelPwritev(int d, const KernelIovec* iov, int iovcnt, int64_t offset) {
+    return TransferIovecs(d, iov, iovcnt, &offset, true);
 }
 
 #else
@@ -528,19 +590,6 @@ int64_t APS5_VABI sceKernelPwrite(int d, const void* buf, size_t nbytes, int64_t
     if (offset < 0) return SceErrorFromErrno(GUEST_EINVAL);
     const auto result = NativePwrite(d, buf, nbytes, offset);
     return result < 0 ? SceErrorFromErrno(errno) : result;
-}
-
-static int CheckIovecs(const KernelIovec* iov, int iovcnt) {
-    if (iovcnt < 0 || iovcnt > KERNEL_IOV_MAX) return SceErrorFromErrno(GUEST_EINVAL);
-    if (iov == nullptr && iovcnt != 0) return SceErrorFromErrno(GUEST_EFAULT);
-    return 0;
-}
-
-static bool OpenIovecs(const KernelIovec* iov, int iovcnt, std::deque<GuestArena::HostWrite>& destinations) {
-    for (int i = 0; i < iovcnt; ++i) {
-        if (!destinations.emplace_back(iov[i].base, iov[i].length).Open()) return false;
-    }
-    return true;
 }
 
 int64_t APS5_VABI sceKernelReadv(int d, const KernelIovec* iov, int iovcnt) {
