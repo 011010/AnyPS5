@@ -69,6 +69,17 @@ void rejectFields(const Fields& f, std::string_view reason) {
     reject([&] { DecodeSamplerResource(words); }, reason);
 }
 
+void rejectUnnormalized(const Fields& f, std::string_view reason) {
+    const auto words = pack(f);
+    reject([&] { DecodeSamplerResource(words, true); }, reason);
+}
+
+void requireUnnormalized(const GuestSamplerResource& result, const char* what) {
+    Require(result.unnormalizedCoordinates, std::string(what) + ": unnormalized coordinates were not decoded");
+    Require(result.mipmapMode == VK_SAMPLER_MIPMAP_MODE_NEAREST && result.minLod == 0.0f && result.maxLod == 0.0f, std::string(what) + ": unnormalized coordinates need nearest mips and a zero LOD range");
+    Require(result.lodBias == 0.0f && !result.anisotropyEnable && result.maxAnisotropy == 1.0f, std::string(what) + ": unnormalized coordinates need no LOD bias and no anisotropy");
+}
+
 bool nearlyEqual(float a, float b) {
     return std::fabs(a - b) < 0.001f;
 }
@@ -148,6 +159,69 @@ void RunGuestSamplerResourceTests() {
     Fields badUnorm = base;
     badUnorm.forceUnormCoords = true;
     rejectFields(badUnorm, "unnormalized coordinates");
+
+    const std::array<std::uint32_t, 4> capturedUnnormalized{0x00008092u, 0x00fff000u, 0x05500000u, 0u};
+    reject([&] { DecodeSamplerResource(capturedUnnormalized); }, "uses unnormalized coordinates which are not implemented");
+    const auto unnormalized = DecodeSamplerResource(capturedUnnormalized, true);
+    requireUnnormalized(unnormalized, "captured unnormalized S#");
+    Require(unnormalized.magFilter == VK_FILTER_LINEAR && unnormalized.minFilter == VK_FILTER_LINEAR, "captured unnormalized S# filters decoded incorrectly");
+    Require(unnormalized.addressModeU == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE && unnormalized.addressModeV == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, "captured unnormalized S# clamp modes decoded incorrectly");
+    Require(unnormalized.borderColor == VK_BORDER_COLOR_INT_TRANSPARENT_BLACK, "captured unnormalized S# border color decoded incorrectly");
+    Require(!DecodeSamplerResource(pack(base)).unnormalizedCoordinates, "a normalized S# decoded to unnormalized coordinates");
+
+    Fields unnormalizedBase = base;
+    unnormalizedBase.forceUnormCoords = true;
+    Fields unnormalizedPoint = unnormalizedBase;
+    unnormalizedPoint.xyMagFilter = 0;
+    unnormalizedPoint.xyMinFilter = 0;
+    const auto point = DecodeSamplerResource(pack(unnormalizedPoint), true);
+    requireUnnormalized(point, "unnormalized point S#");
+    Require(point.magFilter == VK_FILTER_NEAREST && point.minFilter == VK_FILTER_NEAREST, "unnormalized point S# filters decoded incorrectly");
+    const std::array borders{VK_BORDER_COLOR_INT_TRANSPARENT_BLACK, VK_BORDER_COLOR_INT_OPAQUE_BLACK, VK_BORDER_COLOR_INT_OPAQUE_WHITE};
+    for (std::uint32_t type = 0; type < borders.size(); ++type) {
+        Fields border = unnormalizedBase;
+        border.clampX = 6;
+        border.clampY = 6;
+        border.borderColorType = type;
+        const auto decoded = DecodeSamplerResource(pack(border), true);
+        requireUnnormalized(decoded, "unnormalized clamp-to-border S#");
+        Require(decoded.addressModeU == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER && decoded.addressModeV == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER && decoded.borderColor == borders[type], "unnormalized clamp-to-border S# decoded incorrectly");
+    }
+    for (std::uint32_t mipFilter = 0; mipFilter < 3; ++mipFilter) {
+        Fields mips = unnormalizedBase;
+        mips.mipFilter = mipFilter;
+        requireUnnormalized(DecodeSamplerResource(pack(mips), true), "unnormalized S# mip filter");
+    }
+    Fields unnormalizedBias = unnormalizedBase;
+    unnormalizedBias.lodBiasRaw = 256;
+    requireUnnormalized(DecodeSamplerResource(pack(unnormalizedBias), true), "unnormalized S# with a LOD bias");
+    Fields unnormalizedMinLod = unnormalizedBase;
+    unnormalizedMinLod.minLodRaw = 0x100;
+    unnormalizedMinLod.maxLodRaw = 0x400;
+    requireUnnormalized(DecodeSamplerResource(pack(unnormalizedMinLod), true), "unnormalized S# with a minimum LOD");
+
+    Fields unequalFilters = unnormalizedBase;
+    unequalFilters.xyMinFilter = 0;
+    rejectUnnormalized(unequalFilters, "unnormalized coordinates with different minification and magnification filters");
+    Fields unnormalizedAniso = unnormalizedBase;
+    unnormalizedAniso.xyMagFilter = 2;
+    unnormalizedAniso.xyMinFilter = 2;
+    rejectUnnormalized(unnormalizedAniso, "unnormalized coordinates with anisotropic filtering");
+    for (const std::uint32_t clamp : {0u, 1u, 3u, 4u, 5u, 7u}) {
+        Fields clampX = unnormalizedBase;
+        clampX.clampX = clamp;
+        rejectUnnormalized(clampX, "unnormalized coordinates with clamp mode " + std::to_string(clamp) + " on X");
+    }
+    Fields clampY = unnormalizedBase;
+    clampY.clampY = 0;
+    rejectUnnormalized(clampY, "unnormalized coordinates with clamp mode 0 on Y");
+    Fields unnormalizedTruncated = unnormalizedBase;
+    unnormalizedTruncated.truncCoord = true;
+    rejectUnnormalized(unnormalizedTruncated, "unnormalized coordinates with TRUNC_COORD");
+    auto truncatedBlend = pack(unnormalizedBase);
+    truncatedBlend[0] |= 1u << 19u;
+    reject([&] { DecodeSamplerResource(truncatedBlend, true); }, "unnormalized coordinates with MC_COORD_TRUNC");
+    rejectUnnormalized(base, "bound as unnormalized without FORCE_UNNORMALIZED");
 
     Fields badSrgb = base;
     badSrgb.forceSrgb = true;

@@ -66,6 +66,12 @@ public:
 
     VkImageView View() const;
     VkImageView FirstLayerView() const { return firstLayerView; }
+    struct ViewRange {
+        VkImageViewType type;
+        std::uint32_t levels;
+        std::uint32_t layers;
+    };
+    ViewRange SampledViewRange(bool firstLayer) const { return firstLayer ? firstLayerRange : viewRange; }
     // The layout the image is kept in while sampled.
     VkImageLayout Layout() const { return layout; }
     VkDeviceSize AllocationBytes() const { return allocationBytes; }
@@ -90,6 +96,8 @@ private:
     std::shared_ptr<OwnedImage> owned;
     VkImageView view = VK_NULL_HANDLE;
     VkImageView firstLayerView = VK_NULL_HANDLE;
+    ViewRange viewRange{};
+    ViewRange firstLayerRange{};
     VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VkDeviceSize allocationBytes = 0;
     std::shared_ptr<ResidentColor> source;

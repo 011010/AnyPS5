@@ -179,6 +179,67 @@ std::vector<std::uint32_t> GuestSamplersDescriptor(const std::vector<std::uint32
     return result;
 }
 
+constexpr std::uint32_t ForceUnnormalizedBit = 1u << 15u;
+
+[[noreturn]] void failUnnormalized(const char* reason) {
+    fail(std::string("DescriptorBindingBuilder::Populate unnormalized guest sampler ") + reason + ", which is not implemented");
+}
+
+const char* UnnormalizedUseReason(std::uint32_t uses) {
+    switch (uses & (~uses + 1u)) {
+        case SamplerUseImplicitLod: return "is used by an implicit-LOD sample";
+        case SamplerUseGradient: return "is used by a sample with derivatives";
+        case SamplerUseOffset: return "is used with a texel offset";
+        case SamplerUseCompare: return "is used with depth comparison";
+        case SamplerUseGather: return "is used by a gather";
+        case SamplerUseQueryLod: return "is used by image_get_lod";
+        default: return "is used by an image_sample_*_a variant";
+    }
+}
+
+struct UnnormalizedProof {
+    std::vector<bool> samplers;
+    std::vector<bool> images;
+};
+
+UnnormalizedProof ProveUnnormalized(const ShaderInfo& info, const ResourceSnapshot& snapshot) {
+    UnnormalizedProof proof{std::vector<bool>(info.samplers.size()), std::vector<bool>(info.images.size())};
+    for (std::uint32_t r = 0; r < info.samplers.size(); r++) {
+        if ((GuestSamplersDescriptor({r}, snapshot)[0] & ForceUnnormalizedBit) == 0u) {
+            continue;
+        }
+        const auto& sampler = info.samplers[r];
+        const std::uint32_t unsupported = sampler.uses & ~static_cast<std::uint32_t>(SamplerUseExplicitLod);
+        if (unsupported != 0u) {
+            failUnnormalized(UnnormalizedUseReason(unsupported));
+        }
+        if (sampler.depthCompare) {
+            failUnnormalized("is used with depth comparison");
+        }
+        for (const auto& pair : info.sampledPairs) {
+            if (pair.sampler != r) {
+                continue;
+            }
+            const auto& image = info.images.at(pair.image);
+            if (image.indirectRoot != ImageResource::NoIndirectImage) {
+                failUnnormalized("samples an image selected at run time");
+            }
+            if ((image.dimension != RdnaImageDimension::Dim1D && image.dimension != RdnaImageDimension::Dim2D) || image.cube) {
+                failUnnormalized("samples a 1D-array, 2D-array, 3D, cube or multisampled image");
+            }
+            if (image.depthCompare) {
+                failUnnormalized("is used with depth comparison");
+            }
+            if (image.conversionFormat != IrBufferFormat::Invalid || image.packed) {
+                failUnnormalized("samples an image that needs a format conversion or packed access");
+            }
+            proof.images[pair.image] = true;
+        }
+        proof.samplers[r] = true;
+    }
+    return proof;
+}
+
 std::vector<std::uint32_t> ShaderDataDwordsFor(const IrBindingLayout& layout, std::uint32_t userDataBase, const ResourceSnapshot& snapshot, const std::array<std::uint32_t, 3>& partialThreads) {
     std::vector<std::uint32_t> result(layout.ShaderDataDwords(), 0u);
     for (std::size_t i = 0; i < layout.userDataRegisters.size(); i++) {
@@ -206,6 +267,7 @@ void DescriptorBindingBuilder::Populate(BindingAllocationResult& allocation, con
 void DescriptorBindingBuilder::Populate(BindingAllocationResult& allocation, const ShaderInfo& info, IrShaderStage stage, std::uint32_t userDataBase, const ResourceSnapshot& snapshot, const std::array<std::uint32_t, 3>& partialThreads) const {
     const IrBindingLayout& layout = allocation.layout;
     const std::vector<std::uint32_t> shaderData = ShaderDataDwordsFor(layout, userDataBase, snapshot, partialThreads);
+    const UnnormalizedProof unnormalized = ProveUnnormalized(info, snapshot);
 
     std::vector<DescriptorBinding> bindings;
     bindings.reserve(layout.descriptors.size());
@@ -242,6 +304,7 @@ void DescriptorBindingBuilder::Populate(BindingAllocationResult& allocation, con
                 physical.imageWritten.push_back(image.written || image.atomic);
                 physical.imageDepthCompare.push_back(image.depthCompare);
                 physical.imageAtomic.push_back(image.atomic);
+                physical.imageUnnormalized.push_back(unnormalized.images.at(resource));
             }
             break;
         case DescriptorRole::GuestSamplers:
@@ -249,6 +312,7 @@ void DescriptorBindingBuilder::Populate(BindingAllocationResult& allocation, con
             for (std::size_t element = 0; element < logical.resources.size(); ++element) {
                 const auto& sampler = info.samplers.at(logical.resources[element]);
                 physical.samplerDepthCompare.push_back(sampler.depthCompare);
+                physical.samplerUnnormalized.push_back(unnormalized.samplers.at(logical.resources[element]));
                 if (sampler.forcePointFiltering) {
                     auto& filter = physical.guestDescriptor.at(element * 4u + 2u);
                     const bool mipmapped = ((filter >> 26u) & 3u) != 0u;
