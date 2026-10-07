@@ -39,6 +39,7 @@ constexpr std::uint32_t grain = 256;
 constexpr std::uint32_t queueDepth = 2;
 constexpr std::uint32_t cushionGrains = 8;
 constexpr std::uint32_t frequency = 48000;
+constexpr std::uint32_t formatMonoFloat = 1u << 8;
 constexpr std::uint32_t formatStereoFloat = 2u << 8;
 constexpr std::uint32_t attributeData = 0;
 constexpr int queueFull = static_cast<int>(0x80260507);
@@ -121,6 +122,31 @@ void TestReadAtNextPush() {
     Require(FirstNonZero(played, first + 2 * samples) == played.size());
 }
 
+void TestRecreatedPort() {
+    Session session("anyps5_audio_out2_recreated_port.raw");
+    session.Fill(0.5f);
+    session.Point(session.buffer.data());
+    Require(sceAudioOut2ContextPush(session.context, 1) == 0);
+    const auto first = session.port;
+    Require(sceAudioOut2PortDestroy(session.port) == 0);
+    AudioOut2PortParam mono{};
+    mono.port_type = 0;
+    mono.data_format = formatMonoFloat;
+    mono.sampling_freq = frequency;
+    Require(sceAudioOut2PortCreate(session.context, &mono, &session.port) == 0);
+    Require(session.port == first);
+    const std::vector<float> monoBuffer(grain, 0.75f);
+    session.Point(monoBuffer.data());
+    Require(sceAudioOut2ContextPush(session.context, 1) == 0);
+    session.Point(nullptr);
+    for (std::uint32_t push = 0; push < cushionGrains * 4; push++) Require(sceAudioOut2ContextPush(session.context, 1) == 0);
+    const auto played = session.Close();
+    const auto start = FirstNonZero(played);
+    const std::size_t samples = static_cast<std::size_t>(grain) * 2;
+    Require(Constant(played, start, samples, 0.75f * masterGain));
+    Require(FirstNonZero(played, start + samples) == played.size());
+}
+
 void TestLevelExcludesCushion() {
     Session session("anyps5_audio_out2_level.raw");
     session.Point(nullptr);
@@ -166,6 +192,7 @@ void TestPrimingAfterRunningDry() {
 int main() {
     SetEnvironment("SDL_AUDIODRIVER", "disk");
     TestReadAtNextPush();
+    TestRecreatedPort();
     TestLevelExcludesCushion();
     TestPrimingAfterRunningDry();
     return 0;

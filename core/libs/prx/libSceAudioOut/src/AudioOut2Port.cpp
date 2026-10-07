@@ -32,6 +32,7 @@ static constexpr std::uint32_t FORMAT_FIELDS_MASK = 0xFFFu;
 static std::mutex g_portsLock;
 // Grows on demand: the title opens its bed ports plus max_object_ports object ports at once.
 static std::vector<AudioOut2Port> g_ports;
+static std::uint64_t g_portGeneration = 0;
 
 static AudioOut2Port* FromHandle(AudioOut2PortHandle handle) {
     const auto index = handle - 1;
@@ -99,7 +100,7 @@ AudioOut2Grain AudioOut2CaptureGrain(const AudioOut2Context& context) {
     AudioOut2Grain grain;
     for (std::size_t index = 0; index < g_ports.size(); index++) {
         const auto& port = g_ports[index];
-        if (port.used && port.context == &context && port.data != nullptr && port.channels != 0) grain.emplace_back(index, port.data);
+        if (port.used && port.context == &context && port.data != nullptr && port.channels != 0) grain.push_back({index, port.generation, port.data});
     }
     return grain;
 }
@@ -107,10 +108,10 @@ AudioOut2Grain AudioOut2CaptureGrain(const AudioOut2Context& context) {
 std::uint32_t AudioOut2MixPorts(const AudioOut2Context& context, const AudioOut2Grain& grain, float* out, float* padOut, std::uint32_t frames) {
     std::lock_guard lock(g_portsLock);
     std::uint32_t mixed = 0;
-    for (const auto& [index, data] : grain) {
+    for (const auto& [index, generation, data] : grain) {
         if (index >= g_ports.size()) continue;
         const auto& port = g_ports[index];
-        if (!port.used || port.context != &context || port.channels == 0) continue;
+        if (!port.used || port.generation != generation || port.context != &context || port.channels == 0) continue;
         const auto route = padOut != nullptr ? AudioOut2RouteForPort(port.type, port.channels) : AudioOut2Route::Main;
         if (route == AudioOut2Route::Main) AccumulatePort(port, data, out, frames);
         else AccumulatePadPort(port, data, route, padOut, frames);
@@ -164,6 +165,7 @@ int APS5_VABI sceAudioOut2PortCreate(AudioOut2ContextHandle ctx, const AudioOut2
     auto& entry = g_ports[index];
     entry = AudioOut2Port{};
     entry.used = true;
+    entry.generation = ++g_portGeneration;
     entry.context = reinterpret_cast<AudioOut2Context*>(ctx);
     entry.type = params->port_type;
     entry.dataFormat = params->data_format;

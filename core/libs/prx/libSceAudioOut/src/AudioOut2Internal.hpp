@@ -43,10 +43,17 @@ static constexpr std::uint32_t AUDIO_OUT2_PORT_CHANNELS_MAX = 12;
 struct AudioOut2Context;
 struct AudioOut2StereoFold;
 
-using AudioOut2Grain = std::vector<std::pair<std::size_t, const void*>>;
+struct AudioOut2CapturedPort {
+    std::size_t index = 0;
+    std::uint64_t generation = 0;
+    const void* data = nullptr;
+};
+
+using AudioOut2Grain = std::vector<AudioOut2CapturedPort>;
 
 struct AudioOut2Port {
     bool used = false;
+    std::uint64_t generation = 0;
     AudioOut2Context* context = nullptr;
     std::uint16_t type = 0;
     std::uint32_t dataFormat = 0;
