@@ -113,10 +113,9 @@ static void CheckNamedAndHintedMappings() {
     Require(sceKernelMapFlexibleMemory(&hinted, length, 3, 0) == 0);
     Require(hinted > first && (reinterpret_cast<std::uintptr_t>(hinted) & 0x3fff) == 0);
     static_cast<volatile unsigned char*>(hinted)[length - 1] = 1;
-    bool rejected = false;
     void* overwrite = first;
-    try { sceKernelMapFlexibleMemory(&overwrite, 0x4000, 3, 0x90); } catch (const std::exception&) { rejected = true; }
-    Require(rejected && overwrite == first);
+    Require(sceKernelMapFlexibleMemory(&overwrite, 0x4000, 3, 0x90) == static_cast<int>(0x8002000cu));
+    Require(overwrite == first);
     Require(sceKernelMunmap(hinted, length) == 0);
     void* exclusive = hinted;
     Require(sceKernelMapFlexibleMemory(&exclusive, length, 3, 0x90) == 0);
@@ -412,6 +411,27 @@ static void CheckReservedRangeIsNotCommitted() {
     Require(info.start == start + page && info.end == start + page * 2);
     Require(sceKernelMunmap(reserved, page * 2) == 0);
     Require(sceKernelReleaseDirectMemory(phys, page) == 0);
+}
+
+static void CheckNoOverwriteRefusesLiveMapping() {
+    constexpr std::size_t page = 0x4000;
+    constexpr int outOfMemory = static_cast<int>(0x8002000cu);
+    std::int64_t phys = 0;
+    Require(sceKernelAllocateDirectMemory(0, 0x7fffffffffll, page * 2, 0, 0, &phys) == 0);
+    void* mapped = nullptr;
+    Require(sceKernelMapDirectMemory(&mapped, page, 3, 0, phys, 0) == 0);
+    static_cast<unsigned char*>(mapped)[0] = 13;
+    void* again = mapped;
+    Require(sceKernelMapDirectMemory(&again, page, 3, 0x90, phys + page, 0) == outOfMemory);
+    Require(again == mapped);
+    void* flexible = mapped;
+    Require(sceKernelMapFlexibleMemory(&flexible, page, 3, 0x90) == outOfMemory);
+    Require(static_cast<unsigned char*>(mapped)[0] == 13);
+    VirtualQueryInfo info{};
+    Require(sceKernelVirtualQuery(mapped, 0, &info, sizeof(info)) == 0);
+    Require(info.is_direct && info.offset == static_cast<std::uint64_t>(phys));
+    Require(sceKernelMunmap(mapped, page) == 0);
+    Require(sceKernelReleaseDirectMemory(phys, page * 2) == 0);
 }
 
 #ifdef _WIN32
@@ -905,6 +925,7 @@ int main() {
     CheckReleaseDirectMemoryClearsMappings();
     CheckFixedVirtualReservation();
     CheckReservedRangeIsNotCommitted();
+    CheckNoOverwriteRefusesLiveMapping();
     CheckMlock();
     CheckSharedDirectMemoryLifecycle();
     CheckGetDirectMemoryType();
