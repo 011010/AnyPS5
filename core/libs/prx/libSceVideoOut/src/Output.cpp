@@ -290,20 +290,9 @@ int APS5_VABI sceVideoOutVrrPegToFixedRate() try {
     LibcAwaitExit_nid_postfix();
 }
 
-APS5_EXPORT("kP2L8t3j-aM", sceVideoOutUnknown00);
-int APS5_VABI sceVideoOutUnknown00() try {
-    NotImplemented_nid_no_patch(__func__);
+APS5_EXPORT("kP2L8t3j-aM", sceVideoOutAddVrrStatusFlagsPrivilege);
+int APS5_VABI sceVideoOutAddVrrStatusFlagsPrivilege() {
     return 0;
-} catch (const ProcessShutdown&) {
-    LibcAwaitExit_nid_postfix();
-}
-
-APS5_EXPORT("LibwuIonIBw", sceVideoOutUnknown01);
-int APS5_VABI sceVideoOutUnknown01() try {
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
-} catch (const ProcessShutdown&) {
-    LibcAwaitExit_nid_postfix();
 }
 
 }
