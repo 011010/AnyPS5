@@ -8,7 +8,7 @@ from pathlib import PurePosixPath
 
 RULES = {
     "comment": ("error", "docs/dev/CONVENTIONS.md", "Comments are only for technical debt, so they need a change to docs/dev/TechnicalDebt.md in the same pull request; #endif and namespace ends are always allowed"),
-    "silent-stub": ("error", "CONTRIBUTING.md#code", "Unimplemented exports call NotImplemented_nid_no_patch(__func__); silent stubs are listed in docs/dev/TechnicalDebt.md#silent-stubs"),
+    "silent-stub": ("error", "CONTRIBUTING.md#code", "Unimplemented exports call NotImplemented_nid_no_patch(__func__); silent stubs are listed in docs/dev/TechnicalDebt.md#silent-stubs, by their file or by name with a path in their library"),
     "duplicate-export": ("error", "CONTRIBUTING.md#code", "Already exported by another library: remove the copy, or use APS5_DUMMY_FUN if nothing is left"),
     "system-dependency": ("error", "CONTRIBUTING.md#code", "Third-party code is a submodule under 3rdparty/ built from source, not found on the system"),
     "title-specific": ("error", "CONTRIBUTING.md#code", "Implement the general behaviour, not what one title needs; title-specific code belongs in its sce_module"),
@@ -80,7 +80,7 @@ class Check:
         return git("show", f"{self.head}:{path}")
 
     def code(self):
-        debt = self.show("docs/dev/TechnicalDebt.md") if "docs/dev/TechnicalDebt.md" in self.tree else ""
+        debt = [(text, links("docs/dev/TechnicalDebt.md", text)) for text in self.show("docs/dev/TechnicalDebt.md").splitlines()] if "docs/dev/TechnicalDebt.md" in self.tree else []
         exports = {}
         for path, lines in self.files(lambda p: p.suffix in CPP):
             core = path.startswith("core/") and "tests" not in PurePosixPath(path).parts
@@ -100,7 +100,7 @@ class Check:
                     if body is None:
                         continue
                     exports[match.group(1)] = (path, number)
-                    if match.group(1).startswith("sce") and STUB_BODY.match(body) and match.group(1) not in debt:
+                    if match.group(1).startswith("sce") and STUB_BODY.match(body) and not listed(debt, match.group(1), path):
                         self.report("silent-stub", path, number, match.group(1))
         self.duplicates(exports)
         for path, lines in self.files(lambda p: p.suffix in (".py", ".cmake") or p.name == "CMakeLists.txt"):
@@ -145,11 +145,7 @@ class Check:
     def docs(self):
         for path, lines in self.files(lambda p: p.suffix == ".md"):
             for number, text in lines:
-                for target in LINK.findall(text):
-                    if re.match(r"[a-z]+:|#", target):
-                        continue
-                    target = target.split("#", 1)[0].split("?", 1)[0]
-                    resolved = os.path.normpath(target.lstrip("/") if target.startswith("/") else str(PurePosixPath(path).parent / target))
+                for target, resolved in links(path, text):
                     if resolved not in self.tree and resolved not in self.dirs:
                         self.report("doc-link", path, number, target)
 
@@ -182,6 +178,25 @@ def utf8(data):
     except UnicodeDecodeError:
         return False
     return True
+
+
+def links(path, text):
+    result = []
+    for target in LINK.findall(text):
+        if re.match(r"[a-z]+:|#", target):
+            continue
+        target = target.split("#", 1)[0].split("?", 1)[0]
+        result.append((target, os.path.normpath(target.lstrip("/") if target.startswith("/") else str(PurePosixPath(path).parent / target))))
+    return result
+
+
+def listed(debt, name, path):
+    own = PurePosixPath(path).parts[:4]
+    for text, targets in debt:
+        for _, resolved in targets:
+            if resolved == path or (PurePosixPath(resolved).parts[:4] == own and re.search(rf"\b{name}\b", text)):
+                return True
+    return False
 
 
 def library(path):
