@@ -3,17 +3,21 @@
 #include <cstdint>
 #include <windows.h>
 
-__attribute__((section(".ehmeta"), used)) static volatile std::uint32_t ehMeta = 0;
+asm(".section .ehmeta,\"dw\"\n"
+    ".globl UnwindFixtureMeta\n"
+    ".p2align 2\n"
+    "UnwindFixtureMeta:\n"
+    "    .long 0\n"
+    ".text\n");
 
 extern "C" IMAGE_DOS_HEADER __ImageBase;
+extern "C" std::uint32_t UnwindFixtureMeta;
 
 static UnwindFixture fixture;
 
-extern "C" __declspec(dllexport) UnwindFixture* GetUnwindFixture() {
-    const auto base = reinterpret_cast<std::uint64_t>(&__ImageBase);
+extern "C" UnwindFixture* GetUnwindFixture() {
+    const auto base = reinterpret_cast<std::uintptr_t>(&__ImageBase);
     fixture.header.frames = static_cast<std::int32_t>(reinterpret_cast<std::intptr_t>(&fixture.frames) - reinterpret_cast<std::intptr_t>(&fixture.header.frames));
-    DWORD old = 0;
-    if (!VirtualProtect(const_cast<std::uint32_t*>(&ehMeta), sizeof(ehMeta), PAGE_READWRITE, &old)) return nullptr;
-    ehMeta = static_cast<std::uint32_t>(reinterpret_cast<std::uint64_t>(&fixture.header) - base);
+    UnwindFixtureMeta = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(&fixture.header) - base);
     return &fixture;
 }
