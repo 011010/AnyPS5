@@ -126,7 +126,7 @@ std::uint8_t* aligned(std::vector<std::uint8_t>& storage, std::size_t alignment)
 void testFusion(std::size_t misalignment) {
     Halves halves;
     SizeAlign size{};
-    check(sceAgcUnknownGetFusedShaderSize(&size, &halves.front, &halves.back) == 0, "fused size query failed");
+    check(sceAgcGetFusedShaderSize_0080(&size, &halves.front, &halves.back) == 0, "fused size query failed");
     check(size.m_align == 8, "fused shaders are not 256-byte aligned");
     check(size.m_size > 256 + 255 + halves.back.shader_size + sizeof(Shader), "fused size does not cover the alignment padding, code and header");
     std::vector<std::uint8_t> storage(size.m_size + 512, 0xcd);
@@ -173,11 +173,11 @@ void testRejections() {
     Halves halves;
     SizeAlign size{};
     Shader fused{};
-    expectFailure([&] { sceAgcUnknownGetFusedShaderSize(nullptr, &halves.front, &halves.back); });
+    expectFailure([&] { sceAgcGetFusedShaderSize_0080(nullptr, &halves.front, &halves.back); });
     expectFailure([&] { sceAgcFuseShaderHalves_0200(&fused, &halves.front, &halves.back, nullptr); });
     {
         Halves swapped;
-        check(sceAgcUnknownGetFusedShaderSize(&size, &swapped.back, &swapped.front) == InvalidShaderHalves, "swapped halves were accepted by the size query");
+        check(sceAgcGetFusedShaderSize_0080(&size, &swapped.back, &swapped.front) == InvalidShaderHalves, "swapped halves were accepted by the size query");
         check(sceAgcFuseShaderHalves_0200(&fused, &swapped.back, &swapped.front, nullptr) == InvalidShaderHalves, "swapped halves were fused");
     }
     {
@@ -189,22 +189,22 @@ void testRejections() {
     {
         Halves noJump;
         noJump.frontCode[2] = SNop;
-        expectFailure([&] { sceAgcUnknownGetFusedShaderSize(&size, &noJump.front, &noJump.back); });
+        expectFailure([&] { sceAgcGetFusedShaderSize_0080(&size, &noJump.front, &noJump.back); });
     }
     {
         Halves noTrailer;
         noTrailer.frontCode[5] = 0;
-        expectFailure([&] { sceAgcUnknownGetFusedShaderSize(&size, &noTrailer.front, &noTrailer.back); });
+        expectFailure([&] { sceAgcGetFusedShaderSize_0080(&size, &noTrailer.front, &noTrailer.back); });
     }
     {
         Halves hardware;
         hardware.frontSh[2].value |= 1u << 16u;
-        expectFailure([&] { sceAgcUnknownGetFusedShaderSize(&size, &hardware.front, &hardware.back); });
+        expectFailure([&] { sceAgcGetFusedShaderSize_0080(&size, &hardware.front, &hardware.back); });
     }
     {
         Halves constants;
         constants.back.embedded_constant_buffer_size_dqw = 1;
-        expectFailure([&] { sceAgcUnknownGetFusedShaderSize(&size, &constants.front, &constants.back); });
+        expectFailure([&] { sceAgcGetFusedShaderSize_0080(&size, &constants.front, &constants.back); });
     }
 }
 
@@ -228,7 +228,7 @@ void testHullHalves() {
     back.specials = &specials;
     back.type = static_cast<std::uint8_t>(ShaderRegs::ShaderBinaryType::HsBack);
     SizeAlign size{};
-    check(sceAgcUnknownGetFusedShaderSize(&size, &front, &back) == 0 && size.m_size == backSh.size() * sizeof(ShaderRegister) && size.m_align == 4, "hull size query changed");
+    check(sceAgcGetFusedShaderSize_0080(&size, &front, &back) == 0 && size.m_size == backSh.size() * sizeof(ShaderRegister) && size.m_align == 4, "hull size query changed");
     std::vector<ShaderRegister> scratch(backSh.size());
     Shader fused{};
     check(sceAgcFuseShaderHalves_0200(&fused, &front, &back, scratch.data()) == 0, "hull fusion failed");

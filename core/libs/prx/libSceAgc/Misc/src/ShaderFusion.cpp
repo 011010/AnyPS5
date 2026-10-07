@@ -300,12 +300,11 @@ int APS5_VABI sceAgcFuseShaderHalves_nid_postfix(Shader* fused_result, const Sha
     return sceAgcFuseShaderHalves_0200(fused_result, front, back, scratch_mem);
 }
 
-APS5_EXPORT("dolOmWH+huQ", sceAgcUnknownGetFusedShaderSize);
-int APS5_VABI sceAgcUnknownGetFusedShaderSize(SizeAlign* dst, const Shader* front, const Shader* back) {
+int APS5_VABI sceAgcGetFusedShaderSize_0080(SizeAlign* dst, const Shader* front, const Shader* back) {
     if (dst == nullptr || front == nullptr || back == nullptr) APS5_INVALID_ARG_EX;
     if (!ValidHalves(front, back)) return GRAPHICS5_ERROR_INVALID_SHADER_HALVES;
     if (GeometryHalves(front)) {
-        const auto layout = ComputeGeometryLayout("sceAgcUnknownGetFusedShaderSize", front, back);
+        const auto layout = ComputeGeometryLayout("sceAgcGetFusedShaderSize_0080", front, back);
         dst->m_size = layout.totalBytes + FusedCodeAlignment - 1;
         dst->m_align = FusedCodeAlignmentLog2;
         return 0;
