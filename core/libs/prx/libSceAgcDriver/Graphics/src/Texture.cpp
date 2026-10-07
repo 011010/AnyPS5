@@ -587,6 +587,20 @@ VkFormat StorageFormatOrUndefined(const Context& context, VkFormat format) {
     return storage;
 }
 
+VkFormat UintFormatOfSint(VkFormat format) {
+    switch (format) {
+        case VK_FORMAT_R8G8_SINT: return VK_FORMAT_R8G8_UINT;
+        case VK_FORMAT_R8G8B8A8_SINT: return VK_FORMAT_R8G8B8A8_UINT;
+        case VK_FORMAT_R16_SINT: return VK_FORMAT_R16_UINT;
+        case VK_FORMAT_R16G16_SINT: return VK_FORMAT_R16G16_UINT;
+        case VK_FORMAT_R16G16B16A16_SINT: return VK_FORMAT_R16G16B16A16_UINT;
+        case VK_FORMAT_R32_SINT: return VK_FORMAT_R32_UINT;
+        case VK_FORMAT_R32G32_SINT: return VK_FORMAT_R32G32_UINT;
+        case VK_FORMAT_R32G32B32A32_SINT: return VK_FORMAT_R32G32B32A32_UINT;
+        default: return VK_FORMAT_UNDEFINED;
+    }
+}
+
 VkFormat StorageFormatFor(const Context& context, VkFormat format) {
     const auto storage = StorageFormatOrUndefined(context, format);
     if (storage == VK_FORMAT_UNDEFINED) Require(false, "guest storage texture format " + std::to_string(format) + " cannot be used as a storage image");
@@ -1005,6 +1019,18 @@ VkImageView StorageTexture::FirstLayerView(std::uint32_t mip) {
     if (found != firstLayerViews.end()) return found->second;
     const auto created = createView(mip, true, storageFormat);
     firstLayerViews.emplace(mip, created);
+    return created;
+}
+
+VkImageView StorageTexture::StorageView(std::uint32_t mip, bool firstLayer) {
+    const auto format = UintFormatOfSint(storageFormat);
+    if (format == VK_FORMAT_UNDEFINED) return firstLayer ? FirstLayerView(mip) : View(mip);
+    if (format == VK_FORMAT_R32_UINT) return AtomicView(mip, firstLayer);
+    const auto found = uintViews.find({mip, firstLayer});
+    if (found != uintViews.end()) return found->second;
+    Require(StorageFormatOrUndefined(context, format) == format, "storage image of format " + std::to_string(storageFormat) + " has no storage view of its UINT format " + std::to_string(format));
+    const auto created = createView(mip, firstLayer, format);
+    uintViews.emplace(std::pair{mip, firstLayer}, created);
     return created;
 }
 
@@ -3592,6 +3618,8 @@ void StorageTexture::release() noexcept {
     firstLayerViews.clear();
     for (const auto& [key, atomic] : atomicViews) context.Function<PFN_vkDestroyImageView>("vkDestroyImageView")(context.device, atomic, nullptr);
     atomicViews.clear();
+    for (const auto& [key, uint] : uintViews) context.Function<PFN_vkDestroyImageView>("vkDestroyImageView")(context.device, uint, nullptr);
+    uintViews.clear();
     for (const auto& [format, attachment] : attachmentViews) context.Function<PFN_vkDestroyImageView>("vkDestroyImageView")(context.device, attachment, nullptr);
     attachmentViews.clear();
     if (view) context.Function<PFN_vkDestroyImageView>("vkDestroyImageView")(context.device, view, nullptr);
