@@ -186,22 +186,33 @@ void CALLBACK WaitingEntry(ULONG_PTR parameter) {
 static_assert(HomeArea + 8 == 40, "Aps5RedirectedEntryStub finds the delivery 40 bytes above its stack pointer");
 static_assert(offsetof(Delivery, context) == 16 && offsetof(CONTEXT, Rax) == 0x78 && offsetof(CONTEXT, Rbp) == 0xa0 && offsetof(CONTEXT, R15) == 0xf0, "Aps5RedirectedEntryStub stores the live registers into the delivery's context");
 
-void RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
+bool Exited(HANDLE native) {
+    return WaitForSingleObject(native, 0) == WAIT_OBJECT_0;
+}
+
+bool RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
     if (thread == scePthreadSelf()) {
         CONTEXT context{};
         RtlCaptureContext(&context);
         Deliver(handler, signum, context);
-        return;
+        return true;
     }
     const auto native = static_cast<HANDLE>(thread->nativeHandle);
     auto queued = std::make_unique<Delivery>(Delivery{handler, signum, {}});
-    if (SuspendThread(native) == static_cast<DWORD>(-1)) throw std::runtime_error("sceKernelRaiseException: cannot suspend the target thread");
+    if (SuspendThread(native) == static_cast<DWORD>(-1)) {
+        if (Exited(native)) return false;
+        throw std::runtime_error("sceKernelRaiseException: cannot suspend the target thread");
+    }
+    if (Exited(native)) {
+        ResumeThread(native);
+        return false;
+    }
     if (thread->waitCount.load(std::memory_order_seq_cst) > 0) {
         const bool accepted = QueueUserAPC(WaitingEntry, native, reinterpret_cast<ULONG_PTR>(queued.get())) != 0;
         ResumeThread(native);
         if (!accepted) throw std::runtime_error("sceKernelRaiseException: cannot queue delivery to the waiting thread");
         queued.release();
-        return;
+        return true;
     }
     alignas(16) Delivery delivery{handler, signum, {}};
     delivery.context.ContextFlags = CONTEXT_FULL | CONTEXT_FLOATING_POINT;
@@ -223,6 +234,7 @@ void RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
         throw std::runtime_error("sceKernelRaiseException: cannot redirect the target thread");
     }
     ResumeThread(native);
+    return true;
 }
 #endif
 
@@ -277,8 +289,7 @@ int APS5_VABI sceKernelRaiseException(Pthread thread, int signum) {
  const auto handler = Handler(signum);
  if (handler == nullptr) throw std::runtime_error("sceKernelRaiseException: no handler installed for the signal");
 #ifdef _WIN32
- RaiseOn(thread, handler, signum);
- return 0;
+ return RaiseOn(thread, handler, signum) ? 0 : SCE_KERNEL_ERROR_ESRCH;
 #else
  NotImplemented_nid_no_patch(__func__);
  return 0;

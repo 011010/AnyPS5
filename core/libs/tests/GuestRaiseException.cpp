@@ -85,6 +85,21 @@ static void* APS5_VABI HostBlocked(void* arg) {
     return nullptr;
 }
 
+static constexpr int LeavingRounds = 200;
+static std::atomic<int> leavingRound{0};
+
+static void* APS5_VABI Leaving(void* arg) {
+    auto& worker = *static_cast<Worker*>(arg);
+    worker.id = std::this_thread::get_id();
+    for (int round = 0; round < LeavingRounds; ++round) {
+        worker.started.store(true);
+        Require(sceKernelWaitSema(worker.sem, 1, nullptr) == 0);
+        volatile std::uint64_t spins = 0;
+        while (leavingRound.load() == round) spins = spins + 1;
+    }
+    return nullptr;
+}
+
 static std::atomic<bool> finishedReturned{false};
 
 static void* APS5_VABI Finished(void*) {
@@ -155,6 +170,23 @@ int main() {
     }
     hostLock.unlock();
     Require(scePthreadJoin(blockedThread, nullptr) == 0);
+
+    Worker leaving;
+    Require(sceKernelCreateSema(&leaving.sem, "leaving", 0, 0, 1, nullptr) == 0);
+    Pthread leavingThread = nullptr;
+    Require(scePthreadCreate(&leavingThread, nullptr, Leaving, &leaving, "leaving") == 0);
+    for (int round = 0; round < LeavingRounds; ++round) {
+        while (!leaving.started.load()) std::this_thread::yield();
+        leaving.started.store(false);
+        std::this_thread::sleep_for(std::chrono::microseconds(200));
+        Require(sceKernelSignalSema(leaving.sem, 1) == 0);
+        for (int spin = 0; spin < round % 16 * 64; ++spin) std::this_thread::yield();
+        Require(sceKernelRaiseException(leavingThread, SIGUSR1) == 0);
+        ExpectDelivery(1 + 2 * Repeats + HostRounds + round, leaving.id);
+        leavingRound.store(round + 1);
+    }
+    Require(scePthreadJoin(leavingThread, nullptr) == 0);
+    Require(sceKernelDeleteSema(leaving.sem) == 0);
 
     Pthread finishedThread = nullptr;
     Require(scePthreadCreate(&finishedThread, nullptr, Finished, nullptr, "finished") == 0);

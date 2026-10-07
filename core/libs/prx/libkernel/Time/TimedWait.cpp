@@ -22,6 +22,14 @@ thread_local std::atomic<int>* waitState = &ownWaitState;
 
 #ifdef _WIN32
 
+using NtTestAlertFunction = LONG(NTAPI*)();
+
+void DrainApcs() {
+    static const auto testAlert = reinterpret_cast<NtTestAlertFunction>(reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtTestAlert")));
+    if (testAlert) testAlert();
+    else SleepEx(0, TRUE);
+}
+
 DWORD AlertableWait(DWORD count, const HANDLE* handles, DWORD milliseconds) {
     waitState->fetch_add(1, std::memory_order_seq_cst);
     DWORD result;
@@ -29,6 +37,7 @@ DWORD AlertableWait(DWORD count, const HANDLE* handles, DWORD milliseconds) {
         result = WaitForMultipleObjectsEx(count, handles, FALSE, milliseconds, TRUE);
     } while (result == WAIT_IO_COMPLETION);
     waitState->fetch_sub(1, std::memory_order_seq_cst);
+    DrainApcs();
     return result;
 }
 
@@ -36,6 +45,7 @@ void AlertableSleep(DWORD milliseconds) {
     waitState->fetch_add(1, std::memory_order_seq_cst);
     SleepEx(milliseconds, TRUE);
     waitState->fetch_sub(1, std::memory_order_seq_cst);
+    DrainApcs();
 }
 
 void WINAPI DestroyWaiter(void* value);
@@ -169,7 +179,7 @@ bool Condition::waitSignalUntil(Waiter* waiter, std::uint64_t deadlineNanos) {
         unlink(waiter);
         return false;
     }
-    EventSet(waiter->event, 0);
+    WaitForSingleObject(waiter->event, 0);
     return true;
 }
 
