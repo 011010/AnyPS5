@@ -25,6 +25,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -600,6 +601,212 @@ ShaderRecompiler::ShaderPixelStageInfo twoParameterPixel() {
     pixel.targetOutputMode[0] = 9u;
     pixel.targetExportMapping[0] = 0xe4u;
     return pixel;
+}
+
+std::string requestPrefix(std::string_view text, std::size_t bytes) {
+    constexpr std::string_view alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string result(text.substr(0, ((bytes + 2u) / 3u) * 4u));
+    if (bytes % 3u == 1u) {
+        result[result.size() - 3u] = alphabet[alphabet.find(result[result.size() - 3u]) & 0x30u];
+        result[result.size() - 2u] = '=';
+        result.back() = '=';
+    } else if (bytes % 3u == 2u) {
+        result[result.size() - 2u] = alphabet[alphabet.find(result[result.size() - 2u]) & 0x3cu];
+        result.back() = '=';
+    }
+    return result;
+}
+
+void verifyPixelRequestSerialization() {
+    using namespace ShaderRecompiler;
+    const auto fields = [](const ShaderPixelStageInfo& value) {
+        return std::tie(value.interpolatorCount, value.interpolatorSettings, value.wave32, value.inputAddr,
+                        value.hasPerspectiveCenterVgpr, value.perspectiveCentroid, value.posX, value.posY,
+                        value.posZ, value.posW, value.frontFace, value.ancillary, value.sampleShading,
+                        value.noPerspective, value.linearCentroid, value.pixelKillEnable, value.depthExportEnable,
+                        value.sampleMaskExportEnable, value.earlyZ, value.executeOnNoop, value.conservativeZExport,
+                        value.targetOutputMode, value.targetExportMapping);
+    };
+    const std::array<std::uint32_t, 1> code{0xbf810000u};
+    const std::array<std::uint32_t, 3> userData{0x12345678u, 0xabcdef01u, 0x87654321u};
+    const std::array<MemoryRegion, 1> memory{{{0x60000u, std::as_bytes(std::span(userData))}}};
+    RecompileRequest request{};
+    request.shader = {ShaderStage::Fragment, 0x30000u, code, 0, {}};
+    request.context.waveSize = 64;
+    request.context.userData = userData;
+    request.context.memory = memory;
+    request.context.vertex = ShaderVertexStageInfo{};
+    request.context.vertex->fetchAttribReg = 17u;
+    request.target.vulkanVersion = 0x00401000u;
+    request.target.spirvVersion = 0x00010300u;
+    request.target.subgroupSize = 64;
+    request.target.nonConstantImageOffsets = true;
+    request.layout = {0u, 11u, 16u, 128u};
+    request.useCache = false;
+    ShaderPixelStageInfo pixel{
+        .interpolatorCount = 32u,
+        .wave32 = true,
+        .inputAddr = 0x7fffu,
+        .hasPerspectiveCenterVgpr = true,
+        .perspectiveCentroid = true,
+        .posX = true,
+        .posY = true,
+        .posZ = true,
+        .posW = true,
+        .frontFace = true,
+        .ancillary = true,
+        .sampleShading = true,
+        .noPerspective = true,
+        .linearCentroid = true,
+        .pixelKillEnable = true,
+        .depthExportEnable = true,
+        .sampleMaskExportEnable = true,
+        .earlyZ = true,
+        .executeOnNoop = true,
+        .conservativeZExport = ConservativeZExport::GreaterThanZ,
+        .targetOutputMode = {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u}
+    };
+    for (std::uint32_t i = 0; i < pixel.interpolatorSettings.size(); ++i) pixel.interpolatorSettings[i] = 0x10101010u + i;
+    const std::array<std::array<std::uint8_t, 8>, 3> mappings{{
+        {0x00u, 0xe4u, 0xc6u, 0x1bu, 0xffu, 0x80u, 0x55u, 0xaau},
+        {0xe4u, 0xe4u, 0xe4u, 0xe4u, 0xe4u, 0xe4u, 0xe4u, 0xe4u},
+        {0xc6u, 0x1bu, 0x00u, 0xffu, 0x55u, 0xaau, 0x80u, 0x39u}
+    }};
+    const RequestSerializer serializer;
+    for (const auto& mapping : mappings) {
+        pixel.targetExportMapping = mapping;
+        request.context.pixel = pixel;
+        const auto replay = serializer.Deserialize(serializer.Serialize(request));
+        require(replay.request.context.pixel.has_value() && fields(*replay.request.context.pixel) == fields(pixel), "pixel fields or export mappings were lost in serialization");
+        require(replay.request.context.vertex.has_value() && replay.request.context.vertex->fetchAttribReg == 17u && replay.request.context.memory.size() == 1u && replay.request.context.memory[0].guestAddress == 0x60000u && replay.request.context.memory[0].bytes.size() == sizeof(userData), "pixel mappings displaced the following guest context");
+        require(replay.request.target.subgroupSize == 64u && replay.request.target.nonConstantImageOffsets && replay.request.layout.firstBinding == 11u && replay.request.layout.pushConstantOffsetBytes == 16u && !replay.request.useCache, "pixel mappings displaced the following request fields");
+        std::vector<std::uint64_t> key;
+        RecompileCacheKey::Build(request, key);
+        std::vector<std::uint64_t> replayKey;
+        RecompileCacheKey::Build(replay.request, replayKey);
+        require(key == replayKey && RecompileCacheKey::ContextHash(request) == RecompileCacheKey::ContextHash(replay.request), "pixel replay changed shader identity");
+        for (std::size_t i = 0; i < mapping.size(); ++i) {
+            auto changed = request;
+            changed.context.pixel->targetExportMapping[i] ^= 1u;
+            RecompileCacheKey::Build(changed, replayKey);
+            require(key != replayKey && RecompileCacheKey::ContextHash(request) != RecompileCacheKey::ContextHash(changed), "shader identity ignored a pixel export mapping");
+        }
+    }
+    request.context.pixel.reset();
+    request.shader.stage = ShaderStage::Vertex;
+    const auto withoutPixel = serializer.Deserialize(serializer.Serialize(request));
+    require(!withoutPixel.request.context.pixel.has_value() && withoutPixel.request.context.vertex.has_value() && withoutPixel.request.context.vertex->fetchAttribReg == 17u && withoutPixel.request.context.memory.size() == 1u && withoutPixel.request.context.memory[0].guestAddress == 0x60000u && withoutPixel.request.target.nonConstantImageOffsets && withoutPixel.request.layout.firstBinding == 11u && !withoutPixel.request.useCache, "a request without pixel state was misaligned");
+
+    RecompileRequest minimal{};
+    minimal.shader = {ShaderStage::Fragment, 0x30000u, code, 0, {}};
+    minimal.context.waveSize = 64;
+    minimal.context.pixel = ShaderPixelStageInfo{};
+    const auto encoded = serializer.Serialize(minimal);
+    require(requestPrefix(encoded, 8u) == "NVNQQQgAAAA=", "new requests did not use serialization version 8");
+    constexpr std::size_t mappingOffset = 8u + 37u + 18u + 162u;
+    for (std::size_t bytes = 0; bytes < 8u; ++bytes) {
+        expectFailure([&] { static_cast<void>(serializer.Deserialize(requestPrefix(encoded, mappingOffset + bytes))); }, "truncated data", "a truncated version-8 pixel mapping was accepted");
+    }
+    for (const auto unsupported : {"NVNQQQAAAAA=", "NVNQQQkAAAA="}) {
+        expectFailure([&] { static_cast<void>(serializer.Deserialize(unsupported)); }, "serialization version", "an unsupported request version was accepted");
+    }
+}
+
+void verifyLegacyPixelRequests() {
+    using namespace ShaderRecompiler;
+    static constexpr std::array<std::string_view, 7> legacyPixelRequests{
+        "NVNQQQEAAAAFAAADAAAAAAABAAAAAAAAAAAAgb8AAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAkAAAAAAAAAAAAA"
+        "AAAAAAAAABBAAAADAQBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAAAAAAAAAIAA"
+        "AAAA",
+        "NVNQQQIAAAAFAAADAAAAAAABAAAAAAAAAAAAgb8AAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAkAAAAAAAAAAAAA"
+        "AAAAAAAAABBAAAADAQBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAAAAAAAAAIAA"
+        "AAAAAA==",
+        "NVNQQQMAAAAFAAADAAAAAAABAAAAAAAAAAAAgb8AAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAkAAAAAAAAAAAAA"
+        "AAAAAAAAABBAAAADAQBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAAAAAAAAAIAA"
+        "AAAAAA==",
+        "NVNQQQQAAAAFAAADAAAAAAABAAAAAAAAAAAAgb8AAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAkAAAAAAAAAAAAA"
+        "AAAAAAAAABBAAAADAQBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAAAAAAAAAIAA"
+        "AAAAAA==",
+        "NVNQQQUAAAAFAAADAAAAAAABAAAAAAAAAAAAgb8AAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAABAAAAAAAAAAAAAAAAAAAACQAAAAAAAAAA"
+        "AAAAAAAAAAAAEEAAAAMBAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAsAAAAAAAAA"
+        "gAAAAAAA",
+        "NVNQQQYAAAAFAAADAAAAAAABAAAAAAAAAAAAgb8AAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAABAAAAAAAAAAAAAAAAAAAACQAAAAAAAAAA"
+        "AAAAAAAAAAAAEEAAAAMBAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAsAAAAAAAAA"
+        "gAAAAAAAAQ==",
+        "NVNQQQcAAAAFAAADAAAAAAABAAAAAAAAAAAAgb8AAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAABAAAAAAAAAAAAAAAAAAAAAgkAAAAAAAAA"
+        "AAAAAAAAAAAAABBAAAADAQBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAAAAAAAA"
+        "AIAAAAAAAAE=",
+    };
+    const RequestSerializer serializer;
+    for (std::size_t index = 0; index < legacyPixelRequests.size(); ++index) {
+        const auto version = index + 1u;
+        const auto replay = serializer.Deserialize(legacyPixelRequests[index]);
+        const auto& request = replay.request;
+        require(request.context.pixel.has_value(), "legacy pixel state was lost");
+        const auto& pixel = *request.context.pixel;
+        require(pixel.targetExportMapping == std::array<std::uint8_t, 8>{}, "legacy pixel mapping no longer defaults to zero");
+        require(pixel.inputAddr == 2u && pixel.hasPerspectiveCenterVgpr && pixel.targetOutputMode[0] == 9u, "legacy pixel layout was misread");
+        require(pixel.conservativeZExport == (version >= 7u ? ConservativeZExport::GreaterThanZ : ConservativeZExport::AnyZ), "legacy conservative Z layout was misread");
+        require(request.shader.stage == ShaderStage::Fragment && request.shader.code.size() == 1u && request.shader.code[0] == 0xbf810000u && !request.context.vertex.has_value() && request.context.memory.empty(), "legacy guest context was misaligned");
+        require(request.target.vulkanVersion == 0x00401000u && request.target.spirvVersion == 0x00010300u && request.target.subgroupSize == 64u && request.layout.firstBinding == 11u && request.layout.pushConstantSizeBytes == 128u, "legacy target or binding layout was misaligned");
+        require(request.useCache == (version == 1u) && request.target.nonConstantImageOffsets == (version >= 6u), "legacy request trailer was misread");
+        const auto upgraded = serializer.Deserialize(serializer.Serialize(request));
+        require(upgraded.request.context.pixel->targetExportMapping == pixel.targetExportMapping && RecompileCacheKey::ContextHash(upgraded.request) == RecompileCacheKey::ContextHash(request), "upgrading a legacy capture changed its pixel mapping");
+    }
+}
+
+void verifyPixelExportReplay() {
+    using namespace ShaderRecompiler;
+    std::array<std::uint32_t, 11> code{
+        0x7e0002ffu, 0x3e800000u, 0x7e0202ffu, 0x3f000000u,
+        0x7e0402ffu, 0x3f400000u, 0x7e0602ffu, 0x3f800000u,
+        0xf800180fu, 0x03020100u, 0xbf810000u
+    };
+    const RequestSerializer serializer;
+    for (const auto target : {0u, 7u}) {
+        code[8] = 0xf800180fu | (target << 4u);
+        ShaderPixelStageInfo pixel{};
+        pixel.targetOutputMode[target] = 9u;
+        pixel.targetExportMapping.fill(0xe4u);
+        pixel.targetExportMapping[target] = 0xc6u;
+        RecompileRequest request{};
+        request.shader = {ShaderStage::Fragment, 0x30000u, code, 0, {}};
+        request.context.waveSize = 64u;
+        request.context.pixel = pixel;
+        request.target.vulkanVersion = 0x00401000u;
+        request.target.spirvVersion = 0x00010300u;
+        request.target.subgroupSize = 64u;
+        request.layout.pushConstantSizeBytes = 128u;
+        request.useCache = false;
+        const auto replay = serializer.Deserialize(serializer.Serialize(request));
+        const auto original = Recompile(request);
+        auto identity = request;
+        identity.context.pixel->targetExportMapping[target] = 0xe4u;
+        require(original.spirv != Recompile(identity).spirv, "the non-identity pixel export mapping did not affect the compiled shader");
+        require(replay.request.context.pixel.has_value() && replay.request.context.pixel->targetExportMapping == pixel.targetExportMapping, "replay lost the non-identity pixel export mapping");
+        const auto replayed = Recompile(replay.request);
+        verifyResult(original, replayed);
+        request.useCache = true;
+        const auto cached = Recompile(request);
+        const auto cachedReplay = serializer.Deserialize(serializer.Serialize(request));
+        const auto hit = Recompile(cachedReplay.request);
+        require(hit.cacheHit && hit.variantId == cached.variantId, "pixel replay did not reuse the original shader variant");
+        verifyResult(cached, hit);
+    }
 }
 
 std::vector<std::uint32_t> noPerspectiveLocations(std::span<const std::uint32_t> code) {
@@ -1198,6 +1405,9 @@ int main() {
         verifyProgramCounterRelativeData();
         verifyMeshConfiguration();
         verifyPixelInputs();
+        verifyPixelRequestSerialization();
+        verifyLegacyPixelRequests();
+        verifyPixelExportReplay();
         verifyPixelParameterSlots();
         verifyComputedTexelOffsets();
         verifyUnnormalizedSamplers();
