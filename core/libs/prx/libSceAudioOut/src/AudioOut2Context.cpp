@@ -14,13 +14,12 @@
 #include "prx/libc/include/General.hpp"
 #include "AudioOut2Internal.hpp"
 
-// An AudioOut2 context is the hardware output queue: every push records the buffers the ports point
-// at and appends that grain (num_grains samples) to a queue of queue_depth grains that plays in real
-// time. The title paces its mixer on that queue (Demon's Souls polls GetQueueLevel and pushes
-// non-blocking whenever a slot is free), so the level must follow the output clock. With an SDL device
-// open, the device callback plays the mixed grains behind a cushion and the queue level counts the
-// grains beyond that cushion; otherwise a wall-clock model of the queue stands in. A grain's buffers
-// are read at the next push: PPSA12544 fills a buffer after pushing it and reuses it two pushes later.
+// An AudioOut2 context is the hardware output queue: every push appends a grain (num_grains samples)
+// to a queue of queue_depth grains that plays in real time. Titles pace their mixer on that queue, so
+// the level must follow the output clock. With an SDL device open, a grain's port buffers are read at
+// the next push, the device callback plays the mixed grains behind a cushion and the level counts the
+// grains beyond that cushion; otherwise each push is mixed at once and a wall-clock model of the
+// queue stands in.
 
 using Clock = std::chrono::steady_clock;
 
@@ -37,8 +36,6 @@ static constexpr std::uint32_t MAX_QUEUED_MS = 250;
 // A blocking push on a full queue gives up after this long.
 static constexpr std::chrono::milliseconds FULL_WAIT_TIMEOUT{200};
 static constexpr std::chrono::milliseconds FULL_WAIT_STEP{1};
-// How long a push waits before it reads the previous grain's buffers: PPSA12544's mixer thread can
-// still be writing them when the next push follows within microseconds.
 static constexpr std::chrono::microseconds READ_DELAY{100};
 static constexpr std::uint16_t DEVICE_SAMPLES = 512;
 // The summed ports (a 7.1 bed folded to stereo plus the object ports) peak above full scale in the
@@ -190,7 +187,7 @@ static void QueuePadGrain(AudioOut2Context& context) {
     const auto frameBytes = static_cast<std::uint32_t>(context.padLayout.channels * sizeof(float));
     const auto grainBytes = context.grain * frameBytes;
     const auto cushionBytes = CUSHION_MS * (AUDIO_OUT2_SAMPLE_RATE / 1000) * frameBytes;
-    const auto mainQueuedBytes = cushionBytes + context.queueDepth * grainBytes;
+    const auto mainQueuedBytes = context.device != 0 ? UnplayedGrains(context) * grainBytes : cushionBytes + context.queueDepth * grainBytes;
     const auto queuedBytes = SDL_GetQueuedAudioSize(context.padDevice);
     if (queuedBytes > mainQueuedBytes + PAD_SLACK_GRAINS * grainBytes) return;
     if (queuedBytes == 0) {
@@ -333,23 +330,31 @@ int APS5_VABI sceAudioOut2ContextPush(AudioOut2ContextHandle ctx, uint32_t block
     }
     context->queued++;
     context->playHead += GrainDuration(*context);
-    context->pendingGrains.push_back(AudioOut2CaptureGrain(*context));
     UpdatePadDevice(*context, now);
-    const auto mixed = static_cast<std::uint32_t>(context->pendingGrains.back().size());
-    const std::size_t unread = context->device == 0 ? context->queueDepth : 2;
-    if (context->pendingGrains.size() >= unread) {
-        const auto readAt = Clock::now() + READ_DELAY;
-        while (Clock::now() < readAt) std::this_thread::yield();
-    }
-    while (context->pendingGrains.size() >= unread) {
-        Render(*context, context->pendingGrains.front());
-        context->pendingGrains.pop_front();
-        if (context->device == 0) continue;
-        if (PendingMs(*context) > MAX_QUEUED_MS) {
-            context->dropped++;
-            continue;
+    auto grain = AudioOut2CaptureGrain(*context);
+    const auto mixed = static_cast<std::uint32_t>(grain.size());
+    if (context->device == 0) {
+        Render(*context, grain);
+    } else {
+        context->pendingGrains.push_back(std::move(grain));
+        context->pendingSince.push_back(Clock::now());
+        while (context->pendingGrains.size() >= 2) {
+            const auto readAt = context->pendingSince.front() + READ_DELAY;
+            if (Clock::now() < readAt) {
+                lock.unlock();
+                while (Clock::now() < readAt) std::this_thread::yield();
+                lock.lock();
+                continue;
+            }
+            Render(*context, context->pendingGrains.front());
+            context->pendingGrains.pop_front();
+            context->pendingSince.pop_front();
+            if (PendingMs(*context) > MAX_QUEUED_MS) {
+                context->dropped++;
+                continue;
+            }
+            context->output.insert(context->output.end(), context->mix.begin(), context->mix.end());
         }
-        context->output.insert(context->output.end(), context->mix.begin(), context->mix.end());
     }
     context->pushes++;
     context->summaryPushes++;

@@ -77,6 +77,7 @@ struct AudioOut2Context {
     std::deque<float> output;
     bool priming = true;
     std::deque<AudioOut2Grain> pendingGrains;
+    std::deque<std::chrono::steady_clock::time_point> pendingSince;
     SDL_AudioDeviceID padDevice = 0;
     std::chrono::steady_clock::time_point nextPadProbe;
     AudioOut2PadLayout padLayout;
