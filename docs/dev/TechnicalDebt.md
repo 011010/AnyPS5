@@ -169,6 +169,20 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceNgs2VoiceGetPortInfo](../../core/libs/prx/libSceNgs2.native/src/Voice.cpp) (libSceNgs2.native) - layout from shadPS4; the delay and destination input are zero because ports have neither yet
 - [sceSaveDataInitialize3](../../core/libs/prx/libSceSaveData.native/Export.cpp) (libSceSaveData.native) - a repeated initialize succeeds: PPSA12544's executable and its Unity SaveData plugin both initialize, and the plugin fails on any error. Initializations are counted and `sceSaveDataTerminate` ends the session at the last one; how the console pairs them is unknown
 - [sceVoiceSetMuteFlag](../../core/libs/prx/libSceVoice/Export.cpp) (libSceVoice) - unknown signature
+- [sceTextToSpeech2GetSystemStatus](../../core/libs/prx/libSceTextToSpeech2/Export.cpp) (libSceTextToSpeech2) - unknown signature
+- [sceVdecswQueryComputeMemoryInfo](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
+- [sceVdecswFinalizeDecodeSequence](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
+- [sceVdecswQueryDecoderMemoryInfo](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
+- [sceVdecswSetDecodeInput](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
+- [sceVdecswReleaseComputeQueue](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
+- [sceVdecswAllocateComputeQueue](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
+- [sceVdecswGetAvcPictureInfo](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
+- [sceVdecswTrySyncDecodeOutput](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
+- [sceVdecswTrySyncDecodeInput](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
+- [sceVdecswSetDecodeOutput](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
+- [sceVdecswResetDecoder](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
+- [sceCoredumpAttachUserMemoryFile](../../core/libs/prx/libkernel/System/src/Coredump.cpp) (libkernel) - unknown signature
+- [sceCoredumpAttachMemoryRegion](../../core/libs/prx/libkernel/System/src/Coredump.cpp) (libkernel) - unknown signature
 - [sceRtcFormatRFC2822, sceRtcFormatRFC2822LocalTime, sceRtcFormatRFC3339LocalTime](../../core/libs/prx/libSceRtc/Export.cpp) (libSceRtc) - only shadPS4 (PS4) has bodies. A null tick returns `INVALID_POINTER` like the existing `sceRtcFormatRFC3339`, where shadPS4 formats the current time instead; offsets outside ±1439 minutes return `INVALID_VALUE` like `sceRtcFormatRFC3339`; the local-time variants use the host's offset at the given instant (shadPS4 uses `sceKernelGettimezone`, the current offset)
 - [snwprintf_s](../../core/libs/prx/libc/src/FormattingWide.cpp) (libc) - follows C11 K.3.9.1.3 with `RSIZE_MAX` assumed to be `SIZE_MAX >> 1`. A runtime-constraint violation only returns a negative value: `set_constraint_handler_s` is not exported and the console's default handler is unknown. An invalid multibyte `%s` argument is copied byte by byte instead of being reported as an encoding error, as in `vswprintf`
 - [libSceUlt queues](../../core/libs/prx/libSceUlt/Export.cpp) - the added `sceUltQueuePop`, `sceUltQueueTryPush`, `sceUltQueueDestroy` and `sceUltQueueDataResourcePoolDestroy` signatures are inferred from the existing push/pop and object APIs. Queue destruction is assumed to reject blocked callers with `ULT_ERROR_BUSY` and otherwise discard queued data; pool exhaustion returns `ULT_ERROR_AGAIN`. These rules, alignment checks and shared slot limits have not been confirmed on PS5 hardware or a title. Non-null queue and data-pool option parameters throw because their layouts are unknown.

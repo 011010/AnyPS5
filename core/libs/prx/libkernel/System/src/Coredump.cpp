@@ -66,4 +66,14 @@ int APS5_VABI sceCoredumpWriteUserString() {
     NotImplemented_nid_no_patch(__func__);
     return 0;
 }
+
+int APS5_VABI sceCoredumpAttachUserMemoryFile(void) {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+int APS5_VABI sceCoredumpAttachMemoryRegion(void) {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
 }
