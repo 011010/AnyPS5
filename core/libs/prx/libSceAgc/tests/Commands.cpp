@@ -18,7 +18,7 @@ extern "C" int APS5_VABI sceAgcInit(std::uint32_t version);
 extern "C" void* APS5_VABI sceAgcGetRegisterDefaults();
 extern "C" void* APS5_VABI sceAgcGetRegisterDefaultsInternal();
 extern "C" void* APS5_VABI sceAgcGetRegisterDefaults2Internal(std::uint32_t version);
-extern "C" int APS5_VABI sceAgcUnknownInitState(std::uint32_t* state, std::uint32_t version);
+extern "C" int APS5_VABI sceAgcInit_0090(std::uint32_t* state, std::uint32_t version);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexAuto(CommandBuffer* buf, std::uint32_t indexCount, std::uint64_t modifier);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexIndirect(CommandBuffer* buf, std::uint32_t dataOffsetInBytes, std::uint64_t modifier);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexIndirectMulti(CommandBuffer* buf, std::uint32_t dataOffsetInBytes, std::uint32_t countIndirect, std::uint32_t maxCountOrCount, const volatile void* countAddress, std::uint32_t strideInBytes, std::uint64_t modifier);
@@ -26,7 +26,7 @@ extern "C" int APS5_VABI sceAgcWaitRegMemPatchReference(std::uint32_t* cmd, std:
 extern "C" int APS5_VABI sceAgcWaitRegMemPatchMask(std::uint32_t* cmd, std::uint64_t mask);
 extern "C" int APS5_VABI sceAgcGetDataPacketPayloadAddressUnk(std::uint32_t** addr, std::uint32_t* cmd, int type);
 extern "C" std::uint32_t* APS5_VABI sceAgcCbSetShRegisterRangeDirect(CommandBuffer* buf, std::uint32_t offset, const std::uint32_t* values, std::uint32_t numValues);
-extern "C" std::uint32_t* APS5_VABI sceAgcDcbContextStateAnotherOp(CommandBuffer* buf, std::uint32_t operation);
+extern "C" std::uint32_t* APS5_VABI sceAgcDcbContextStateOp_0100(CommandBuffer* buf, std::uint32_t operation);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbPushMarker(CommandBuffer* buf, const char* str, std::uint32_t color);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbPopMarker(CommandBuffer* buf);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbSetMarker(CommandBuffer* buf, const char* str, std::uint32_t color);
@@ -222,7 +222,7 @@ void testContextState() {
             source.buffer.reserved_dw = 2;
             source.buffer.callback = growContext;
             source.buffer.user_data = &growth;
-            auto* first = sceAgcDcbContextStateAnotherOp(&source.buffer, operation);
+            auto* first = sceAgcDcbContextStateOp_0100(&source.buffer, operation);
             check(first == (split == 0 ? growth.destination.words.data() : source.words.data()), "incorrect first context packet address");
             check(growth.calls == (requested == 0 ? 0u : 1u), "incorrect context callback count");
             auto* end = requested == 0 ? source.words.data() + totals[operation] : growth.destination.words.data() + totals[operation] - split;
@@ -243,24 +243,24 @@ void testContextState() {
             }
         }
     }
-    expectFailure([] { sceAgcDcbContextStateAnotherOp(nullptr, 0); });
+    expectFailure([] { sceAgcDcbContextStateOp_0100(nullptr, 0); });
     Storage invalid;
-    expectFailure([&] { sceAgcDcbContextStateAnotherOp(&invalid.buffer, 4); });
+    expectFailure([&] { sceAgcDcbContextStateOp_0100(&invalid.buffer, 4); });
     check(invalid.buffer.cursor_up == invalid.words.data(), "invalid context operation advanced cursor");
     invalid.buffer.cursor_up = invalid.words.data() + 1;
     invalid.buffer.cursor_down = invalid.words.data();
-    expectFailure([&] { sceAgcDcbContextStateAnotherOp(&invalid.buffer, 0); });
+    expectFailure([&] { sceAgcDcbContextStateOp_0100(&invalid.buffer, 0); });
     invalid.buffer.cursor_up = invalid.words.data();
-    expectFailure([&] { sceAgcDcbContextStateAnotherOp(&invalid.buffer, 1); });
+    expectFailure([&] { sceAgcDcbContextStateOp_0100(&invalid.buffer, 1); });
     ContextGrowth growth{{}, invalid.words.data(), 22};
     invalid.buffer.callback = growContext;
     invalid.buffer.user_data = &growth;
     growth.success = false;
-    expectFailure([&] { sceAgcDcbContextStateAnotherOp(&invalid.buffer, 1); });
+    expectFailure([&] { sceAgcDcbContextStateOp_0100(&invalid.buffer, 1); });
     growth.calls = 0;
     growth.success = true;
     growth.destination.buffer.cursor_down = growth.destination.words.data() + 21;
-    expectFailure([&] { sceAgcDcbContextStateAnotherOp(&invalid.buffer, 1); });
+    expectFailure([&] { sceAgcDcbContextStateOp_0100(&invalid.buffer, 1); });
     check(invalid.buffer.cursor_up == growth.destination.words.data(), "failed reservation advanced cursor");
 }
 
@@ -367,10 +367,10 @@ void testMemory() {
 
 void testDefaults() {
     std::uint32_t state = 0x12345678;
-    check(sceAgcUnknownInitState(&state, 8) == 0 && state == 0x12345678, "AGC initialization failed or modified caller state");
-    check(sceAgcUnknownInitState(&state, 13) == 0 && state == 0x12345678, "AGC version 13 initialization changed caller state");
-    expectFailure([] { sceAgcUnknownInitState(nullptr, 8); });
-    expectFailure([&] { sceAgcUnknownInitState(&state, 14); });
+    check(sceAgcInit_0090(&state, 8) == 0 && state == 0x12345678, "AGC initialization failed or modified caller state");
+    check(sceAgcInit_0090(&state, 13) == 0 && state == 0x12345678, "AGC version 13 initialization changed caller state");
+    expectFailure([] { sceAgcInit_0090(nullptr, 8); });
+    expectFailure([&] { sceAgcInit_0090(&state, 14); });
     check(sceAgcInit(8) == 0, "AGC version initialization failed");
     expectFailure([] { sceAgcInit(14); });
     expectFailure([] { sceAgcInit(0xffffffffu); });
