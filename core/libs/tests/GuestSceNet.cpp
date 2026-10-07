@@ -9,6 +9,8 @@
 #include <thread>
 
 extern "C" {
+extern const std::uint8_t in6addr_any_nid_postfix[16];
+extern const std::uint8_t in6addr_loopback_nid_postfix[16];
 int APS5_VABI sceNetInit_nid_postfix(void);
 int APS5_VABI sceNetSocket(const char*, int, int, int);
 int APS5_VABI sceNetBind_nid_postfix(int, const void*, std::uint32_t);
@@ -143,6 +145,10 @@ static void CheckAddressText(int family, const char* text) {
 }
 
 int main() {
+    for (int i = 0; i < 16; ++i) {
+        Require(in6addr_any_nid_postfix[i] == 0);
+        Require(in6addr_loopback_nid_postfix[i] == (i == 15 ? 1 : 0));
+    }
     Require(sceNetInit_nid_postfix() == 0);
     CheckAddressText(2, "127.0.0.1");
     CheckAddressText(2, "255.255.255.255");
