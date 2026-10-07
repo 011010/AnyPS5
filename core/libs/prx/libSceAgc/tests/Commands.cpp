@@ -11,6 +11,7 @@
 #include <string>
 
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbResetQueue(CommandBuffer* buf, std::uint32_t op, std::uint32_t state);
+extern "C" std::uint32_t* APS5_VABI sceAgcDcbClearState(CommandBuffer* buf, std::uint32_t command);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbSetFlip(CommandBuffer* buf, std::uint32_t handle, std::int32_t index, std::uint32_t mode, std::int64_t argument);
 extern "C" int APS5_VABI sceAgcSuspendPoint();
 extern "C" int APS5_VABI sceAgcInit(std::uint32_t version);
@@ -96,6 +97,21 @@ void testPackets() {
     exhausted.buffer.cursor_down = exhausted.words.data() + 2;
     expectFailure([&] { Agc::Command::WriteNop(&exhausted.buffer, 3, __func__); });
     check(exhausted.buffer.cursor_up == exhausted.words.data(), "failed allocation advanced cursor");
+}
+
+void testClearState() {
+    Storage storage;
+    storage.words.fill(0xdeadbeefu);
+    for (std::uint32_t command = 0; command <= 0xfu; ++command) {
+        auto* packet = sceAgcDcbClearState(&storage.buffer, command);
+        check(packet == storage.words.data() + command * 2 && packet[0] == 0xc0001200u && packet[1] == command, "incorrect CLEAR_STATE packet");
+    }
+    check(storage.buffer.cursor_up == storage.words.data() + 32 && storage.words[32] == 0xdeadbeefu, "incorrect CLEAR_STATE cursor advance");
+    const auto before = storage.words;
+    expectFailure([&] { sceAgcDcbClearState(&storage.buffer, 0x10u); });
+    expectFailure([&] { sceAgcDcbClearState(&storage.buffer, 0xffffffffu); });
+    expectFailure([] { sceAgcDcbClearState(nullptr, 0); });
+    check(storage.words == before && storage.buffer.cursor_up == storage.words.data() + 32, "invalid CLEAR_STATE modified the buffer");
 }
 
 struct ContextGrowth {
@@ -366,6 +382,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         testPackets();
+        testClearState();
         testIndexedIndirectDraws();
         testMarkers();
         testIndexBuffer();
