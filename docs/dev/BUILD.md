@@ -19,6 +19,11 @@ cmake --build build --parallel
 cmake --build build --target libs --parallel
 ```
 
+`libs` is a custom target: every library under [core/libs/prx](../../core/libs/prx) is built with
+`EXCLUDE_FROM_ALL`, so the first command alone does not produce them. Titles load the patched `.prx`
+files from `build/core/libs/libs`, which only that second step refreshes. Running a title after a
+library change without it therefore tests the previous binaries and can show no effect at all.
+
 [Relinker usage and runtime layout](../user/USAGE.md).
 
 ## CMake flags
