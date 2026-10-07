@@ -65,33 +65,42 @@ bool Imported(VkDevice device, std::uint64_t address) {
     return AgcDriver::Graphics::HostImportCovers(probe, address, BlockBytes);
 }
 
+enum class Outcome : std::uint8_t { NoDevice, NoImport, Released };
+
+Outcome FillAndDestroy(GuestBlock& guest, const std::array<std::uint32_t, 4>& pattern, const std::string& which) {
+    auto device = OpenVulkanTestDevice();
+    if (!device) return Outcome::NoDevice;
+    bool filled = false;
+    {
+        std::lock_guard lock(AgcDriver::GuestMemory::GpuMutex());
+        filled = device->FillBuffer(guest.Address(), FillBytes, pattern);
+        device->WaitIdle();
+    }
+    if (!filled) return Outcome::NoImport;
+    for (std::size_t offset = 0; offset < FillBytes; offset += sizeof(pattern)) {
+        Require(std::memcmp(guest.Data() + offset, pattern.data(), sizeof(pattern)) == 0, "host import teardown: the " + which + "'s fill did not reach guest memory at offset " + std::to_string(offset));
+    }
+    const std::array<std::uint8_t, sizeof(pattern)> untouched{};
+    Require(std::memcmp(guest.Data() + FillBytes, untouched.data(), untouched.size()) == 0, "host import teardown: the " + which + "'s fill wrote past its range");
+    const auto handle = device->Device();
+    Require(Imported(handle, guest.Address()), "host import teardown: the " + which + "'s fill left no import of the guest block");
+    device.reset();
+    Require(!Imported(handle, guest.Address()), "host import teardown: the guest block's import outlived the " + which);
+    return Outcome::Released;
+}
+
 }
 
 int main() {
     try {
-        auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
         GuestBlock guest;
-        const std::array<std::uint32_t, 4> pattern{0x11111111u, 0x22222222u, 0x33333333u, 0x44444444u};
-        bool filled = false;
-        {
-            std::lock_guard lock(AgcDriver::GuestMemory::GpuMutex());
-            filled = device->FillBuffer(guest.Address(), FillBytes, pattern);
-            device->WaitIdle();
-        }
-        if (!filled) {
+        const auto first = FillAndDestroy(guest, {0x11111111u, 0x22222222u, 0x33333333u, 0x44444444u}, "first device");
+        if (first == Outcome::NoDevice) return VulkanTestSkipped;
+        if (first == Outcome::NoImport) {
             std::printf("skipped, the device does not import guest memory\n");
             return VulkanTestSkipped;
         }
-        for (std::size_t offset = 0; offset < FillBytes; offset += sizeof(pattern)) {
-            Require(std::memcmp(guest.Data() + offset, pattern.data(), sizeof(pattern)) == 0, "host import teardown: the fill did not reach guest memory at offset " + std::to_string(offset));
-        }
-        const std::array<std::uint8_t, sizeof(pattern)> untouched{};
-        Require(std::memcmp(guest.Data() + FillBytes, untouched.data(), untouched.size()) == 0, "host import teardown: the fill wrote past its range");
-        const auto handle = device->Device();
-        Require(Imported(handle, guest.Address()), "host import teardown: the fill left no import of the guest block");
-        device.reset();
-        Require(!Imported(handle, guest.Address()), "host import teardown: the guest block's import outlived its device");
+        Require(FillAndDestroy(guest, {0x55555555u, 0x66666666u, 0x77777777u, 0x88888888u}, "second device") == Outcome::Released, "host import teardown: the second device did not import the block the first one released");
         std::puts("host import teardown tests passed");
         return 0;
     } catch (const std::exception& error) {
