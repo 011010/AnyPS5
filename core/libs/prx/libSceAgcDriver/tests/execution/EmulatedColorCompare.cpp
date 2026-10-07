@@ -38,6 +38,7 @@ constexpr std::uint32_t BorderTable = 3;
 constexpr std::uint32_t FilterPoint = 0;
 constexpr std::uint32_t FilterBilinear = 1;
 constexpr std::uint32_t FilterAnisoBilinear = 3;
+constexpr std::uint32_t ReductionMin = 1;
 constexpr std::array<std::uint8_t, 4> Red{0, 64, 128, 255};
 
 alignas(256) std::array<float, Threads * 3> Input{};
@@ -53,6 +54,7 @@ struct Sampler {
     std::uint32_t clamp;
     std::uint32_t filter;
     std::uint32_t border = BorderBlack;
+    std::uint32_t reduction = 0;
 };
 
 std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
@@ -73,7 +75,7 @@ std::array<std::uint32_t, 8> TextureDescriptor(std::uint32_t format) {
 
 std::array<std::uint32_t, 4> SamplerDescriptor(const Sampler& sampler) {
     return {
-        sampler.clamp | (sampler.clamp << 3u) | (ClampEdge << 6u) | (LessEqual << 12u),
+        sampler.clamp | (sampler.clamp << 3u) | (ClampEdge << 6u) | (LessEqual << 12u) | (sampler.reduction << 29u),
         0u,
         (sampler.filter << 20u) | (sampler.filter << 22u),
         sampler.border << 30u,
@@ -214,6 +216,7 @@ int main() {
         Reject(*device, Format8888UNorm, {ClampHalfBorder, FilterPoint}, "wrap, clamp-to-edge or clamp-to-border");
         Reject(*device, Format8888UNorm, {ClampBorder, FilterPoint, BorderTable}, "border color table");
         Reject(*device, Format8888UNorm, {ClampEdge, FilterAnisoBilinear}, "point or bilinear");
+        Reject(*device, Format8888UNorm, {ClampEdge, FilterBilinear, BorderBlack, ReductionMin}, "min or max reduction");
         std::puts("emulated color compare tests passed");
         return 0;
     } catch (const std::exception& error) {

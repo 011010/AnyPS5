@@ -64,7 +64,7 @@ namespace ShaderRecompiler::ShaderDiskCache {
 
 #if defined(__linux__) && defined(__x86_64__) && defined(__GLIBCXX__)
 static_assert(sizeof(RecompileResult) == 176, "RecompileResult changed: update EncodeResult and DecodeResult");
-static_assert(sizeof(DescriptorBinding) == 384, "DescriptorBinding changed: update the binding encoder");
+static_assert(sizeof(DescriptorBinding) == 408, "DescriptorBinding changed: update the binding encoder");
 static_assert(sizeof(VertexAttribute) == 28, "VertexAttribute changed: update the attribute encoder");
 static_assert(sizeof(FragmentParameter) == 12, "FragmentParameter changed: update the parameter encoder");
 static_assert(sizeof(CompiledShaderInfo) == 304, "CompiledShaderInfo changed: update the info encoder");
@@ -253,6 +253,7 @@ void encodeBinding(Writer& writer, const DescriptorBinding& binding) {
     writer.Flags(binding.bufferWritten);
     writer.Flags(binding.samplerUnnormalized);
     writer.Flags(binding.imageUnnormalized);
+    writer.Values(std::span<const std::uint32_t>(binding.imageSamplers));
 }
 
 void decodeBinding(Reader& reader, DescriptorBinding& binding) {
@@ -274,6 +275,7 @@ void decodeBinding(Reader& reader, DescriptorBinding& binding) {
     reader.Flags(binding.bufferWritten);
     reader.Flags(binding.samplerUnnormalized);
     reader.Flags(binding.imageUnnormalized);
+    reader.Values(binding.imageSamplers);
 }
 
 void encodeResult(Writer& writer, const RecompileResult& result) {

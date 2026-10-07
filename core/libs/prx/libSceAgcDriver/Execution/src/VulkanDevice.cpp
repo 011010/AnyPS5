@@ -204,6 +204,7 @@ struct VulkanDevice::State {
     bool depthRangeUnrestricted = false;
     bool samplerAnisotropy = false;
     bool textureCompressionBC = false;
+    bool samplerFilterMinmax = false;
     // VK_KHR_timeline_semaphore enabled: the recorder's unlocked waits are available.
     bool timelineSemaphores = false;
     bool computeWave32 = false;
@@ -763,6 +764,13 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     // drops those writes instead of faulting the device.
     const bool imageRobustness = hasExtension(VK_EXT_IMAGE_ROBUSTNESS_EXTENSION_NAME);
     if (imageRobustness) deviceExtensions.push_back(VK_EXT_IMAGE_ROBUSTNESS_EXTENSION_NAME);
+    if (hasExtension(VK_EXT_SAMPLER_FILTER_MINMAX_EXTENSION_NAME)) {
+        VkPhysicalDeviceSamplerFilterMinmaxPropertiesEXT minmaxProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_FILTER_MINMAX_PROPERTIES_EXT};
+        VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &minmaxProperties};
+        state->InstanceFunction<PFN_vkGetPhysicalDeviceProperties2>("vkGetPhysicalDeviceProperties2")(selected, &properties);
+        state->samplerFilterMinmax = minmaxProperties.filterMinmaxSingleComponentFormats == VK_TRUE && minmaxProperties.filterMinmaxImageComponentMapping == VK_TRUE;
+        if (state->samplerFilterMinmax) deviceExtensions.push_back(VK_EXT_SAMPLER_FILTER_MINMAX_EXTENSION_NAME);
+    }
     // Indirect draws with a GPU-side count (DRAW_INDIRECT_MULTI with count_indirect); a device
     // without it resolves such draws on the CPU.
     state->drawIndirectCount = hasExtension(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME);
@@ -2341,6 +2349,10 @@ bool VulkanDevice::PrimitiveListRestart() const {
     return state->primitiveListRestart;
 }
 
+bool VulkanDevice::SamplerFilterMinmax() const {
+    return state->samplerFilterMinmax;
+}
+
 Graphics::Context VulkanDevice::graphicsContext() const {
     static const bool noCache = std::getenv("APS5_NO_CONTEXT_CACHE") != nullptr;
     if (state->contextReady && !noCache) return state->context;
@@ -2383,6 +2395,7 @@ Graphics::Context VulkanDevice::buildContext() const {
     context.multiDrawIndirect = state->multiDrawIndirect;
     context.depthBounds = state->depthBounds;
     context.depthBiasClamp = state->depthBiasClamp;
+    context.samplerFilterMinmax = state->samplerFilterMinmax;
     context.drawIndirectCount = state->drawIndirectCount;
     context.occlusionQueryPrecise = state->occlusionQueryPrecise;
     context.emptyBuffer = state->emptyBuffer ? state->emptyBuffer->Handle() : VK_NULL_HANDLE;

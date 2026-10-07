@@ -536,6 +536,7 @@ std::uint32_t emulatedCompareState(const IrResourcePlan& plan, const ResourceSna
         const auto clampY = (words[0] >> 3u) & 0x7u;
         const auto function = (words[0] >> 12u) & 0x7u;
         const bool unnormalized = ((words[0] >> 15u) & 0x1u) != 0u;
+        if (((words[0] >> 29u) & 0x3u) != 0u) throw std::runtime_error("comparison sampling of a color texture through a min or max reduction sampler is not implemented");
         const auto lodBias = words[2] & 0x3fffu;
         const auto magFilter = (words[2] >> 20u) & 0x3u;
         const auto minFilter = (words[2] >> 22u) & 0x3u;

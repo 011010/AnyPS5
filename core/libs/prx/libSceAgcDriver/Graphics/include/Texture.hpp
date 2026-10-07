@@ -75,6 +75,7 @@ public:
     // The layout the image is kept in while sampled.
     VkImageLayout Layout() const { return layout; }
     VkDeviceSize AllocationBytes() const { return allocationBytes; }
+    VkFormat ViewFormat() const { return viewFormat; }
     // Whether this texture is a view of a storage image (no snapshot of its own).
     bool ViewsStorageImage() const { return storageSource != nullptr; }
     const StorageTexture* StorageSource() const { return storageSource.get(); }
@@ -100,6 +101,7 @@ private:
     ViewRange firstLayerRange{};
     VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VkDeviceSize allocationBytes = 0;
+    VkFormat viewFormat = VK_FORMAT_UNDEFINED;
     std::shared_ptr<ResidentColor> source;
     std::shared_ptr<StorageTexture> storageSource;
     std::unique_ptr<CommandBatch> upload;

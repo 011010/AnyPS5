@@ -240,6 +240,34 @@ UnnormalizedProof ProveUnnormalized(const ShaderInfo& info, const ResourceSnapsh
     return proof;
 }
 
+std::vector<std::uint32_t> SamplerElements(const IrBindingLayout& layout, const ShaderInfo& info) {
+    std::vector<std::uint32_t> elements(info.samplers.size(), ShaderInfo::MaxSamplers);
+    for (const IrDescriptorBinding& logical : layout.descriptors) {
+        if (logical.kind != DescriptorBindingKind::Samplers) {
+            continue;
+        }
+        for (std::uint32_t element = 0; element < logical.resources.size() && element < ShaderInfo::MaxSamplers; element++) {
+            elements.at(logical.resources[element]) = element;
+        }
+    }
+    return elements;
+}
+
+std::uint32_t ImageSamplerMask(const ShaderInfo& info, const std::vector<std::uint32_t>& samplerElements, std::uint32_t resource) {
+    const std::uint32_t root = info.images.at(resource).indirectRoot;
+    std::uint32_t mask = 0;
+    for (const SampledResourcePair& pair : info.sampledPairs) {
+        if (pair.image != resource && pair.image != root) {
+            continue;
+        }
+        if (pair.sampler >= samplerElements.size() || samplerElements[pair.sampler] >= ShaderInfo::MaxSamplers) {
+            fail("DescriptorBindingBuilder::Populate sampled image pair names a sampler outside the first " + std::to_string(ShaderInfo::MaxSamplers) + " elements of the sampler binding");
+        }
+        mask |= 1u << samplerElements[pair.sampler];
+    }
+    return mask;
+}
+
 std::vector<std::uint32_t> ShaderDataDwordsFor(const IrBindingLayout& layout, std::uint32_t userDataBase, const ResourceSnapshot& snapshot, const std::array<std::uint32_t, 3>& partialThreads) {
     std::vector<std::uint32_t> result(layout.ShaderDataDwords(), 0u);
     for (std::size_t i = 0; i < layout.userDataRegisters.size(); i++) {
@@ -260,6 +288,15 @@ std::vector<std::uint32_t> ShaderDataDwordsFor(const IrBindingLayout& layout, st
 
 }
 
+std::uint32_t PointFilteredSamplerWord(std::uint32_t word0, std::uint32_t filter) {
+    const bool reduced = ((word0 >> 29u) & 3u) != 0u;
+    if (reduced && (((filter >> 20u) & 0xfu) != 0u || ((filter >> 26u) & 3u) == 2u)) {
+        fail("DescriptorBindingBuilder: a min or max reduction sampler that filters between texels or mip levels samples an image that needs point filtering (sint, converted or depth-bits format), which is not implemented");
+    }
+    const bool mipmapped = ((filter >> 26u) & 3u) != 0u;
+    return (filter & ~(0xffu << 20u)) | (1u << 24u) | (mipmapped ? 1u << 26u : 0u);
+}
+
 void DescriptorBindingBuilder::Populate(BindingAllocationResult& allocation, const IrProgram& program, const ResourceSnapshot& snapshot, const std::array<std::uint32_t, 3>& partialThreads) const {
     Populate(allocation, program.Info(), program.Resources().stage, program.Resources().userDataBase, snapshot, partialThreads);
 }
@@ -268,6 +305,7 @@ void DescriptorBindingBuilder::Populate(BindingAllocationResult& allocation, con
     const IrBindingLayout& layout = allocation.layout;
     const std::vector<std::uint32_t> shaderData = ShaderDataDwordsFor(layout, userDataBase, snapshot, partialThreads);
     const UnnormalizedProof unnormalized = ProveUnnormalized(info, snapshot);
+    const std::vector<std::uint32_t> samplerElements = SamplerElements(layout, info);
 
     std::vector<DescriptorBinding> bindings;
     bindings.reserve(layout.descriptors.size());
@@ -305,6 +343,7 @@ void DescriptorBindingBuilder::Populate(BindingAllocationResult& allocation, con
                 physical.imageDepthCompare.push_back(image.depthCompare);
                 physical.imageAtomic.push_back(image.atomic);
                 physical.imageUnnormalized.push_back(unnormalized.images.at(resource));
+                physical.imageSamplers.push_back(ImageSamplerMask(info, samplerElements, resource));
             }
             break;
         case DescriptorRole::GuestSamplers:
@@ -315,8 +354,7 @@ void DescriptorBindingBuilder::Populate(BindingAllocationResult& allocation, con
                 physical.samplerUnnormalized.push_back(unnormalized.samplers.at(logical.resources[element]));
                 if (sampler.forcePointFiltering) {
                     auto& filter = physical.guestDescriptor.at(element * 4u + 2u);
-                    const bool mipmapped = ((filter >> 26u) & 3u) != 0u;
-                    filter = (filter & ~(0xffu << 20u)) | (1u << 24u) | (mipmapped ? 1u << 26u : 0u);
+                    filter = PointFilteredSamplerWord(physical.guestDescriptor.at(element * 4u), filter);
                 }
             }
             break;
