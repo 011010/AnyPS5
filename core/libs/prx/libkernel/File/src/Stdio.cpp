@@ -405,6 +405,15 @@ int APS5_VABI sceKernelFsync(int fd) {
 #endif
 }
 
+int APS5_VABI sceKernelWriteThrottlingStatus(std::uint64_t* status) {
+    if (status == nullptr) throw std::invalid_argument("sceKernelWriteThrottlingStatus: status is null");
+    status[0] = std::numeric_limits<std::uint32_t>::max();
+    status[1] = 0;
+    status[2] = 0;
+    status[3] = 0;
+    return 0;
+}
+
 #ifdef _WIN32
 
 int APS5_VABI sceKernelGetdirentries(int fd, char* buf, int nbytes, int64_t* basep) {
