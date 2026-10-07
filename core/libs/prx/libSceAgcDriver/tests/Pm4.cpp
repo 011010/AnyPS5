@@ -677,6 +677,21 @@ void submitWords(std::vector<std::uint32_t>& words, std::uint32_t queue = 0) {
     check((queue == 0 ? sceAgcDriverSubmitDcb(&packet) : sceAgcDriverSubmitAcb(queue, &packet)) == 0, "conditional submission failed");
 }
 
+void testRegisterListsReadAtSubmission() {
+    alignas(8) static std::uint32_t gate = 0;
+    static std::uint32_t done = 0;
+    static std::array<std::uint32_t, 2> registers{0x10, 74};
+    auto words = joinPackets({
+        makePacket(0x3c, {0x13, low(&gate), high(&gate), 1, 0xffffffffu, 0x19}),
+        makePacket(0x9f, {low(registers.data()), high(registers.data()), 0x80000000, 1}),
+        writeWord(done, 1)});
+    submitWords(words);
+    registers[0] = 0x3a888889;
+    std::atomic_ref<std::uint32_t>(gate).store(1);
+    AgcDriverWaitIdle_nid_postfix();
+    check(std::atomic_ref<std::uint32_t>(done).load() == 1, "register list rewritten after submission was read by the worker");
+}
+
 void testConditionalSubmission() {
     alignas(8) static std::uint32_t zero = 0, one = 1, condition = 0;
     static std::array<std::uint32_t, 16> results{};
@@ -946,6 +961,7 @@ int main(int argc, char** argv) {
         testPredication();
         testUnwrittenUserData();
         testDriverSubmission();
+        testRegisterListsReadAtSubmission();
         testPredicatedSubmission();
         testConditionalSubmission();
         testBranchSubmission();
