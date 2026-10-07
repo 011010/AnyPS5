@@ -330,6 +330,7 @@ int32_t APS5_VABI _sceFiberInitializeImpl_nid_postfix(FiberObject* object, const
     if (addr_context == nullptr) return SCE_FIBER_ERROR_INVALID;
     if (size_context < FIBER_MIN_CONTEXT_SIZE) return SCE_FIBER_ERROR_RANGE;
     auto* fiber = reinterpret_cast<Fiber*>(object);
+    if (fiber->magic == FIBER_MAGIC) UnpinStack(fiber->context, fiber->contextSize);
     std::memset(object, 0, FIBER_OBJECT_SIZE);
     fiber->magic = FIBER_MAGIC;
     fiber->state.store(FiberState::Idle, std::memory_order_relaxed);
