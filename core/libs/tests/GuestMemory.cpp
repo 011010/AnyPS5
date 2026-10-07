@@ -36,6 +36,7 @@
 extern "C" {
 void* APS5_VABI mmap_nid_postfix(void*, std::size_t, int, int, int, std::int64_t) noexcept;
 int APS5_VABI munmap_nid_postfix(void*, std::size_t) noexcept;
+int APS5_VABI mprotect_nid_postfix(void*, std::size_t, int) noexcept;
 int* APS5_VABI __error_nid_postfix();
 int APS5_VABI sceKernelMapNamedFlexibleMemory(void**, std::size_t, int, int, const char*);
 int APS5_VABI sceKernelMapNamedFlexibleMemoryInternal(void**, std::size_t, int, int, const char*);
@@ -1098,6 +1099,20 @@ int main() {
         GuestAllocations::Mutation mutation;
         const auto range = mutation.Find(memory);
         Require(range.bytes == page * 3 && range.readable && range.writable);
+    }
+    Require(mprotect_nid_postfix(memory, 0, 1) == 0);
+    Require(mprotect_nid_postfix(nullptr, page, 1) == -1 && *__error_nid_postfix() == 22);
+    Require(mprotect_nid_postfix(memory + 1, 1, 1) == 0);
+    {
+        GuestAllocations::Mutation mutation;
+        const auto range = mutation.Find(memory);
+        Require(range.readable && !range.writable);
+    }
+    Require(memory[0] == 42);
+    Require(mprotect_nid_postfix(memory, page, 3) == 0);
+    {
+        GuestAllocations::Mutation mutation;
+        Require(mutation.Find(memory).writable);
     }
     Require(munmap_nid_postfix(memory + 1, page) == -1 && *__error_nid_postfix() == 22);
     Require(munmap_nid_postfix(memory, 0) == -1 && *__error_nid_postfix() == 22);
