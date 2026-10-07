@@ -1,7 +1,10 @@
 #include <relinker/output/SysVDynamicSectionBuilder.hpp>
+#include <elfpatcher/general/ElfConstants.hpp>
 #include <cstring>
 
 namespace Relinker {
+
+using namespace Elfpatcher;
 
 void SysVDynamicSectionBuilder::_appendU64(std::vector<std::uint8_t>& buf, std::uint64_t v) const {
     std::size_t pos = buf.size();

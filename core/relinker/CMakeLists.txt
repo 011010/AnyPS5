@@ -269,6 +269,7 @@ if(BUILD_TESTING)
     )
     target_include_directories(strict_nid_filter_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/domain/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/include
         ${CMAKE_CURRENT_SOURCE_DIR}/codegen/include
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/include
     )
