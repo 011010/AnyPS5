@@ -2713,15 +2713,20 @@ void keysFillTests(const Device& device, Recorder& recorder) {
             }
             return true;
         };
+        const auto fill = [&](std::uint8_t key) {
+            recorder.Sync();
+            std::memset(keys, key, keyCount);
+            return StorageTexture::NoteKeysFill(keysAddress, keyCount, key);
+        };
         Require(holds({0, 0, 0, 0}), "a surface under 0000 keys was not cleared");
         draw({{1.0f, 0.0f, 0.0f, 1.0f}});
-        Require(StorageTexture::NoteKeysFill(keysAddress, keyCount, 0x00) == 1, "a 0000 key fill did not cover the surface");
+        Require(fill(0x00) == 1, "a 0000 key fill did not cover the surface");
         Require(image->FilledKeys() == DccKeys::Clear0000, "a key fill over pending results was not recorded");
         image->Refresh();
         Require(holds({0, 0, 0, 0}), "a key fill did not clear the results made before it at the next refresh");
         Require(image->FilledKeys() == DccKeys::Uncompressed, "the image cleared by a refresh still holds the fill");
         draw({{0.0f, 0.0f, 1.0f, 1.0f}});
-        Require(StorageTexture::NoteKeysFill(keysAddress, keyCount, 0x00) == 1, "a second 0000 key fill did not cover the surface");
+        Require(fill(0x00) == 1, "a second 0000 key fill did not cover the surface");
 #ifdef _WIN32
         _putenv_s("APS5_KEYS_FILL_CLEAR", "1");
 #else
