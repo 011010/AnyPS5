@@ -85,6 +85,7 @@ SysVDynamicSection SysVDynamicSectionBuilder::BuildDynamicSection(
     std::vector<const NidReference*> nonPltRefs;
 
     for (const auto& ref : nidReferences) {
+        if (!ref.Library.empty()) result.ImportModules.emplace(ref.RelocationAddress, ref.Library);
         std::uint32_t relType = ref.RelocationTypeValue;
         if (relType == 0) relType = R_X86_64_JUMP_SLOT;
 
