@@ -96,7 +96,7 @@ struct SpirvEmitterState {
     bool tableIndexNonUniform = true;
     std::uint32_t storageBufferVariable = 0;
     std::uint32_t storageBufferU64Variable = 0;
-    std::array<std::uint32_t, ShaderInfo::MaxBuffers> memoryByteOffsets {};
+    std::vector<std::uint32_t> memoryByteOffsets;
     std::uint32_t bdaPagetableVariable = 0;
     std::uint32_t faultBufferVariable = 0;
     std::uint32_t bdaPointerFunction = 0;
