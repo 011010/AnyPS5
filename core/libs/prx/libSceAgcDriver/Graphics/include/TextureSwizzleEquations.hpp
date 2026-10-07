@@ -6,7 +6,7 @@
 
 namespace AgcDriver::Graphics {
 
-// Address equations of the 64 KiB XOR swizzle modes (SW_64KB_Z_X, S_X, D_X, R_X), the display, T and 4 KiB XOR modes for the PS5 GPU, a
+// Address equations of the 64 KiB XOR swizzle modes (SW_64KB_Z_X, S_X, D_X, R_X) for the PS5 GPU, a
 // Navi1x-class part with 16 pipes. Generated from AMD addrlib's GFX10 non-RB+ swizzle pattern tables
 // (the 32 bpp R_X entry reproduces the scanout layout in ColorTargetLayout).
 // Each entry gives, for byte-address bit 0..15 inside a block, the element-coordinate bits XORed into it:
