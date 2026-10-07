@@ -12,23 +12,6 @@ namespace ShaderRecompiler
 {
 namespace {
 
-    const ShaderWorkgroupInputInfo* ShaderWorkgroupInput(const SpirvEmitterState& state) {
-        switch (state.program.Resources().stage) {
-        case IrShaderStage::Compute:
-            if (state.inputInfo.compute == nullptr) {
-                FailEmit("compute input info is missing");
-            }
-            return state.inputInfo.compute;
-        case IrShaderStage::Mesh:
-            if (state.inputInfo.vertex == nullptr) {
-                FailEmit("vertex input info is missing");
-            }
-            return &state.inputInfo.vertex->mesh;
-        default:
-            return nullptr;
-        }
-    }
-
     void EnsureLdsStorage(SpirvEmitterState& state) {
         if (state.ldsVariable != 0) {
             return;
