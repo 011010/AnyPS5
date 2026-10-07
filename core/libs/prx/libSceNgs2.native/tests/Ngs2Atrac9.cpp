@@ -208,8 +208,13 @@ static void TestParsePcm() {
 
     auto truncated = file;
     truncated.resize(44 + 202);
-    Require(sceNgs2ParseWaveformData(truncated.data(), truncated.size(), &info) == SCE_NGS2_OK);
-    Require(info.data_size == 200 && info.num_samples == 50);
+    Require(sceNgs2ParseWaveformData(truncated.data(), truncated.size(), &info) == SCE_NGS2_ERROR_INVALID_WAVEFORM_DATA);
+
+    auto partialFrame = PcmFile(2, 44100, 16, 100);
+    partialFrame.resize(44 + 402, 0x11);
+    const std::uint32_t partialSize = 402;
+    std::memcpy(partialFrame.data() + 40, &partialSize, sizeof(partialSize));
+    Require(sceNgs2ParseWaveformData(partialFrame.data(), partialFrame.size(), &info) == SCE_NGS2_ERROR_INVALID_WAVEFORM_DATA);
 
     const auto eightBit = PcmFile(1, 44100, 8, 10);
     Require(sceNgs2ParseWaveformData(eightBit.data(), eightBit.size(), &info) == SCE_NGS2_ERROR_INVALID_WAVEFORM_FORMAT);
@@ -222,20 +227,19 @@ static void TestParseFile() {
     const auto path = std::filesystem::temp_directory_path() / "aps5_ngs2_parse_file.wav";
     {
         std::ofstream out(path, std::ios::binary);
-        out.write("", 3);
+        const char pad[3]{};
+        out.write(pad, sizeof(pad));
         out.write(reinterpret_cast<const char*>(wave.data()), static_cast<std::streamsize>(wave.size()));
     }
     const auto name = path.string();
     Ngs2WaveformInfo info{};
-    Require(sceNgs2ParseWaveformFile(name.c_str(), 3, 0, nullptr) == SCE_NGS2_ERROR_INVALID_OUT_ADDRESS);
-    Require(sceNgs2ParseWaveformFile(nullptr, 0, 0, &info) == SCE_NGS2_ERROR_INVALID_WAVEFORM_DATA);
-    Require(sceNgs2ParseWaveformFile(name.c_str(), 3, 0, &info) == SCE_NGS2_OK);
+    Require(sceNgs2ParseWaveformFile(name.c_str(), 3, nullptr) == SCE_NGS2_ERROR_INVALID_OUT_ADDRESS);
+    Require(sceNgs2ParseWaveformFile(nullptr, 0, &info) == SCE_NGS2_ERROR_INVALID_WAVEFORM_DATA);
+    Require(sceNgs2ParseWaveformFile(name.c_str(), 3, &info) == SCE_NGS2_OK);
     Require(info.format.num_channels == 1 && info.format.sample_rate == 22050 && info.num_samples == 64);
     Require(info.data_offset == 3 + 44 && info.block[0].data_offset == 3 + 44 && info.data_size == 128);
-    Require(sceNgs2ParseWaveformFile(name.c_str(), 3, static_cast<std::uint32_t>(wave.size()), &info) == SCE_NGS2_OK);
-    Require(sceNgs2ParseWaveformFile(name.c_str(), 3, static_cast<std::uint32_t>(wave.size()) + 1, &info) == SCE_NGS2_ERROR_INVALID_WAVEFORM_DATA);
-    Require(sceNgs2ParseWaveformFile(name.c_str(), static_cast<std::uint32_t>(wave.size()) + 4, 0, &info) == SCE_NGS2_ERROR_INVALID_WAVEFORM_DATA);
-    Require(sceNgs2ParseWaveformFile(name.c_str(), 0, 0, &info) == SCE_NGS2_ERROR_UNKNOWN_WAVEFORM_FORMAT);
+    Require(sceNgs2ParseWaveformFile(name.c_str(), static_cast<std::uint32_t>(wave.size()) + 4, &info) == SCE_NGS2_ERROR_INVALID_WAVEFORM_DATA);
+    Require(sceNgs2ParseWaveformFile(name.c_str(), 0, &info) == SCE_NGS2_ERROR_UNKNOWN_WAVEFORM_FORMAT);
     std::filesystem::remove(path);
 }
 

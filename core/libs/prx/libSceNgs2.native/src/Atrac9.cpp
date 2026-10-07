@@ -195,7 +195,8 @@ static int ParsePcm16(const RiffChunks& chunks, std::size_t size, Ngs2WaveformIn
         return SCE_NGS2_ERROR_INVALID_WAVEFORM_FORMAT;
     }
     if (chunks.sampler != nullptr && chunks.samplerSize >= 32 && ReadLe32(chunks.sampler + 28) != 0) throw std::runtime_error("NGS2: parsing looped waveforms is not implemented");
-    const std::size_t dataSize = std::min<std::size_t>(chunks.dataSize, size - chunks.dataOffset) / bytesPerFrame * bytesPerFrame;
+    if (chunks.dataSize > size - chunks.dataOffset || chunks.dataSize % bytesPerFrame != 0) return SCE_NGS2_ERROR_INVALID_WAVEFORM_DATA;
+    const std::size_t dataSize = chunks.dataSize;
     info.format = {SCE_NGS2_WAVEFORM_TYPE_PCM_I16L, channels, sampleRate, 0, 0, 0};
     info.data_offset = static_cast<std::uint32_t>(chunks.dataOffset);
     info.data_size = static_cast<std::uint32_t>(dataSize);
@@ -232,7 +233,7 @@ int APS5_VABI sceNgs2ParseWaveformData(const void* data, size_t data_size, Ngs2W
     throw std::runtime_error("NGS2: parsing waveform format tag " + Ngs2Hex(tag) + " is not implemented");
 }
 
-int APS5_VABI sceNgs2ParseWaveformFile(const char* path, uint32_t offset, uint32_t size, Ngs2WaveformInfo* info) {
+int APS5_VABI sceNgs2ParseWaveformFile(const char* path, uint32_t offset, Ngs2WaveformInfo* info) {
     if (info == nullptr) return SCE_NGS2_ERROR_INVALID_OUT_ADDRESS;
     *info = {};
     if (path == nullptr) return SCE_NGS2_ERROR_INVALID_WAVEFORM_DATA;
@@ -241,8 +242,7 @@ int APS5_VABI sceNgs2ParseWaveformFile(const char* path, uint32_t offset, uint32
     if (!file) throw std::runtime_error(std::string(__func__) + ": cannot open " + host.string());
     const auto fileSize = static_cast<std::uint64_t>(file.tellg());
     if (offset > fileSize) return SCE_NGS2_ERROR_INVALID_WAVEFORM_DATA;
-    const std::uint64_t length = size != 0 ? size : fileSize - offset;
-    if (length > fileSize - offset) return SCE_NGS2_ERROR_INVALID_WAVEFORM_DATA;
+    const std::uint64_t length = fileSize - offset;
     std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length));
     file.seekg(offset);
     if (!file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()))) throw std::runtime_error(std::string(__func__) + ": read failed for " + host.string());
