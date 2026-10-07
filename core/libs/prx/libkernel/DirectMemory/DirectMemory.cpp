@@ -199,8 +199,8 @@ int LinuxProtFromSce(int prot) {
         throw std::invalid_argument("Unsupported memory protection bits: " + std::to_string(prot));
     }
     int result = PROT_NONE;
-    if (prot & 0x13) result |= PROT_READ;
-    if (prot & 0x22) result |= PROT_READ | PROT_WRITE;
+    if (prot & 0x113) result |= PROT_READ;
+    if (prot & 0x222) result |= PROT_READ | PROT_WRITE;
     if (prot & 4) result |= PROT_READ | PROT_EXEC;
     return result;
 }
