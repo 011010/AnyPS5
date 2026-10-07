@@ -138,6 +138,7 @@ struct Context {
     bool primitiveListRestart = false;
     bool imageViewMinLod = false;
     bool pipelineExecutableInfo = false;
+    std::uint32_t srgbDecodeFormats = 0;
 
     template<typename TFunction>
     TFunction Function(const char* name) const {

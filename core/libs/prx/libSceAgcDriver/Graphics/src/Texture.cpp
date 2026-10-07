@@ -229,7 +229,7 @@ Texture::Texture(const Context& context, TextureDetiler& detiler, const GuestTex
     static const bool profile = std::getenv("APS5_PROFILE_DRAW") != nullptr;
     PhaseTimer timer;
     try {
-        const auto colorFormat = ResolveTextureFormat(descriptor.format);
+        const auto colorFormat = SampledTextureFormat(context, descriptor.format);
         Require(!depthCompare || colorFormat == VK_FORMAT_R32_SFLOAT || colorFormat == VK_FORMAT_R16_UNORM, "comparison sampling requires an R32 float or R16 unorm depth texture");
         Require(!depthCompare || descriptor.dimension != TextureDimension::k3D, "comparison sampling does not support 3D depth textures");
         const auto vkFormat = depthCompare ? (colorFormat == VK_FORMAT_R32_SFLOAT ? VK_FORMAT_D32_SFLOAT : VK_FORMAT_D16_UNORM) : colorFormat;
@@ -456,7 +456,7 @@ Texture::Texture(const Context& context, const std::shared_ptr<StorageTexture>& 
     PhaseTimer timer;
     try {
         Require(source != nullptr && CanCopyFrom(*source, descriptor), "storage image does not match the sampled texture");
-        const auto vkFormat = ResolveTextureFormat(descriptor.format);
+        const auto vkFormat = SampledTextureFormat(context, descriptor.format);
         const auto geometry = DescribeSurface(descriptor);
         APS5_LOG_OUT("Texture address=0x%llx %ux%u mips=%u viewed from storage image (vk=%d)", static_cast<unsigned long long>(descriptor.baseAddress), descriptor.width, descriptor.height, descriptor.mipCount, static_cast<int>(vkFormat));
         // Storage images stay in the general layout; the view samples them there.

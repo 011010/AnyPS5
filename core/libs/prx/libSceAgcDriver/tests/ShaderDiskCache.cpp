@@ -162,6 +162,7 @@ CompiledVariant sampleVariant() {
     image.mipCount = 4;
     image.shaderSwizzle = 0x321u;
     image.written = true;
+    image.srgbDecode = true;
     image.cube = true;
     image.r128 = true;
     image.indirectRoot = 0;
@@ -329,6 +330,7 @@ void verifyKeySensitivity() {
     changes("an extension", [](SampleRequest& sample) { sample.extensions[0] = "SPV_KHR_storage_buffer_storage_clasS"; });
     changes("barycentrics", [](SampleRequest& sample) { sample.request.target.fragmentShaderBarycentricEnabled = true; });
     changes("non-constant texel offsets", [](SampleRequest& sample) { sample.request.target.nonConstantImageOffsets = true; });
+    changes("the sRGB formats decoded in the shader", [](SampleRequest& sample) { sample.request.target.srgbDecodeFormats = 2u; });
     changes("the workgroup size limit", [](SampleRequest& sample) { sample.request.target.maxWorkgroupSize[2] = 128; });
     changes("the invocation limit", [](SampleRequest& sample) { sample.request.target.maxWorkgroupInvocations = 512; });
     changes("the shared memory limit", [](SampleRequest& sample) { sample.request.target.maxWorkgroupSharedMemoryBytes = 32768; });
@@ -351,6 +353,7 @@ void verifyKeySensitivity() {
     changes("an image search depth", [](SampleRequest& sample) { sample.specialization.images[0].indirectSearchIterations = 2; });
     changes("an image cube flag", [](SampleRequest& sample) { sample.specialization.images[0].cube = true; });
     changes("an image FMASK flag", [](SampleRequest& sample) { sample.specialization.images[0].fmask = true; });
+    changes("an image sRGB decode", [](SampleRequest& sample) { sample.specialization.images[0].srgbDecode = true; });
     changes("the image count", [](SampleRequest& sample) { sample.specialization.images.emplace_back(); });
     changes("the bound descriptors", [](SampleRequest& sample) { sample.specialization.boundDescriptors.push_back(1); });
 
