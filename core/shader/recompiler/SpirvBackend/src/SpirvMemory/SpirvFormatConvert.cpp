@@ -15,10 +15,6 @@ namespace ShaderRecompiler
 {
 namespace {
 
-    [[noreturn]] void FailEmit(const std::string& reason) {
-        throw std::runtime_error("SPIR-V module emission failed: " + reason);
-    }
-
     std::uint32_t UnormToF32Bits(SpirvEmitterState& state, std::uint32_t value, std::uint32_t bits) {
         const std::uint32_t maximum = (1u << bits) - 1u;
         const auto zero = EmitCompareU32Constant(state, spv::OpIEqual, value, 0u);
