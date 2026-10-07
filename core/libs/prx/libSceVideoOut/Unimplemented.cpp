@@ -17,4 +17,13 @@ int APS5_VABI sceVideoOutColorSettingsSetGamma_(VideoOutColorSettings* settings,
     return sceVideoOutColorSettingsSetGamma(settings, gamma);
 }
 
+int APS5_VABI sceVideoOutVrrPegToFixedRate() {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+int APS5_VABI sceVideoOutVrrUnpegFromFixedRate() {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
 }
