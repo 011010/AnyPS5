@@ -49,6 +49,8 @@ void Ngs2Voice::ResetSetup() {
     std::fill(ports.begin(), ports.end(), Ngs2Port{});
     for (auto& matrix : matrices) matrix.clear();
     filters.clear();
+    fbwLevel = 1.0f;
+    lfeLevel = 1.0f;
     channels = 0;
     sampleRate = 0;
     waveformType = 0;
@@ -67,12 +69,6 @@ const std::uint8_t* Ngs2Voice::WaveformData() const {
     const auto& block = blocks.front();
     if (waveformType == SCE_NGS2_WAVEFORM_TYPE_ATRAC9) return block.data + block.dataCursor;
     return block.data + (static_cast<std::size_t>(block.info.num_skip_samples) + block.cursor) * channels * sizeof(std::int16_t);
-}
-
-template <typename TParam>
-static const TParam& ParamAs(const Ngs2VoiceParamHeader& param) {
-    if (param.size < sizeof(TParam)) throw std::invalid_argument("NGS2: voice param " + Ngs2Hex(param.id) + " is too small");
-    return reinterpret_cast<const TParam&>(param);
 }
 
 static Ngs2Port& PortAt(Ngs2Voice& voice, std::uint32_t port) {
@@ -246,6 +242,10 @@ static void ApplyParam(Ngs2Voice& voice, const Ngs2VoiceParamHeader& param) {
         ApplyCommonParam(voice, param);
         return;
     }
+    if (rackId == (SCE_NGS2_CUSTOM_VOICE_PARAM_USER_FX2 >> 16) || rackId == SCE_NGS2_RACK_ID_CUSTOM_SUBMIXER) {
+        Ngs2ApplyCustomParam(voice, param);
+        return;
+    }
     if (rackId != voice.rack->rackId) throw std::invalid_argument("NGS2: voice param " + Ngs2Hex(param.id) + " belongs to another rack");
     switch (rackId) {
         case SCE_NGS2_RACK_ID_SAMPLER: ApplySamplerParam(voice, param); return;
@@ -257,6 +257,13 @@ static void ApplyParam(Ngs2Voice& voice, const Ngs2VoiceParamHeader& param) {
         case SCE_NGS2_RACK_ID_MASTERING:
             if (param.id == SCE_NGS2_MASTERING_VOICE_PARAM_SETUP) {
                 SetupMixer(voice, ParamAs<Ngs2MasteringVoiceSetupParam>(param).num_io_channels);
+                return;
+            }
+            if (param.id == SCE_NGS2_MASTERING_VOICE_PARAM_GAIN) {
+                const auto& gain = ParamAs<Ngs2MasteringVoiceGainParam>(param);
+                if (!std::isfinite(gain.fbw_level) || !std::isfinite(gain.lfe_level)) APS5_INVALID_ARG_EX;
+                voice.fbwLevel = gain.fbw_level;
+                voice.lfeLevel = gain.lfe_level;
                 return;
             }
             if (param.id == SCE_NGS2_MASTERING_VOICE_PARAM_OUTPUT) {
@@ -337,6 +344,33 @@ int APS5_VABI sceNgs2VoiceGetState(uintptr_t voice_handle, Ngs2VoiceState* state
             return SCE_NGS2_OK;
         }
         default: throw std::runtime_error("NGS2: voice state of rack " + Ngs2Hex(voice.rack->rackId) + " is not implemented");
+    }
+}
+
+int APS5_VABI sceNgs2VoiceGetPortInfo(uintptr_t voice_handle, uint32_t port, Ngs2VoicePortInfo* info, size_t info_size) {
+    if (info == nullptr) return SCE_NGS2_ERROR_INVALID_OUT_ADDRESS;
+    if (info_size != sizeof(Ngs2VoicePortInfo)) return SCE_NGS2_ERROR_INVALID_OUT_SIZE;
+    std::lock_guard lock(Ngs2Mutex());
+    auto& voice = CheckedVoice(voice_handle);
+    const auto& source = PortAt(voice, port);
+    *info = {};
+    info->matrix_id = source.matrix;
+    info->volume = source.volume;
+    info->dest_handle = reinterpret_cast<Ngs2Handle>(source.dest);
+    return SCE_NGS2_OK;
+}
+
+int APS5_VABI sceNgs2VoiceQueryInfo(uintptr_t voice_handle, uint32_t info_id, void* info, size_t info_size) {
+    if (info == nullptr) return SCE_NGS2_ERROR_INVALID_OUT_ADDRESS;
+    std::lock_guard lock(Ngs2Mutex());
+    const auto& voice = CheckedVoice(voice_handle);
+    switch (info_id) {
+        case SCE_NGS2_VOICE_INFO_CHANNELS: {
+            if (info_size != sizeof(Ngs2VoiceChannelsInfo)) return SCE_NGS2_ERROR_INVALID_OUT_SIZE;
+            *static_cast<Ngs2VoiceChannelsInfo*>(info) = {voice.channels, 0};
+            return SCE_NGS2_OK;
+        }
+        default: throw std::runtime_error("NGS2: voice info " + Ngs2Hex(info_id) + " is not implemented");
     }
 }
 

@@ -11,7 +11,9 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdio>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -347,6 +349,61 @@ void testWaitFreeSubmissionTheCpuWaitsFor() {
     AgcDriverWaitIdle_nid_postfix();
 }
 
+void testMultiSubmissions() {
+    alignas(64) static volatile std::uint32_t value = 0, done = 0;
+    check(sceAgcDriverSubmitMultiDcbs(nullptr, nullptr, 0) == 0, "empty multi-DCB submit failed");
+    check(sceAgcDriverAgrSubmitMultiDcbs(nullptr, nullptr, 0) == 0, "empty AGR multi-DCB submit failed");
+    std::array<std::uint32_t, 3> invalid{0xc0017600, 0x20c, 0};
+    std::array<std::uint32_t*, 1> invalidAddresses{invalid.data()};
+    std::array<std::uint32_t, 1> invalidSizes{2};
+    expectFailure([&] { sceAgcDriverSubmitMultiDcbs(nullptr, invalidSizes.data(), 1); });
+    expectFailure([&] { sceAgcDriverAgrSubmitMultiDcbs(invalidAddresses.data(), nullptr, 1); });
+    expectFailure([&] { sceAgcDriverSubmitMultiDcbs(invalidAddresses.data(), invalidSizes.data(), 1); });
+    expectFailure([&] { sceAgcDriverAgrSubmitMultiDcbs(invalidAddresses.data(), invalidSizes.data(), 1); });
+    for (bool agr : {false, true}) {
+        value = 0;
+        done = 0;
+        auto first = writeData(&value, 1);
+        auto second = writeData(&value, 2);
+        auto third = writeData(&done, 1);
+        std::array<std::uint32_t*, 3> addresses{first.data(), second.data(), third.data()};
+        std::array<std::uint32_t, 3> sizes{static_cast<std::uint32_t>(first.size()), static_cast<std::uint32_t>(second.size()), static_cast<std::uint32_t>(third.size())};
+        const int result = agr ? sceAgcDriverAgrSubmitMultiDcbs(addresses.data(), sizes.data(), 3) : sceAgcDriverSubmitMultiDcbs(addresses.data(), sizes.data(), 3);
+        check(result == 0, "multi-DCB submit failed");
+        waitFor(&done, 1, "the last DCB of a multi-DCB submit never ran");
+        check(value == 2, "multi-DCB submit did not run its DCBs in order");
+        AgcDriverWaitIdle_nid_postfix();
+    }
+}
+
+void testShaderHeaderAlignment() {
+    alignas(256) static const std::array<std::uint32_t, 64> code{0xbf810000};
+    alignas(8) static std::array<std::byte, 2 * sizeof(Shader)> storage{};
+    Shader shader{};
+    shader.file_header = 0x34333231;
+    shader.version = 0x18;
+    shader.header_size = sizeof(Shader);
+    shader.shader_size = sizeof(code);
+    shader.code = code.data();
+    const auto at = [](std::size_t offset, const Shader& fields) {
+        std::memcpy(storage.data() + offset, &fields, sizeof(fields));
+        return reinterpret_cast<const Shader*>(storage.data() + offset);
+    };
+    for (const std::size_t offset : {0, 4, 1}) AgcDriverRegisterShader_nid_postfix(at(offset, shader));
+    const auto refused = [](const std::string& message, const char* reason) { check(message.find(reason) != std::string::npos, message.c_str()); };
+    refused(expectFailure([] { AgcDriverRegisterShader_nid_postfix(nullptr); }), "null or misaligned address");
+    refused(expectFailure([] { AgcDriverRegisterShader_nid_postfix(reinterpret_cast<const Shader*>(0x1001)); }), "not readable");
+    Shader misplaced = shader;
+    misplaced.code = code.data() + 1;
+    refused(expectFailure([&] { AgcDriverRegisterShader_nid_postfix(at(4, misplaced)); }), "null or misaligned address");
+    Shader older = shader;
+    older.version = 0x17;
+    refused(expectFailure([&] { AgcDriverRegisterShader_nid_postfix(at(1, older)); }), "invalid shader header");
+    Shader truncated = shader;
+    truncated.header_size = sizeof(Shader) - 4;
+    refused(expectFailure([&] { AgcDriverRegisterShader_nid_postfix(at(4, truncated)); }), "smaller than its fixed fields");
+}
+
 void testWorkerFailure() {
     std::array<std::uint32_t, 5> words{0xc0031500, 1, 1, 1, 0x41};
     Packet packet{words.data(), static_cast<std::uint32_t>(words.size()), 0, {}};
@@ -442,6 +499,8 @@ int main() {
         testWaitFreeSubmissionQueue0WaitsOn();
         testWaitFreeSubmissionBehindHeldOne();
         testWaitFreeSubmissionTheCpuWaitsFor();
+        testMultiSubmissions();
+        testShaderHeaderAlignment();
         testWorkerFailure();
         check(expectFailure([] { LibcRunShutdown_nid_postfix(); }).find("required shader register") != std::string::npos, "shutdown lost worker failure");
         std::puts("AGC driver submit tests passed");
