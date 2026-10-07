@@ -1,6 +1,7 @@
 #include "Ngs2Test.hpp"
 
 #include "libatrac9.h"
+#include "prx/libc/include/General.hpp"
 
 #include <cstdint>
 #include <cstring>
@@ -224,22 +225,22 @@ static void TestParsePcm() {
 
 static void TestParseFile() {
     const auto wave = PcmFile(1, 22050, 16, 64);
-    const auto path = std::filesystem::temp_directory_path() / "aps5_ngs2_parse_file.wav";
+    const char* const guestPath = "/aps5_ngs2_parse_file.wav";
+    const auto path = ResolvePath_nid_no_patch(guestPath);
     {
         std::ofstream out(path, std::ios::binary);
         const char pad[3]{};
         out.write(pad, sizeof(pad));
         out.write(reinterpret_cast<const char*>(wave.data()), static_cast<std::streamsize>(wave.size()));
     }
-    const auto name = path.string();
     Ngs2WaveformInfo info{};
-    Require(sceNgs2ParseWaveformFile(name.c_str(), 3, nullptr) == SCE_NGS2_ERROR_INVALID_OUT_ADDRESS);
+    Require(sceNgs2ParseWaveformFile(guestPath, 3, nullptr) == SCE_NGS2_ERROR_INVALID_OUT_ADDRESS);
     Require(sceNgs2ParseWaveformFile(nullptr, 0, &info) == SCE_NGS2_ERROR_INVALID_WAVEFORM_DATA);
-    Require(sceNgs2ParseWaveformFile(name.c_str(), 3, &info) == SCE_NGS2_OK);
+    Require(sceNgs2ParseWaveformFile(guestPath, 3, &info) == SCE_NGS2_OK);
     Require(info.format.num_channels == 1 && info.format.sample_rate == 22050 && info.num_samples == 64);
     Require(info.data_offset == 3 + 44 && info.block[0].data_offset == 3 + 44 && info.data_size == 128);
-    Require(sceNgs2ParseWaveformFile(name.c_str(), static_cast<std::uint32_t>(wave.size()) + 4, &info) == SCE_NGS2_ERROR_INVALID_WAVEFORM_DATA);
-    Require(sceNgs2ParseWaveformFile(name.c_str(), 0, &info) == SCE_NGS2_ERROR_UNKNOWN_WAVEFORM_FORMAT);
+    Require(sceNgs2ParseWaveformFile(guestPath, static_cast<std::uint32_t>(wave.size()) + 4, &info) == SCE_NGS2_ERROR_INVALID_WAVEFORM_DATA);
+    Require(sceNgs2ParseWaveformFile(guestPath, 0, &info) == SCE_NGS2_ERROR_UNKNOWN_WAVEFORM_FORMAT);
     std::filesystem::remove(path);
 }
 
