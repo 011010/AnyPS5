@@ -191,6 +191,7 @@ struct VulkanDevice::State {
     // VK_EXT_descriptor_indexing with non-uniform image array indexing (bindless image tables in
     // graphics stages, and compute workgroups wider than a wave).
     bool descriptorIndexing = false;
+    bool imageInt64Atomics = false;
     bool primitiveListRestart = false;
     bool depthClipControl = false;
     bool imageViewMinLod = false;
@@ -748,6 +749,20 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     atomicInt64Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES_KHR};
     atomicInt64Features.shaderBufferInt64Atomics = VK_TRUE;
     if (bufferInt64Atomics) deviceExtensions.push_back(VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME);
+    VkPhysicalDeviceShaderImageAtomicInt64FeaturesEXT imageAtomicInt64Features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_IMAGE_ATOMIC_INT64_FEATURES_EXT};
+    if (hasExtension(VK_EXT_SHADER_IMAGE_ATOMIC_INT64_EXTENSION_NAME)) {
+        VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &imageAtomicInt64Features};
+        state->InstanceFunction<PFN_vkGetPhysicalDeviceFeatures2>("vkGetPhysicalDeviceFeatures2")(selected, &features);
+    }
+    const bool imageInt64Atomics = imageAtomicInt64Features.shaderImageInt64Atomics == VK_TRUE;
+    imageAtomicInt64Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_IMAGE_ATOMIC_INT64_FEATURES_EXT};
+    imageAtomicInt64Features.shaderImageInt64Atomics = VK_TRUE;
+    if (imageInt64Atomics) {
+        deviceExtensions.push_back(VK_EXT_SHADER_IMAGE_ATOMIC_INT64_EXTENSION_NAME);
+        state->capabilities.push_back(spv::CapabilityInt64ImageEXT);
+        state->imageInt64Atomics = true;
+        state->spirvExtensions.push_back("SPV_EXT_shader_image_int64");
+    }
     deviceExtensions.push_back(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
     state->capabilities.push_back(spv::CapabilitySignedZeroInfNanPreserve);
     state->spirvExtensions.push_back("SPV_KHR_float_controls");
@@ -939,6 +954,10 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     if (bufferInt64Atomics) {
         atomicInt64Features.pNext = byteFeatures.pNext;
         byteFeatures.pNext = &atomicInt64Features;
+    }
+    if (imageInt64Atomics) {
+        imageAtomicInt64Features.pNext = byteFeatures.pNext;
+        byteFeatures.pNext = &imageAtomicInt64Features;
     }
     VkPhysicalDeviceImageRobustnessFeaturesEXT imageRobustnessFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_ROBUSTNESS_FEATURES_EXT, nullptr, VK_TRUE};
     if (imageRobustness) {
@@ -2402,6 +2421,7 @@ Graphics::Context VulkanDevice::buildContext() const {
     context.copiedWriters = state->copiedWriters.get();
     context.functions = state->functionsReady ? &state->deviceFunctions : nullptr;
     context.descriptorIndexing = state->descriptorIndexing;
+    context.imageInt64Atomics = state->imageInt64Atomics;
     context.primitiveListRestart = state->primitiveListRestart;
     context.imageViewMinLod = state->imageViewMinLod;
     context.pipelineExecutableInfo = state->pipelineExecutableInfo;

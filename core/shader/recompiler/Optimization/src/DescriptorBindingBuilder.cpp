@@ -342,6 +342,7 @@ void DescriptorBindingBuilder::Populate(BindingAllocationResult& allocation, con
                 physical.imageWritten.push_back(image.written || image.atomic);
                 physical.imageDepthCompare.push_back(image.depthCompare);
                 physical.imageAtomic.push_back(image.atomic);
+                physical.imageAtomic64.push_back(image.atomic64);
                 physical.imageUnnormalized.push_back(unnormalized.images.at(resource));
                 physical.imageSamplers.push_back(ImageSamplerMask(info, samplerElements, resource));
             }

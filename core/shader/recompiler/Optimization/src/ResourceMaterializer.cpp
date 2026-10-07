@@ -151,7 +151,10 @@ DecodedImage decodeImageDescriptor(const DescriptorValue& descriptor, const Imag
     decoded.dimension = descriptorDimension(descriptor, base.dimension);
     decoded.cube = descriptorIsCube(descriptor);
     const auto format = rawImageFormat(descriptor);
-    if (base.atomic && format != IrBufferFormat::Format32UInt && format != IrBufferFormat::Format32SInt && format != IrBufferFormat::Format32Float) {
+    if (base.atomic64 && format != IrBufferFormat::Format32_32UInt && format != IrBufferFormat::Format32_32SInt && format != IrBufferFormat::Format32_32Float) {
+        throw std::runtime_error("64-bit atomic image descriptor uses an unsupported format " + std::to_string(static_cast<std::uint32_t>(format)));
+    }
+    if (base.atomic && !base.atomic64 && format != IrBufferFormat::Format32UInt && format != IrBufferFormat::Format32SInt && format != IrBufferFormat::Format32Float) {
         throw std::runtime_error("atomic image descriptor uses an unsupported format " + std::to_string(static_cast<std::uint32_t>(format)));
     }
     const bool storage = base.resourceClass == ImageResourceClass::Storage;

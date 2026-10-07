@@ -688,24 +688,34 @@ std::uint32_t PackedStoreTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess
 std::uint32_t ImageAtomicOpcode(IrOpcode opcode) {
     switch (opcode) {
         case IrOpcode::ImageAtomicSwap32:
+        case IrOpcode::ImageAtomicSwap64:
             return spv::OpAtomicExchange;
         case IrOpcode::ImageAtomicIAdd32:
+        case IrOpcode::ImageAtomicIAdd64:
             return spv::OpAtomicIAdd;
         case IrOpcode::ImageAtomicUMin32:
+        case IrOpcode::ImageAtomicUMin64:
             return spv::OpAtomicUMin;
         case IrOpcode::ImageAtomicUMax32:
+        case IrOpcode::ImageAtomicUMax64:
             return spv::OpAtomicUMax;
         case IrOpcode::ImageAtomicAnd32:
+        case IrOpcode::ImageAtomicAnd64:
             return spv::OpAtomicAnd;
         case IrOpcode::ImageAtomicOr32:
+        case IrOpcode::ImageAtomicOr64:
             return spv::OpAtomicOr;
         case IrOpcode::ImageAtomicXor32:
+        case IrOpcode::ImageAtomicXor64:
             return spv::OpAtomicXor;
         case IrOpcode::ImageAtomicISub32:
+        case IrOpcode::ImageAtomicISub64:
             return spv::OpAtomicISub;
         case IrOpcode::ImageAtomicSMin32:
+        case IrOpcode::ImageAtomicSMin64:
             return spv::OpAtomicSMin;
         case IrOpcode::ImageAtomicSMax32:
+        case IrOpcode::ImageAtomicSMax64:
             return spv::OpAtomicSMax;
         default:
             throw std::runtime_error("opcode is not an image atomic");
@@ -787,8 +797,27 @@ void EmitAtomicOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
         ctx.Fail(access.inst, "atomics through a bindless image table are unsupported");
     }
     const auto opcode = access.inst.Opcode();
+    const auto condition = ctx.Arg(access.inst, access.inst.ArgumentCount() - 1u);
+    if (IsImageAtomic64Opcode(opcode)) {
+        ctx.Define(access.inst, EmitValueOrDefaultIfCondition(state, condition, TypeU64(state), ConstantU64(state, 0u), [&]() {
+            const auto scalar = TypeScalarU64(state);
+            const auto pointer = state.module.AllocateId();
+            state.module.AddFunction(spv::OpImageTexelPointer, TypePointer(state, spv::StorageClassImage, scalar), pointer, StorageImageDescriptorPointer(state, access.mem.resource), CoordU32(ctx, access), ConstantU32(state, 0));
+            const auto value = Unary(state, spv::OpBitcast, scalar, ctx.Arg(access.inst, 2));
+            const auto old = state.module.AllocateId();
+            if (opcode == IrOpcode::ImageAtomicCmpSwap64) {
+                const auto comparator = Unary(state, spv::OpBitcast, scalar, ctx.Arg(access.inst, 3));
+                state.module.AddFunction(spv::OpAtomicCompareExchange, scalar, old, pointer, ConstantU32(state, spv::ScopeDevice), ConstantU32(state, spv::MemorySemanticsMaskNone), ConstantU32(state, spv::MemorySemanticsMaskNone), value, comparator);
+            } else {
+                state.module.AddFunction(ImageAtomicOpcode(opcode), scalar, old, pointer, ConstantU32(state, spv::ScopeDevice), ConstantU32(state, spv::MemorySemanticsMaskNone), value);
+            }
+            EmitDeviceAtomicMemoryBarrier(state);
+            return Unary(state, spv::OpBitcast, TypeU64(state), old);
+        }));
+        return;
+    }
     const auto value = ctx.Arg(access.inst, 2);
-    ctx.Define(access.inst, EmitValueOrZeroIfCondition(state, ctx.Arg(access.inst, access.inst.ArgumentCount() - 1u), [&]() {
+    ctx.Define(access.inst, EmitValueOrZeroIfCondition(state, condition, [&]() {
         const auto pointer = state.module.AllocateId();
         const auto pointerType = TypePointer(state, spv::StorageClassImage, TypeU32(state));
         state.module.AddFunction(spv::OpImageTexelPointer, pointerType, pointer, StorageImageDescriptorPointer(state, access.mem.resource), CoordU32(ctx, access), ConstantU32(state, 0));
@@ -1213,6 +1242,17 @@ void EmitImage(SpirvValueEmitContext& ctx, const IrValue& inst) {
         case IrOpcode::ImageAtomicFCmpSwap32:
         case IrOpcode::ImageAtomicFMin32:
         case IrOpcode::ImageAtomicFMax32:
+        case IrOpcode::ImageAtomicSwap64:
+        case IrOpcode::ImageAtomicIAdd64:
+        case IrOpcode::ImageAtomicISub64:
+        case IrOpcode::ImageAtomicUMin64:
+        case IrOpcode::ImageAtomicUMax64:
+        case IrOpcode::ImageAtomicSMin64:
+        case IrOpcode::ImageAtomicSMax64:
+        case IrOpcode::ImageAtomicAnd64:
+        case IrOpcode::ImageAtomicOr64:
+        case IrOpcode::ImageAtomicXor64:
+        case IrOpcode::ImageAtomicCmpSwap64:
             EmitAtomicOp(ctx, access);
             return;
         default:
@@ -1317,6 +1357,50 @@ void EmitImageAtomicFMin32(SpirvValueEmitContext& ctx, const IrValue& inst) {
 }
 
 void EmitImageAtomicFMax32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicSwap64(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicIAdd64(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicISub64(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicUMin64(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicUMax64(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicSMin64(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicSMax64(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicAnd64(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicOr64(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicXor64(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicCmpSwap64(SpirvValueEmitContext& ctx, const IrValue& inst) {
     EmitImage(ctx, inst);
 }
 
