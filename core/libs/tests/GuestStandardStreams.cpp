@@ -221,14 +221,40 @@ int main() {
     FileStream scanned(std::tmpfile());
     Require(fprintf_nid_postfix(&scanned, "%d %s", 42, "answer") == 9);
     std::rewind(scanned.GetHandle());
-#ifndef _WIN32
+    Require(fscanf_nid_postfix(&scanned, "%*d") == 0);
+    Require(ftello_nid_postfix(&scanned) == 2);
+    std::rewind(scanned.GetHandle());
     int scannedNumber = 0;
     char scannedWord[16]{};
+    std::fputs("fscanf: suppressed conversion passed; assigning register arguments\n", stderr);
+    std::fflush(stderr);
     Require(fscanf_nid_postfix(&scanned, "%d %15s", &scannedNumber, scannedWord) == 2);
     Require(scannedNumber == 42 && std::strcmp(scannedWord, "answer") == 0);
     Require(fscanf_nid_postfix(&scanned, "%d", &scannedNumber) == EOF);
-#endif
+    Require(feof_nid_postfix(&scanned) && (scanned.GuestState().flags & 0x20));
     scanned.Close();
+
+    FileStream scanMany(std::tmpfile());
+    Require(std::fputs("7 1 2 3 4 5 6 7 8 4294967297 -4294967298 4294967299 abc %!", scanMany.GetHandle()) >= 0);
+    std::rewind(scanMany.GetHandle());
+    int numbers[8]{};
+    std::int64_t large = 0, negative = 0;
+    std::uint64_t sized = 0;
+    char letters[4]{};
+    std::int64_t consumed = -1;
+    Require(fscanf_nid_postfix(&scanMany, "%*d %d %d %d %d %d %d %d %d %ld %jd %zu %3[a-z] %%%ln",
+        &numbers[0], &numbers[1], &numbers[2], &numbers[3], &numbers[4], &numbers[5], &numbers[6], &numbers[7],
+        &large, &negative, &sized, letters, &consumed) == 12);
+    for (int i = 0; i < 8; ++i) Require(numbers[i] == i + 1);
+    Require(large == INT64_C(4294967297) && negative == -INT64_C(4294967298) && sized == UINT64_C(4294967299));
+    Require(std::strcmp(letters, "abc") == 0 && consumed == ftello_nid_postfix(&scanMany));
+    Require(fgetc_nid_postfix(&scanMany) == '!');
+    int unmatched = 123;
+    Require(fseeko_nid_postfix(&scanMany, -1, SEEK_CUR) == 0);
+    Require(fscanf_nid_postfix(&scanMany, "%d", &unmatched) == 0 && unmatched == 123);
+    Require(fgetc_nid_postfix(&scanMany) == '!');
+    Require(fscanf_nid_postfix(&scanMany, "%d", &unmatched) == EOF && unmatched == 123);
+    scanMany.Close();
 
     FileStream positioned(std::tmpfile());
     constexpr std::int64_t largeOffset = INT64_C(4294967313);
