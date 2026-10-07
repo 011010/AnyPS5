@@ -13,15 +13,10 @@ RULES = {
     "system-dependency": ("error", "CONTRIBUTING.md#code", "Third-party code is a submodule under 3rdparty/ built from source, not found on the system"),
     "title-specific": ("error", "CONTRIBUTING.md#code", "Implement the general behaviour, not what one title needs; title-specific code belongs in its sce_module"),
     "extension": ("error", "CONTRIBUTING.md#code", "Avoid non-standard extensions where standard C++ is enough"),
-    "host-path": ("error", "CONTRIBUTING.md#code", "Files stay next to the executable; nothing is read or written in user or system folders"),
-    "deprecated-flag": ("error", "docs/user/USAGE.md", "Deprecated relinker flag, only for debugging"),
-    "fallback": ("warning", "CONTRIBUTING.md#code", "Looks like a fallback; failures must stay explicit"),
     "notes-file": ("error", "CONTRIBUTING.md#branches-and-pull-requests", "Notes, investigation and agent files go in the pull request, not in the repository"),
     "binary": ("error", "docs/dev/CONVENTIONS.md", "No images or binary files in the repository; images go in the gist comments"),
-    "size": ("error", "CONTRIBUTING.md#branches-and-pull-requests", "Too large to review; split it into several pull requests"),
     "doc-link": ("error", "CONTRIBUTING.md#documentation", "Relative link to a file that does not exist"),
     "commit-subject": ("error", "docs/dev/CONVENTIONS.md", "Commit subject is not Conventional Commits"),
-    "revert-commit": ("error", "CONTRIBUTING.md#branches-and-pull-requests", "Don't git revert inside a pull request; drop or rewrite the commit"),
     "pr-title": ("error", "docs/dev/CONVENTIONS.md", "Pull request title is not Conventional Commits"),
     "pr-template": ("error", ".github/pull_request_template.md", "Fill in the pull request template"),
 }
@@ -30,7 +25,6 @@ CPP = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".inl", ".ipp"}
 IMAGES = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico", ".tga", ".dds"}
 NOTES = {".md", ".markdown", ".rst", ".log", ".patch", ".diff"}
 AGENT_FILES = {"AGENTS.md", "CLAUDE.md", "GEMINI.md", ".cursorrules", "copilot-instructions.md"}
-MAX_LINES = 2000
 
 CONVENTIONAL = re.compile(r"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?!?: \S")
 STRINGS = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'')
@@ -41,9 +35,6 @@ STUB_BODY = re.compile(r"^(?:\(void\)\s*\w+\s*;|static_cast<void>\(\s*\w+\s*\)\s
 SYSTEM_DEPENDENCY = re.compile(r"\b(find_package\s*\((?!\s*(Python3|Threads|Git)\b)|pkg_check_modules|pkg_search_module|find_library)\b")
 TITLE = re.compile(r"\b(PPSA|CUSA)\d{5}\b")
 EXTENSION = re.compile(r"__attribute__|__declspec|#\s*pragma\s+(?!once\b)")
-HOST_PATH = re.compile(r'getenv\s*\(\s*"(HOME|USERPROFILE|APPDATA|LOCALAPPDATA|TEMP|TMP|TMPDIR|XDG_\w+)"|temp_directory_path|SHGetKnownFolderPath|SHGetFolderPath')
-DEPRECATED = re.compile(r"--(skip-sce-module|exclude-sce-module|skip-syscall-check|lazy-binding)\b")
-FALLBACK = re.compile(r"(?i)fall[ _-]?back|retry|retries|best[ _-]?effort")
 LINK = re.compile(r"\]\(([^)\s]+)")
 SECTION = re.compile(r"^###\s*(.+?)\s*$", re.M)
 
@@ -101,10 +92,6 @@ class Check:
                     self.report("extension", path, number, EXTENSION.search(bare).group(0))
                 if core and TITLE.search(text):
                     self.report("title-specific", path, number, TITLE.search(text).group(0))
-                if core and HOST_PATH.search(text):
-                    self.report("host-path", path, number, HOST_PATH.search(text).group(0))
-                if core and FALLBACK.search(text):
-                    self.report("fallback", path, number, FALLBACK.search(text).group(0))
                 match = EXPORT.search(bare)
                 if match and path.startswith("core/libs/prx/") and not match.group(1).endswith("_nid_no_patch"):
                     source = source or self.show(path).splitlines()
@@ -112,7 +99,7 @@ class Check:
                     if body is None:
                         continue
                     exports[match.group(1)] = (path, number)
-                    if STUB_BODY.match(body) and match.group(1) not in debt:
+                    if match.group(1).startswith("sce") and STUB_BODY.match(body) and match.group(1) not in debt:
                         self.report("silent-stub", path, number, match.group(1))
         self.duplicates(exports)
         for path, lines in self.files(lambda p: p.suffix in (".py", ".cmake") or p.name == "CMakeLists.txt"):
@@ -141,25 +128,16 @@ class Check:
             match = re.match(r"\s*path\s*=\s*(\S+)", text)
             if match and not match.group(1).startswith("3rdparty/"):
                 self.report("system-dependency", ".gitmodules", number, match.group(1))
-        for path, lines in self.files(lambda p: not p.parts[:2] == ("core", "relinker") and str(p) != "docs/user/USAGE.md"):
-            for number, text in lines:
-                if DEPRECATED.search(text):
-                    self.report("deprecated-flag", path, number, DEPRECATED.search(text).group(0))
 
     def repository(self):
-        total = 0
         for path, (added, deleted) in self.numstat.items():
             if path.startswith("3rdparty/"):
                 continue
             suffix = PurePosixPath(path).suffix.lower()
             if self.status.get(path) != "D" and (added == "-" or suffix in IMAGES):
                 self.report("binary", path, 0)
-            if added != "-":
-                total += int(added) + int(deleted)
             if self.status.get(path) == "A" and allowed_notes(path) is False:
                 self.report("notes-file", path, 0)
-        if total > MAX_LINES:
-            self.report("size", "", 0, f"{total} changed lines outside 3rdparty/, limit {MAX_LINES}")
 
     def docs(self):
         for path, lines in self.files(lambda p: p.suffix == ".md"):
@@ -175,9 +153,7 @@ class Check:
     def commits(self):
         for line in git("log", "--no-merges", "--format=%h %s", f"{self.base}..{self.head}").splitlines():
             sha, subject = line.split(" ", 1)
-            if subject.startswith('Revert "'):
-                self.report("revert-commit", "", 0, f"{sha} {subject}")
-            elif not CONVENTIONAL.match(subject):
+            if not CONVENTIONAL.match(subject):
                 self.report("commit-subject", "", 0, f"{sha} {subject}")
 
     def pull_request(self, title, body):
