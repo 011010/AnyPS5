@@ -34,7 +34,7 @@ std::uint64_t expected(const std::uint64_t value, const std::uint64_t destinatio
 
 int main(const int argc, char** argv) {
     try {
-        require(argc == 2, "usage: ToIntelLinuxStubs <relinker>");
+        require(argc == 2, "usage: to_intel_linux_stubs_tests <relinker>");
         const TempDirectory directory;
         const auto input = directory.Path() / "input.elf";
         const auto output = directory.Path() / "output.elf";

@@ -276,12 +276,9 @@ if(BUILD_TESTING)
     add_test(NAME strict_nid_filter COMMAND strict_nid_filter_tests)
 
     if(UNIX AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
-        file(GLOB relinker_e2e_sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/*.cpp)
-        foreach(source ${relinker_e2e_sources})
-            get_filename_component(name ${source} NAME_WE)
-            add_test_executable(relinker_e2e_${name} ${source})
-            target_include_directories(relinker_e2e_${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests/support)
-            add_test(NAME relinker_e2e_${name} COMMAND relinker_e2e_${name} $<TARGET_FILE:relinker>)
-        endforeach()
+        add_test_executable(to_intel_linux_stubs_tests
+            ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/ToIntelLinuxStubsTests.cpp
+        )
+        add_test(NAME to_intel_linux_stubs COMMAND to_intel_linux_stubs_tests $<TARGET_FILE:relinker>)
     endif()
 endif()
