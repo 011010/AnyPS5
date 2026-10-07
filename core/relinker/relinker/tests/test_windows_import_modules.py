@@ -1,9 +1,11 @@
-from pathlib import Path
+import ctypes
 import os
 import struct
 import subprocess
 import sys
 import tempfile
+from ctypes import wintypes
+from pathlib import Path
 
 from test_guest_intel_trampolines import main_fixture
 from test_guest_module_directories import module_with_symbol
@@ -73,12 +75,72 @@ def executable(owner, symbol='shared#A#B', module_name=None, extra_dependencies=
     return image
 
 
+def shell_execute_exit_code(executable_path):
+    see_mask_nocloseprocess = 0x00000040
+    wait_object_0 = 0
+    wait_timeout = 0x00000102
+
+    class ShellExecuteInfo(ctypes.Structure):
+        _fields_ = [
+            ('cbSize', wintypes.DWORD),
+            ('fMask', wintypes.DWORD),
+            ('hwnd', wintypes.HWND),
+            ('lpVerb', wintypes.LPCWSTR),
+            ('lpFile', wintypes.LPCWSTR),
+            ('lpParameters', wintypes.LPCWSTR),
+            ('lpDirectory', wintypes.LPCWSTR),
+            ('nShow', ctypes.c_int),
+            ('hInstApp', wintypes.HANDLE),
+            ('lpIDList', wintypes.LPVOID),
+            ('lpClass', wintypes.LPCWSTR),
+            ('hkeyClass', wintypes.HANDLE),
+            ('dwHotKey', wintypes.DWORD),
+            ('hIconOrMonitor', wintypes.HANDLE),
+            ('hProcess', wintypes.HANDLE),
+        ]
+
+    shell32 = ctypes.WinDLL('shell32', use_last_error=True)
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    shell32.ShellExecuteExW.argtypes = [ctypes.POINTER(ShellExecuteInfo)]
+    shell32.ShellExecuteExW.restype = wintypes.BOOL
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    info = ShellExecuteInfo()
+    info.cbSize = ctypes.sizeof(info)
+    info.fMask = see_mask_nocloseprocess
+    info.lpVerb = 'open'
+    info.lpFile = str(executable_path)
+    info.nShow = 1
+    if not shell32.ShellExecuteExW(ctypes.byref(info)):
+        raise OSError(ctypes.get_last_error(), 'ShellExecuteExW failed')
+    try:
+        result = kernel32.WaitForSingleObject(info.hProcess, 30_000)
+        if result == wait_timeout:
+            kernel32.TerminateProcess(info.hProcess, 0xffffffff)
+            kernel32.WaitForSingleObject(info.hProcess, 0xffffffff)
+            raise TimeoutError('ShellExecuteExW child did not exit')
+        if result != wait_object_0:
+            raise OSError(f'WaitForSingleObject returned {result}')
+        exit_code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(info.hProcess, ctypes.byref(exit_code)):
+            raise OSError(ctypes.get_last_error(), 'GetExitCodeProcess failed')
+        return exit_code.value
+    finally:
+        kernel32.CloseHandle(info.hProcess)
+
+
 def main():
     relinker = Path(sys.argv[1]).resolve()
     with tempfile.TemporaryDirectory(prefix='anyps5-import-modules-') as directory:
         work = Path(directory)
 
-        def convert(name, owner, symbol='shared#A#B', guest_owner=None, module_name=None, provider_name='b.prx', extra_dependencies=()):
+        def convert(name, owner, symbol='shared#A#B', guest_owner=None, module_name=None, provider_name='b.prx', extra_dependencies=(), windows_gui=False):
             case = work / name
             modules = case / 'prx'
             modules.mkdir(parents=True)
@@ -94,7 +156,11 @@ def main():
             source = case / 'input.elf'
             source.write_bytes(executable(owner, symbol, module_name, extra_dependencies))
             output = case / 'output.exe'
-            result = subprocess.run([str(relinker), '--windows', str(source), str(output)], capture_output=True, text=True, timeout=30)
+            arguments = [str(relinker), '--windows']
+            if windows_gui:
+                arguments.append('--windows-gui')
+            arguments.extend([str(source), str(output)])
+            result = subprocess.run(arguments, capture_output=True, text=True, timeout=30)
             return result, output
 
         for owner in ('a.prx', 'b.prx', 'alias.prx'):
@@ -143,6 +209,15 @@ def main():
         assert result.returncode == 2 and 'Ambiguous guest import' in result.stderr, result.stderr
         assert not output.exists()
 
+        if os.name == 'nt':
+            for name, owner, symbol, expected in [
+                    ('missing-symbol-gui', 'a.prx', 'absent#A#B', 0xc0000139),
+                    ('missing-dependency-gui', 'missing.prx', 'shared#A#B', 0xc0000135)]:
+                result, output = convert(name, owner, symbol, windows_gui=True)
+                assert result.returncode == 0, result.stderr
+                run_status = shell_execute_exit_code(output)
+                assert run_status == expected, (name, hex(run_status), hex(expected))
+
         result, output = convert('missing-symbol', 'a.prx', 'absent#A#B')
         assert result.returncode == 0, result.stderr
         if os.name == 'nt':
@@ -158,6 +233,7 @@ def main():
         if os.name == 'nt':
             run = subprocess.run([str(output)], capture_output=True, text=True, timeout=30)
             assert run.returncode != 0 and 'Failed to load module:' in run.stderr and 'missing.prx' in run.stderr, (run.returncode, run.stderr)
+
     print('Windows module-scoped import tests passed')
 
 
