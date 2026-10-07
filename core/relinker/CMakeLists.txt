@@ -274,4 +274,11 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/include
     )
     add_test(NAME strict_nid_filter COMMAND strict_nid_filter_tests)
+
+    if(UNIX AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+        add_test_executable(to_intel_linux_stubs_tests
+            ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/ToIntelLinuxStubsTests.cpp
+        )
+        add_test(NAME to_intel_linux_stubs COMMAND to_intel_linux_stubs_tests $<TARGET_FILE:relinker>)
+    endif()
 endif()
