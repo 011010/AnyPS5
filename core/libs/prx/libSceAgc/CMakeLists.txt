@@ -72,8 +72,9 @@ configure_windows_unwind(agc_command_tests)
 if(BUILD_TESTING)
     set_target_properties(agc_command_tests PROPERTIES EXCLUDE_FROM_ALL OFF)
     add_test(NAME agc_initialization COMMAND agc_command_tests defaults)
+    add_test(NAME agc_commands COMMAND agc_command_tests)
     if(WIN32)
-        set_tests_properties(agc_initialization PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(agc_initialization agc_commands PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()

@@ -331,8 +331,9 @@ void testMemory() {
     check(packet[8] == 7 && packet[9] == 0x11223344u, "reference patch changed the high word");
     const auto before = storage.words;
     expectFailure([&] { sceAgcWaitRegMemPatchReference(packet, 0x100000000ull); });
-    expectFailure([&] { Agc::Command::WriteWait(&storage.buffer, 0, 3, 0, 0, &value, 0x100000000ull, 0, 32, __func__); });
     check(storage.words == before, "invalid memory operation modified packet memory");
+    auto* truncated = Agc::Command::WriteWait(&storage.buffer, 0, 3, 0, 0, &value, 0x100000000ull, 0xffffffff00000001ull, 32, __func__);
+    check(truncated[8] == 0u && truncated[9] == 1u, "32-bit wait did not keep the low halves of the reference and mask");
 }
 
 void testDefaults() {
