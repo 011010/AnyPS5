@@ -1,12 +1,6 @@
 include(${CMAKE_CURRENT_SOURCE_DIR}/Ngs2Library.cmake)
 add_sce_ngs2_library(libSceNgs2.native)
 
-if(MINGW)
-    foreach(runtimeLinkFlag IN ITEMS -static-libgcc -static-libstdc++ -static)
-        string(REPLACE "${runtimeLinkFlag}" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
-    endforeach()
-endif()
-
 if(BUILD_TESTING)
     foreach(ngs2Test IN ITEMS Render Atrac9 Filter Custom Parse)
         string(TOLOWER ${ngs2Test} testName)
