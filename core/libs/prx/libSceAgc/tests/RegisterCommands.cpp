@@ -6,6 +6,8 @@
 #include <stdexcept>
 
 extern "C" {
+std::uint32_t* APS5_VABI sceAgcDcbSetCfRegisterDirect(CommandBuffer*, ShaderRegister);
+std::uint32_t* APS5_VABI sceAgcDcbSetCfRegisterRangeDirect(CommandBuffer*, std::uint32_t, const std::uint32_t*, std::uint32_t);
 std::uint32_t* APS5_VABI sceAgcDcbSetCxRegisterDirect(CommandBuffer*, ShaderRegister);
 std::uint32_t* APS5_VABI sceAgcDcbSetShRegisterDirect(CommandBuffer*, ShaderRegister);
 std::uint32_t* APS5_VABI sceAgcDcbSetUcRegisterDirect(CommandBuffer*, ShaderRegister);
@@ -70,6 +72,29 @@ void testDirect() {
         expectFailure([&] { writers[i](&storage.buffer, {0, 1}); });
         check(storage.words == before && storage.buffer.cursor_up == packet + 3, "invalid direct write modified buffer");
     }
+}
+
+void testConfig() {
+    Storage storage;
+    storage.words.fill(0xabcdef01u);
+    auto* direct = sceAgcDcbSetCfRegisterDirect(&storage.buffer, {0x2468u, 0x12345678u});
+    const std::array expectedDirect{0xc0016800u, 0x2468u, 0x12345678u};
+    check(direct == storage.words.data() && std::equal(expectedDirect.begin(), expectedDirect.end(), direct), "incorrect config register packet");
+    const std::array<std::uint32_t, 3> values{1, 2, 3};
+    auto* range = sceAgcDcbSetCfRegisterRangeDirect(&storage.buffer, 0x100u, values.data(), values.size());
+    const std::array expectedRange{0xc0036800u, 0x100u, 1u, 2u, 3u};
+    check(range == direct + 3 && std::equal(expectedRange.begin(), expectedRange.end(), range), "incorrect config register range packet");
+    auto* reserved = sceAgcDcbSetCfRegisterRangeDirect(&storage.buffer, 0x200u, nullptr, 2);
+    check(reserved == range + 5 && reserved[0] == 0xc0026800u && reserved[1] == 0x200u && reserved[2] == 0xabcdef01u && reserved[3] == 0xabcdef01u, "null config values wrote the payload");
+    check(storage.buffer.cursor_up == reserved + 4 && reserved[4] == 0xabcdef01u, "config register cursor mismatch");
+    const auto before = storage.words;
+    expectFailure([&] { sceAgcDcbSetCfRegisterDirect(&storage.buffer, {0x10000u, 1}); });
+    expectFailure([&] { sceAgcDcbSetCfRegisterDirect(nullptr, {0, 1}); });
+    expectFailure([&] { sceAgcDcbSetCfRegisterRangeDirect(&storage.buffer, 0x100u, values.data(), 0); });
+    expectFailure([&] { sceAgcDcbSetCfRegisterRangeDirect(&storage.buffer, 0xffffu, values.data(), 2); });
+    const auto* misaligned = reinterpret_cast<const std::uint32_t*>(reinterpret_cast<const unsigned char*>(values.data()) + 1);
+    expectFailure([&] { sceAgcDcbSetCfRegisterRangeDirect(&storage.buffer, 0x100u, misaligned, 1); });
+    check(storage.words == before && storage.buffer.cursor_up == reserved + 4, "invalid config register write modified buffer");
 }
 
 void testIndirect() {
@@ -180,6 +205,7 @@ void testDirectList() {
 int main() {
     try {
         testDirect();
+        testConfig();
         testIndirect();
         testIndirectPlaceholder();
         testDirectList();
