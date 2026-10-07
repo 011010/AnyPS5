@@ -170,6 +170,7 @@ IrProgram PrepareResourceProgram(const RecompileRequest& request) {
     resourceTracker.Track(program);
     deadCodeEliminator.Eliminate(program);
     dumpIr("resources");
+    program.Resources().srgbDecodeFormats = request.target.srgbDecodeFormats;
 
     return program;
 }
