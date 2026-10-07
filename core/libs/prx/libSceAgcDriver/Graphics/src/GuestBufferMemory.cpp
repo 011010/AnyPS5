@@ -395,6 +395,11 @@ const HostImport* importAllocation(const Context& context, HostImports& state, s
         }
         entry.alias = GuestArena::GuestArenaMapAlias_nid_postfix(static_cast<std::uintptr_t>(base), static_cast<std::size_t>(bytes));
     }
+#else
+    if (!GuestMemory::Accessible(reinterpret_cast<const void*>(base), static_cast<std::size_t>(bytes), true)) {
+        state.failed.insert(base);
+        return nullptr;
+    }
 #endif
     decideImportWatch(context, state);
     VkResult result = VK_SUCCESS;
