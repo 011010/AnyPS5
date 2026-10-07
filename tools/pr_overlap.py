@@ -48,13 +48,20 @@ def merge(*args):
     result = subprocess.run(["git", "merge-tree", "--write-tree", "--name-only", "--no-messages", *args],
                             capture_output=True, text=True)
     lines = result.stdout.splitlines()
+    if result.returncode not in (0, 1) or not lines:
+        raise RuntimeError(f"git merge-tree {' '.join(args)} failed: {result.stderr.strip()}")
     return lines[0], set(lines[1:]) if result.returncode else set()
+
+
+def commit(tree):
+    return git("-c", "user.name=pr_overlap", "-c", "user.email=pr_overlap", "commit-tree", tree,
+               "-p", "refs/pr/base", "-m", "pr_overlap").strip()
 
 
 def scan(pr):
     tree, conflicted = merge("refs/pr/base", pr["ref"])
-    pr["tree"] = None if conflicted else tree
-    old, new = (git("merge-base", "refs/pr/base", pr["ref"]).strip(), pr["ref"]) if conflicted else ("refs/pr/base", tree)
+    pr["merged"] = None if conflicted else commit(tree)
+    old, new = (git("merge-base", "refs/pr/base", pr["ref"]).strip(), pr["ref"]) if conflicted else ("refs/pr/base", pr["merged"])
     pr["files"], pr["added"] = set(), set()
     for line in git("diff", "--name-status", "--no-renames", old, new).splitlines():
         status, path = line.split("\t", 1)
@@ -67,7 +74,7 @@ def scan(pr):
 
 
 def hunks(pr, path):
-    diff = git("diff", "-U0", "--no-color", "refs/pr/base", pr["tree"], "--", path)
+    diff = git("diff", "-U0", "--no-color", "refs/pr/base", pr["merged"], "--", path)
     return [(int(start), int(start) + max(int(count or 1), 1) - 1) for start, count in HUNK.findall(diff)]
 
 
@@ -84,9 +91,9 @@ def clashes(a, b, path):
 
 
 def conflicts(a, b):
-    if not (a["tree"] and b["tree"] and a["files"] & b["files"]):
+    if not (a["merged"] and b["merged"] and a["files"] & b["files"]):
         return {}
-    files = merge("--merge-base=refs/pr/base", a["tree"], b["tree"])[1]
+    files = merge("--merge-base=refs/pr/base", a["merged"], b["merged"])[1]
     return {path: [] if path in a["added"] else clashes(a, b, path) for path in files}
 
 
