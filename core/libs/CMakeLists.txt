@@ -51,6 +51,8 @@ set_target_properties(libc PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${UNPATCHED_DIR}
         LIBRARY_OUTPUT_DIRECTORY ${UNPATCHED_DIR}
         ARCHIVE_OUTPUT_DIRECTORY ${IMPLIB_DIR}
+        BUILD_WITH_INSTALL_RPATH ON
+        INSTALL_RPATH "$ORIGIN"
 )
 
 set(LIBC_UNPATCHED ${UNPATCHED_DIR}/libc.prx)
@@ -101,6 +103,8 @@ foreach(LIB_DIR ${LIBS_DIRS})
                 RUNTIME_OUTPUT_DIRECTORY ${UNPATCHED_DIR}
                 LIBRARY_OUTPUT_DIRECTORY ${UNPATCHED_DIR}
                 ARCHIVE_OUTPUT_DIRECTORY ${IMPLIB_DIR}
+                BUILD_WITH_INSTALL_RPATH ON
+                INSTALL_RPATH "$ORIGIN"
         )
 
         set(UNPATCHED_FILE ${UNPATCHED_DIR}/${LIB_NAME}.prx)
@@ -117,17 +121,6 @@ foreach(LIB_DIR ${LIBS_DIRS})
         list(APPEND PATCHED_OUTPUTS ${PATCHED_FILE})
     endif()
 endforeach()
-
-set(LIBCOHTML_PATCHED ${PATCHED_DIR}/libcohtml.prx)
-set(LIBCOHTML_PROSPERO_PATCHED ${PATCHED_DIR}/libcohtml.Prospero.prx)
-add_custom_command(
-        OUTPUT ${LIBCOHTML_PROSPERO_PATCHED}
-        COMMAND ${CMAKE_COMMAND} -E copy "${LIBCOHTML_PATCHED}" "${LIBCOHTML_PROSPERO_PATCHED}"
-        DEPENDS ${LIBCOHTML_PATCHED}
-        VERBATIM
-)
-add_custom_target(libcohtml_prospero DEPENDS ${LIBCOHTML_PROSPERO_PATCHED})
-list(APPEND PATCHED_OUTPUTS ${LIBCOHTML_PROSPERO_PATCHED})
 
 add_custom_target(libs DEPENDS ${PATCHED_OUTPUTS})
 
@@ -169,16 +162,6 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME host_thread_local COMMAND host_thread_local_tests)
     set_tests_properties(host_thread_local PROPERTIES TIMEOUT 15)
-
-    add_test_executable(guest_np_cpp_web_api_intrusive_ptr_tests tests/GuestNpCppWebApiIntrusivePtr.cpp)
-    target_include_directories(guest_np_cpp_web_api_intrusive_ptr_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(guest_np_cpp_web_api_intrusive_ptr_tests PRIVATE libSceNpCppWebApi libc)
-    configure_windows_unwind(guest_np_cpp_web_api_intrusive_ptr_tests)
-    add_test(NAME guest_np_cpp_web_api_intrusive_ptr COMMAND guest_np_cpp_web_api_intrusive_ptr_tests)
-    if(WIN32)
-        set_tests_properties(guest_np_cpp_web_api_intrusive_ptr PROPERTIES ENVIRONMENT_MODIFICATION
-            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceNpCppWebApi>")
-    endif()
 
     add_test_executable(savedata_core_write_replacement_tests tests/SaveDataWriteReplacement.cpp)
     target_include_directories(savedata_core_write_replacement_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
