@@ -649,6 +649,33 @@ int DoMprotect(const void* addr, size_t len, int prot) {
     return 0;
 }
 
+int DoMtypeprotect(const void* addr, size_t len, int type, int prot) {
+    const int result = DoMprotect(addr, len, prot);
+    const auto address = reinterpret_cast<std::uintptr_t>(addr);
+    constexpr auto pageMask = static_cast<std::uintptr_t>(PS5_PAGE_SIZE - 1);
+    const auto first = address & ~pageMask;
+    const auto end = (address + len + pageMask) & ~pageMask;
+    std::vector<std::pair<std::uint64_t, std::size_t>> physical;
+    {
+        std::lock_guard lock(g_directLock);
+        auto it = g_directMappings.lower_bound(first);
+        if (it != g_directMappings.begin() && std::prev(it)->second.end > first) --it;
+        while (it != g_directMappings.end() && it->first < end) {
+            const auto base = it->first;
+            const auto mapping = it->second;
+            it = g_directMappings.erase(it);
+            if (base < first) g_directMappings.emplace(base, DirectMapping{first, mapping.phys, mapping.memoryType, mapping.backing});
+            const auto low = std::max(base, first);
+            const auto high = std::min(mapping.end, end);
+            g_directMappings.emplace(low, DirectMapping{high, mapping.phys + low - base, type, mapping.backing});
+            physical.emplace_back(mapping.phys + low - base, high - low);
+            if (mapping.end > end) it = g_directMappings.emplace(end, DirectMapping{mapping.end, mapping.phys + end - base, mapping.memoryType, mapping.backing}).first;
+        }
+    }
+    for (const auto& [phys, bytes] : physical) DirectMemoryRetype(static_cast<int64_t>(phys), bytes, type);
+    return result;
+}
+
 int DoMunmap(void* addr, size_t len) {
     Trace("unmap %p+0x%zx", addr, len);
     if (len == 0 || (len & (PS5_PAGE_SIZE - 1)) != 0 || !addr) return SCE_KERNEL_ERROR_EINVAL;
