@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
+#include <functional>
 #include <stdexcept>
 #include <pthread.h>
 #include <sys/wait.h>
@@ -201,7 +202,7 @@ int main() {
     catch (const std::range_error&) {}
     bool badFunctionCall = false;
     try { _ZNSt8__sce_v219_Xbad_function_callEv_nid_postfix(); }
-    catch (const std::exception&) { badFunctionCall = true; }
+    catch (const std::bad_function_call&) { badFunctionCall = true; }
     if (!badFunctionCall) std::abort();
     try { __cxa_bad_cast_nid_postfix(); }
     catch (const std::exception& value) { assert(value.what() != nullptr); }
