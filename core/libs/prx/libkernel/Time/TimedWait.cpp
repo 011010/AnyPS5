@@ -17,24 +17,25 @@ namespace {
 constexpr std::uint64_t YIELD_BELOW_NANOS = 50000ULL;
 constexpr std::uint64_t LEAD_NANOS = 500000ULL;
 
-thread_local std::atomic<int> waitState{0};
+thread_local std::atomic<int> ownWaitState{0};
+thread_local std::atomic<int>* waitState = &ownWaitState;
 
 #ifdef _WIN32
 
 DWORD AlertableWait(DWORD count, const HANDLE* handles, DWORD milliseconds) {
-    waitState.fetch_add(1, std::memory_order_seq_cst);
+    waitState->fetch_add(1, std::memory_order_seq_cst);
     DWORD result;
     do {
         result = WaitForMultipleObjectsEx(count, handles, FALSE, milliseconds, TRUE);
     } while (result == WAIT_IO_COMPLETION);
-    waitState.fetch_sub(1, std::memory_order_seq_cst);
+    waitState->fetch_sub(1, std::memory_order_seq_cst);
     return result;
 }
 
 void AlertableSleep(DWORD milliseconds) {
-    waitState.fetch_add(1, std::memory_order_seq_cst);
+    waitState->fetch_add(1, std::memory_order_seq_cst);
     SleepEx(milliseconds, TRUE);
-    waitState.fetch_sub(1, std::memory_order_seq_cst);
+    waitState->fetch_sub(1, std::memory_order_seq_cst);
 }
 
 void WINAPI DestroyWaiter(void* value);
@@ -208,8 +209,8 @@ void Condition::NotifyAll() {
 
 #endif
 
-std::atomic<int>* ThreadWaitState() {
-    return &waitState;
+void BindThreadWaitState(std::atomic<int>* state) {
+    waitState = state != nullptr ? state : &ownWaitState;
 }
 
 bool Coarse() {

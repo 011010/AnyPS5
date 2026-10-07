@@ -22,6 +22,7 @@ int APS5_VABI sceKernelWaitSema(KernelSema sem, int need, KernelUseconds* time);
 }
 
 static constexpr int SCE_KERNEL_ERROR_EINVAL = static_cast<int>(0x80020016);
+static constexpr int SCE_KERNEL_ERROR_ESRCH = static_cast<int>(0x80020003);
 static constexpr int SIGUSR1 = 30;
 static constexpr int Repeats = 100;
 
@@ -81,6 +82,13 @@ static void* APS5_VABI HostBlocked(void* arg) {
         worker.started.store(true);
         std::lock_guard lock(hostLock);
     }
+    return nullptr;
+}
+
+static std::atomic<bool> finishedReturned{false};
+
+static void* APS5_VABI Finished(void*) {
+    finishedReturned.store(true);
     return nullptr;
 }
 
@@ -147,6 +155,13 @@ int main() {
     }
     hostLock.unlock();
     Require(scePthreadJoin(blockedThread, nullptr) == 0);
+
+    Pthread finishedThread = nullptr;
+    Require(scePthreadCreate(&finishedThread, nullptr, Finished, nullptr, "finished") == 0);
+    while (!finishedReturned.load()) std::this_thread::yield();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    Require(sceKernelRaiseException(finishedThread, SIGUSR1) == SCE_KERNEL_ERROR_ESRCH);
+    Require(scePthreadJoin(finishedThread, nullptr) == 0);
 
     Require(sceKernelRemoveExceptionHandler(SIGUSR1) == 0);
 }

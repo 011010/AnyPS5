@@ -6,6 +6,7 @@
 #include "prx/libkernel/Pthread/include/Pthread.hpp"
 #include <array>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #ifdef _WIN32
@@ -193,15 +194,13 @@ void RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
         return;
     }
     const auto native = static_cast<HANDLE>(thread->nativeHandle);
+    auto queued = std::make_unique<Delivery>(Delivery{handler, signum, {}});
     if (SuspendThread(native) == static_cast<DWORD>(-1)) throw std::runtime_error("sceKernelRaiseException: cannot suspend the target thread");
-    if (thread->waitState != nullptr && thread->waitState->load(std::memory_order_seq_cst) > 0) {
-        auto* delivery = new Delivery{handler, signum, {}};
-        const bool queued = QueueUserAPC(WaitingEntry, native, reinterpret_cast<ULONG_PTR>(delivery)) != 0;
+    if (thread->waitCount.load(std::memory_order_seq_cst) > 0) {
+        const bool accepted = QueueUserAPC(WaitingEntry, native, reinterpret_cast<ULONG_PTR>(queued.get())) != 0;
         ResumeThread(native);
-        if (!queued) {
-            delete delivery;
-            throw std::runtime_error("sceKernelRaiseException: cannot queue delivery to the waiting thread");
-        }
+        if (!accepted) throw std::runtime_error("sceKernelRaiseException: cannot queue delivery to the waiting thread");
+        queued.release();
         return;
     }
     alignas(16) Delivery delivery{handler, signum, {}};
@@ -274,7 +273,7 @@ int APS5_VABI sceKernelRemoveExceptionHandler(int signum) {
 
 int APS5_VABI sceKernelRaiseException(Pthread thread, int signum) {
  if (signum != 30) return SCE_KERNEL_ERROR_EINVAL;
- if (thread == nullptr) return SCE_KERNEL_ERROR_ESRCH;
+ if (thread == nullptr || thread->_finished.load(std::memory_order_acquire)) return SCE_KERNEL_ERROR_ESRCH;
  const auto handler = Handler(signum);
  if (handler == nullptr) throw std::runtime_error("sceKernelRaiseException: no handler installed for the signal");
 #ifdef _WIN32
