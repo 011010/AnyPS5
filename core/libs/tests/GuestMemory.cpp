@@ -340,6 +340,18 @@ static void CheckMtypeprotect() {
     Require(sceKernelReleaseDirectMemory(phys, page * 3) == 0);
 }
 
+static void CheckDirectMemoryGpuProtBits() {
+    constexpr std::size_t page = 0x4000;
+    std::int64_t phys = 0;
+    Require(sceKernelAllocateDirectMemory(0, 0x7fffffffffll, page, 0, 0, &phys) == 0);
+    void* mapping = nullptr;
+    Require(sceKernelMapDirectMemory(&mapping, page, 0x3f2, 0, phys, 0) == 0);
+    static_cast<unsigned char*>(mapping)[0] = 11;
+    Require(static_cast<unsigned char*>(mapping)[0] == 11);
+    Require(sceKernelMunmap(mapping, page) == 0);
+    Require(sceKernelReleaseDirectMemory(phys, page) == 0);
+}
+
 static void CheckFixedVirtualReservation() {
     constexpr std::size_t page = 0x4000;
     void* probe = nullptr;
@@ -923,6 +935,7 @@ int main() {
     CheckCheckedReleaseDirectMemory();
     CheckDirectMemoryFollowsPhysicalPages();
     CheckReleaseDirectMemoryClearsMappings();
+    CheckDirectMemoryGpuProtBits();
     CheckFixedVirtualReservation();
     CheckReservedRangeIsNotCommitted();
     CheckNoOverwriteRefusesLiveMapping();
