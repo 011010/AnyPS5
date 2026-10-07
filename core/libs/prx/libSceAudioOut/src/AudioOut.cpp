@@ -191,8 +191,6 @@ static const void* prepareBuffer(const Port& port, const void* data, std::vector
 }
 
 static void queueAudio(Port& port, const void* data) {
-    // A null pointer is the documented way to wait until the port's queued audio has been output
-    // (sceAudioOutOutput(handle, NULL)); it queues nothing.
     if (data == nullptr) {
         const std::uint64_t waitStart = sceKernelGetProcessTime();
         while (SDL_GetQueuedAudioSize(port.device) > 0) {
