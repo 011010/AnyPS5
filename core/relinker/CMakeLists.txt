@@ -239,6 +239,11 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_guest_host_libc.py $<TARGET_FILE:relinker>)
         add_library(guest_lifecycle_replacement_fixture SHARED elfpatcher/tests/GuestLifecycleReplacement.cpp)
         target_include_directories(guest_lifecycle_replacement_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../libs)
+        if(MINGW)
+            target_compile_options(guest_lifecycle_replacement_fixture PRIVATE
+                -fno-asynchronous-unwind-tables -fno-exceptions)
+        endif()
+        configure_windows_unwind(guest_lifecycle_replacement_fixture)
         set_target_properties(guest_lifecycle_replacement_fixture PROPERTIES
             PREFIX "" SUFFIX ".prx" WINDOWS_EXPORT_ALL_SYMBOLS ON)
         add_test(NAME guest_lifecycle_ownership COMMAND ${Python3_EXECUTABLE}
