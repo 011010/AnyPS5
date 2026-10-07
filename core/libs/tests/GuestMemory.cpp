@@ -957,6 +957,8 @@ static void CheckDirectMemorySharedBacking() {
     close(file);
     Require(GuestArena::GuestArenaSharedBacking_nid_postfix(address, page * 2, &file, &offset) && offset == page);
     close(file);
+    Require(GuestArena::GuestArenaSharedBacking_nid_postfix(address + page + 0x1000, 0x1000, &file, &offset) && offset == page * 2 + 0x1000);
+    close(file);
     Require(!GuestArena::GuestArenaSharedBacking_nid_postfix(address, page * 3, &file, &offset));
     Require(!GuestArena::GuestArenaSharedBacking_nid_postfix(address, 0, &file, &offset));
     void* flexible = nullptr;
@@ -973,7 +975,9 @@ static void CheckDirectMemorySharedBacking() {
     Require(!GuestArena::GuestArenaSharedBacking_nid_postfix(flexibleAddress, page * 2, &file, &offset));
     Require(GuestArena::GuestArenaSharedBacking_nid_postfix(flexibleAddress + page, page, &file, &offset) && offset == page * 2);
     close(file);
-    Require(sceKernelMunmap(flexible, page * 2) == 0);
+    Require(sceKernelMunmap(high, page) == 0);
+    Require(!GuestArena::GuestArenaSharedBacking_nid_postfix(flexibleAddress + page, page, &file, &offset));
+    Require(sceKernelMunmap(flexible, page) == 0);
     Require(sceKernelMunmap(first, page * 2) == 0);
     Require(!GuestArena::GuestArenaSharedBacking_nid_postfix(address, page, &file, &offset));
     Require(sceKernelReleaseDirectMemory(phys, page * 3) == 0);
