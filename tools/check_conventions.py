@@ -7,14 +7,14 @@ from collections import defaultdict
 from pathlib import PurePosixPath
 
 RULES = {
-    "comment": ("error", "docs/dev/CONVENTIONS.md", "Comments are only for technical debt, the end of #endif and the end of a namespace"),
+    "comment": ("error", "docs/dev/CONVENTIONS.md", "Comments are only for technical debt, so they need a change to docs/dev/TechnicalDebt.md in the same pull request; #endif and namespace ends are always allowed"),
     "silent-stub": ("error", "CONTRIBUTING.md#code", "Unimplemented exports call NotImplemented_nid_no_patch(__func__); silent stubs are listed in docs/dev/TechnicalDebt.md#silent-stubs"),
     "duplicate-export": ("error", "CONTRIBUTING.md#code", "Already exported by another library: remove the copy, or use APS5_DUMMY_FUN if nothing is left"),
     "system-dependency": ("error", "CONTRIBUTING.md#code", "Third-party code is a submodule under 3rdparty/ built from source, not found on the system"),
     "title-specific": ("error", "CONTRIBUTING.md#code", "Implement the general behaviour, not what one title needs; title-specific code belongs in its sce_module"),
     "extension": ("error", "CONTRIBUTING.md#code", "Avoid non-standard extensions where standard C++ is enough"),
     "notes-file": ("error", "CONTRIBUTING.md#branches-and-pull-requests", "Notes, investigation and agent files go in the pull request, not in the repository"),
-    "binary": ("error", "docs/dev/CONVENTIONS.md", "No images or binary files in the repository; images go in the gist comments"),
+    "binary": ("error", "docs/dev/CONVENTIONS.md", "Only UTF-8 text files in the repository; images go in the gist comments"),
     "doc-link": ("error", "CONTRIBUTING.md#documentation", "Relative link to a file that does not exist"),
     "commit-subject": ("error", "docs/dev/CONVENTIONS.md", "Commit subject is not Conventional Commits"),
     "pr-title": ("error", "docs/dev/CONVENTIONS.md", "Pull request title is not Conventional Commits"),
@@ -39,8 +39,9 @@ LINK = re.compile(r"\]\(([^)\s]+)")
 SECTION = re.compile(r"^###\s*(.+?)\s*$", re.M)
 
 
-def git(*args):
-    return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
+def git(*args, text=True):
+    output = subprocess.run(["git", *args], capture_output=True, check=True).stdout
+    return output.decode("utf-8", errors="replace") if text else output
 
 
 class Check:
@@ -106,6 +107,8 @@ class Check:
             for number, text in lines:
                 if "#" in STRINGS.sub('""', text) and not text.startswith("#!"):
                     self.report("comment", path, number)
+        if "docs/dev/TechnicalDebt.md" in self.status:
+            self.findings = [finding for finding in self.findings if finding[0] != "comment"]
 
     def duplicates(self, exports):
         if not exports:
@@ -134,7 +137,7 @@ class Check:
             if path.startswith("3rdparty/"):
                 continue
             suffix = PurePosixPath(path).suffix.lower()
-            if self.status.get(path) != "D" and (added == "-" or suffix in IMAGES):
+            if self.status.get(path) != "D" and (added == "-" or suffix in IMAGES or not utf8(git("show", f"{self.head}:{path}", text=False))):
                 self.report("binary", path, 0)
             if self.status.get(path) == "A" and allowed_notes(path) is False:
                 self.report("notes-file", path, 0)
@@ -171,6 +174,14 @@ class Check:
             self.report("pr-template", "", 0, "answer AI-assisted with yes or no")
         if checklist and not re.search(r"Depends on:\s*(#\d+|none)\b", checklist, re.I):
             self.report("pr-template", "", 0, "fill Depends on with #N or none")
+
+
+def utf8(data):
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
 
 
 def library(path):
