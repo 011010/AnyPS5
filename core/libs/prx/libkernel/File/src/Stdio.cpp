@@ -43,6 +43,7 @@ static int NativeMkdir(const std::filesystem::path& path, std::uint16_t mode) {
     return ::_wmkdir(path.wstring().c_str());
 }
 static int NativeChmod(const std::filesystem::path& path, int mode) {
+    RecordWrittenPath_nid_no_patch(path);
     return ::_wchmod(path.wstring().c_str(), mode);
 }
 static std::optional<std::filesystem::path> NativeDescriptorPath(int descriptor) {
@@ -73,6 +74,7 @@ static int NativeFtruncate(int descriptor, std::int64_t length) {
     return static_cast<int>(::_chsize_s(descriptor, length));
 }
 static int NativeUtimes(const std::filesystem::path& path, const KernelTimeval* times) {
+    RecordWrittenPath_nid_no_patch(path);
     if (times == nullptr) return ::_wutime(path.wstring().c_str(), nullptr);
     struct _utimbuf values{static_cast<time_t>(times[0].tv_sec), static_cast<time_t>(times[1].tv_sec)};
     return ::_wutime(path.wstring().c_str(), &values);
@@ -318,6 +320,7 @@ int APS5_VABI mkdir_nid_postfix(const char* path, uint16_t mode) {
     if (NativeMkdir(native, mode) != 0) {
         throw std::runtime_error(std::string(__func__) + ": mkdir failed for " + native.string() + ", errno=" + std::to_string(errno));
     }
+    RecordWrittenPath_nid_no_patch(native);
     return 0;
 }
 
@@ -503,6 +506,7 @@ int APS5_VABI sceKernelMkdir(const char* path, uint16_t mode) {
     if (std::filesystem::exists(native, error)) return SceErrorFromErrno(GUEST_EEXIST);
     if (!std::filesystem::exists(native.parent_path(), error)) return SceErrorFromErrno(GUEST_ENOENT);
     if (!std::filesystem::create_directory(native, error)) return SceErrorFromErrno(error.value() ? error.value() : GUEST_EIO);
+    RecordWrittenPath_nid_no_patch(native);
     return 0;
 }
 
@@ -633,8 +637,11 @@ int APS5_VABI sceKernelRename(const char* from, const char* to) {
     const auto source = ResolvePath_nid_no_patch(from);
     std::error_code error;
     if (!std::filesystem::exists(source, error)) return SceErrorFromErrno(GUEST_ENOENT);
-    std::filesystem::rename(source, ResolvePath_nid_no_patch(to), error);
+    const auto destination = ResolvePath_nid_no_patch(to);
+    std::filesystem::rename(source, destination, error);
     if (error) return SceErrorFromErrno(GUEST_EIO);
+    RecordWrittenPath_nid_no_patch(source);
+    RecordWrittenPath_nid_no_patch(destination);
     return 0;
 }
 
@@ -645,6 +652,7 @@ int APS5_VABI sceKernelRmdir(const char* path) {
     if (!std::filesystem::is_directory(native, error)) return SceErrorFromErrno(std::filesystem::exists(native, error) ? GUEST_ENOTDIR : GUEST_ENOENT);
     if (!std::filesystem::is_empty(native, error)) return SceErrorFromErrno(GUEST_ENOTEMPTY);
     if (!std::filesystem::remove(native, error)) return SceErrorFromErrno(GUEST_EIO);
+    RecordWrittenPath_nid_no_patch(native);
     return 0;
 }
 
@@ -679,6 +687,7 @@ int APS5_VABI sceKernelTruncate_nid_postfix(const char* path, std::int64_t lengt
     if (!std::filesystem::exists(native, error)) return SceErrorFromErrno(GUEST_ENOENT);
     std::filesystem::resize_file(native, static_cast<std::uintmax_t>(length), error);
     if (error) return SceErrorFromErrno(GUEST_EIO);
+    RecordWrittenPath_nid_no_patch(native);
     return 0;
 }
 
