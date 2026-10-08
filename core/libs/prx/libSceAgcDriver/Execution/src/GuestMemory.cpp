@@ -609,6 +609,7 @@ bool describePages(std::uintptr_t address, std::size_t bytes, Emit&& emit) {
                 static_cast<void>(emit(PageRun{cursor, end, false, false}));
                 return true;
             }
+            return false;
         }
         std::ifstream maps("/proc/self/maps");
         if (!maps.is_open()) return false;
