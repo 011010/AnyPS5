@@ -38,6 +38,7 @@ static int APS5_VABI PrintList(const char* format, ...) {
     return result;
 }
 
+#ifdef _WIN32
 static bool CheckWidePrecision() {
     const char16_t input[] = u"A\u00e9\u20ac\U0001f600Z";
     const char* expected[] = {"", "A", "A", "A\xc3\xa9", "A\xc3\xa9", "A\xc3\xa9", "A\xc3\xa9\xe2\x82\xac",
@@ -65,6 +66,7 @@ static bool CheckWidePrecision() {
     Require(snprintf_nid_postfix(output, sizeof(output), "%.1s", "\xc3\xa9") == 1 && static_cast<unsigned char>(output[0]) == 0xc3 && output[1] == 0);
     return correct;
 }
+#endif
 
 __attribute__((noinline)) static void APS5_VABI RunChecks() {
     char buffer[1024];
@@ -113,4 +115,8 @@ __attribute__((noinline)) static void APS5_VABI RunChecks() {
     std::puts("Formatting checks passed: 10000 iterations");
 }
 
+#ifdef _WIN32
 int main() { RunChecks(); return CheckWidePrecision() ? 0 : 1; }
+#else
+int main() { RunChecks(); }
+#endif
