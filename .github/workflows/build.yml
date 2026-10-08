@@ -77,7 +77,7 @@ jobs:
         run: python3 tools/check_test_registration.py build
       - run: cmake --build build
       - run: cmake --build build --target libs
-      - run: ctest --test-dir build --output-on-failure --timeout 120 --repeat until-fail:3
+      - run: ctest --test-dir build --output-on-failure --timeout 120 --repeat until-fail:3 --parallel 4
         env:
           ANYPS5_REQUIRE_VULKAN: 1
           GALLIUM_OVERRIDE_CPU_CAPS: avx
@@ -121,4 +121,4 @@ jobs:
       - shell: cmd
         run: cmake --build build --target libs
       - shell: cmd
-        run: ctest --test-dir build --output-on-failure --timeout 120 --repeat until-fail:3
+        run: ctest --test-dir build --output-on-failure --timeout 120 --repeat until-fail:3 --parallel 4
