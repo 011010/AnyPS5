@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -17,10 +18,22 @@ using RenameFunction = int (APS5_VABI*)(const char*, const char*);
 static RenameFunction LoadKernelRename() {
 #ifdef _WIN32
     const HMODULE module = LoadLibraryA(KERNEL_PRX_PATH);
-    return module ? reinterpret_cast<RenameFunction>(reinterpret_cast<void*>(GetProcAddress(module, "rename_nid_postfix"))) : nullptr;
+    if (module == nullptr) return nullptr;
+    const auto function = reinterpret_cast<RenameFunction>(reinterpret_cast<void*>(GetProcAddress(module, "rename_nid_postfix")));
+    HMODULE owner = nullptr;
+    if (function == nullptr || !GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCSTR>(function), &owner) || owner != module) return nullptr;
+    return function;
 #else
     void* module = dlopen(KERNEL_PRX_PATH, RTLD_NOW | RTLD_LOCAL);
-    return module ? reinterpret_cast<RenameFunction>(dlsym(module, "rename_nid_postfix")) : nullptr;
+    if (module == nullptr) return nullptr;
+    void* function = dlsym(module, "rename_nid_postfix");
+    Dl_info owner{};
+    void* self = dlsym(module, "sceKernelRename");
+    Dl_info expected{};
+    if (function == nullptr || self == nullptr || !dladdr(function, &owner) || !dladdr(self, &expected) ||
+        owner.dli_fname == nullptr || expected.dli_fname == nullptr || std::strcmp(owner.dli_fname, expected.dli_fname) != 0) return nullptr;
+    return reinterpret_cast<RenameFunction>(function);
 #endif
 }
 static void Check(bool value, int line) {
@@ -32,7 +45,7 @@ static void Check(bool value, int line) {
 #define Require(value) Check((value), __LINE__)
 int main() {
     const RenameFunction rename_nid_postfix = LoadKernelRename();
-    if (rename_nid_postfix == nullptr) { std::fputs("libkernel does not export rename_nid_postfix\n", stderr); return 1; }
+    if (rename_nid_postfix == nullptr) { std::fputs("rename_nid_postfix is not defined by libkernel\n", stderr); return 1; }
     const auto root = std::filesystem::path("anyps5-kernel-rename-test-" +
         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     Require(std::filesystem::create_directory(root));
