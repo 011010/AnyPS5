@@ -132,6 +132,10 @@ static std::int64_t NativeTransfer(int descriptor, void* buf, std::size_t nbytes
     }
     return write ? ::_write(descriptor, buf, static_cast<unsigned int>(nbytes)) : ::_read(descriptor, buf, static_cast<unsigned int>(nbytes));
 }
+static bool NativeIsDisk(int descriptor) {
+    const auto handle = reinterpret_cast<HANDLE>(::_get_osfhandle(descriptor));
+    return handle != INVALID_HANDLE_VALUE && ::GetFileType(handle) == FILE_TYPE_DISK;
+}
 static std::int64_t NativePread(int descriptor, void* buf, std::size_t nbytes, std::int64_t offset) {
     return NativePositioned(descriptor, buf, nbytes, offset, false);
 }
@@ -534,28 +538,28 @@ static std::int64_t TransferIovecs(int d, const KernelIovec* iov, int iovcnt, co
         if (iov[i].length > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max()) - total) return SceErrorFromErrno(GUEST_EINVAL);
         total += iov[i].length;
     }
+    if (offset != nullptr && total > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max() - *offset)) return SceErrorFromErrno(GUEST_EINVAL);
     std::deque<GuestArena::HostWrite> destinations;
     if (!write && !OpenIovecs(iov, iovcnt, destinations)) return SceErrorFromErrno(GUEST_EFAULT);
-    std::vector<char> buffer(std::max<std::size_t>(total, 1));
-    if (write) {
-        std::size_t position = 0;
-        for (int i = 0; i < iovcnt; ++i) {
-            if (iov[i].length != 0) std::memcpy(buffer.data() + position, iov[i].base, iov[i].length);
-            position += iov[i].length;
+    if (total == 0) {
+        char none = 0;
+        const auto result = offset != nullptr ? NativePositioned(d, &none, 0, *offset, write) : NativeTransfer(d, &none, 0, write);
+        return result < 0 ? SceErrorFromErrno(errno) : 0;
+    }
+    const bool whole = write || offset != nullptr || NativeIsDisk(d);
+    std::int64_t done = 0;
+    for (int i = 0; i < iovcnt; ++i) {
+        auto* base = static_cast<char*>(iov[i].base);
+        for (std::size_t position = 0; position < iov[i].length;) {
+            const auto chunk = std::min<std::size_t>(iov[i].length - position, std::numeric_limits<int>::max());
+            const auto result = offset != nullptr ? NativePositioned(d, base + position, chunk, *offset + done, write) : NativeTransfer(d, base + position, chunk, write);
+            if (result < 0) return done != 0 ? done : SceErrorFromErrno(errno);
+            done += result;
+            position += static_cast<std::size_t>(result);
+            if (static_cast<std::size_t>(result) < chunk || !whole) return done;
         }
     }
-    const auto result = offset != nullptr ? NativePositioned(d, buffer.data(), total, *offset, write) : NativeTransfer(d, buffer.data(), total, write);
-    if (result < 0) return SceErrorFromErrno(errno);
-    if (!write) {
-        const auto received = static_cast<std::size_t>(result);
-        std::size_t position = 0;
-        for (int i = 0; i < iovcnt && position < received; ++i) {
-            const auto count = std::min(iov[i].length, received - position);
-            std::memcpy(iov[i].base, buffer.data() + position, count);
-            position += count;
-        }
-    }
-    return result;
+    return done;
 }
 
 int64_t APS5_VABI sceKernelReadv(int d, const KernelIovec* iov, int iovcnt) {
