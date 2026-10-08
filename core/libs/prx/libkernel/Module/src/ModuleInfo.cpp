@@ -8,6 +8,7 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libkernel/KernelErrors.hpp"
+#include "prx/libkernel/Module/EhFrame.hpp"
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -24,7 +25,9 @@ extern "C" std::int32_t ModuleIdForImage_nid_no_patch(const void* native);
 
 namespace {
 
+constexpr char Caller[] = "sceKernelGetModuleInfoFromAddr";
 constexpr char GuestModuleSuffix[] = ".guest.prx";
+constexpr std::uint64_t TerminatorSize = 4;
 constexpr std::int32_t ProtRead = 1;
 constexpr std::int32_t ProtWrite = 2;
 constexpr std::int32_t ProtExecute = 4;
@@ -45,80 +48,6 @@ void SetName(ModuleInfoEx& info, const std::string& name) {
     if (name.size() >= sizeof(info.name))
         throw std::runtime_error("sceKernelGetModuleInfoFromAddr: module name too long: " + name);
     std::memcpy(info.name, name.c_str(), name.size() + 1);
-}
-
-std::uint64_t EncodedSize(std::uint8_t encoding) {
-    switch (encoding & 0x0fu) {
-    case 0x00: case 0x04: case 0x0c: return 8;
-    case 0x02: case 0x0a: return 2;
-    case 0x03: case 0x0b: return 4;
-    default: throw std::runtime_error("sceKernelGetModuleInfoFromAddr: unsupported eh_frame_hdr encoding");
-    }
-}
-
-template<typename TContains>
-std::uintptr_t EncodedValue(const TContains& contains, std::uintptr_t field, std::uint8_t encoding) {
-    const auto size = EncodedSize(encoding);
-    if (!contains(field, size)) throw std::runtime_error("sceKernelGetModuleInfoFromAddr: eh_frame_hdr outside the image");
-    const auto* bytes = reinterpret_cast<const void*>(field);
-    std::int64_t value = 0;
-    switch (encoding & 0x0fu) {
-    case 0x02: { std::uint16_t data; std::memcpy(&data, bytes, sizeof(data)); value = data; break; }
-    case 0x0a: { std::int16_t data; std::memcpy(&data, bytes, sizeof(data)); value = data; break; }
-    case 0x03: { std::uint32_t data; std::memcpy(&data, bytes, sizeof(data)); value = data; break; }
-    case 0x0b: { std::int32_t data; std::memcpy(&data, bytes, sizeof(data)); value = data; break; }
-    default: std::memcpy(&value, bytes, sizeof(value)); break;
-    }
-    switch (encoding & 0x70u) {
-    case 0x00: return static_cast<std::uintptr_t>(value);
-    case 0x10: return field + static_cast<std::uintptr_t>(value);
-    default: throw std::runtime_error("sceKernelGetModuleInfoFromAddr: unsupported eh_frame_hdr encoding");
-    }
-}
-
-template<typename TContains>
-std::uintptr_t EhFrameAddress(const TContains& contains, std::uintptr_t header) {
-    if (!contains(header, 4)) throw std::runtime_error("sceKernelGetModuleInfoFromAddr: eh_frame_hdr outside the image");
-    const auto* bytes = reinterpret_cast<const std::uint8_t*>(header);
-    if (bytes[0] != 1) throw std::runtime_error("sceKernelGetModuleInfoFromAddr: unsupported eh_frame_hdr version");
-    return EncodedValue(contains, header + 4, bytes[1]);
-}
-
-template<typename TContains>
-std::uint64_t EhFrameHeaderSize(const TContains& contains, std::uintptr_t header) {
-    const auto* bytes = reinterpret_cast<const std::uint8_t*>(header);
-    std::uint64_t size = 4 + EncodedSize(bytes[1]);
-    if (bytes[2] == 0xff) return size;
-    const auto count = static_cast<std::uint64_t>(EncodedValue(contains, header + size, bytes[2] & 0x0fu));
-    size += EncodedSize(bytes[2]);
-    if (bytes[3] == 0xff) return size;
-    const auto entry = 2 * EncodedSize(bytes[3]);
-    if (count > (std::numeric_limits<std::uint64_t>::max() - size) / entry || !contains(header, size + count * entry))
-        throw std::runtime_error("sceKernelGetModuleInfoFromAddr: eh_frame_hdr table outside the image");
-    return size + count * entry;
-}
-
-template<typename TContains>
-std::uint64_t EhFrameSize(const TContains& contains, std::uintptr_t frame) {
-    std::uintptr_t position = frame;
-    for (;;) {
-        if (!contains(position, 4))
-            throw std::runtime_error("sceKernelGetModuleInfoFromAddr: eh_frame outside the image");
-        std::uint32_t length;
-        std::memcpy(&length, reinterpret_cast<const void*>(position), sizeof(length));
-        position += 4;
-        if (length == 0) return position - frame;
-        std::uint64_t recordLength = length;
-        if (length == 0xffffffffu) {
-            if (!contains(position, 8))
-                throw std::runtime_error("sceKernelGetModuleInfoFromAddr: eh_frame outside the image");
-            std::memcpy(&recordLength, reinterpret_cast<const void*>(position), sizeof(recordLength));
-            position += 8;
-        }
-        if (!contains(position, recordLength))
-            throw std::runtime_error("sceKernelGetModuleInfoFromAddr: eh_frame record outside the image");
-        position += recordLength;
-    }
 }
 
 #ifndef _WIN32
@@ -167,10 +96,11 @@ void Fill(const dl_phdr_info& image, ModuleInfoEx& info) {
             info.tls_size = ToU32(header.p_memsz, "TLS size");
             info.tls_align = ToU32(header.p_align, "TLS alignment");
         } else if (header.p_type == PT_GNU_EH_FRAME) {
+            const auto tables = EhFrame::ReadTables(contains, address, Caller);
             info.eh_frame_hdr_addr = address;
             info.eh_frame_hdr_size = ToU32(header.p_memsz, "eh_frame_hdr size");
-            info.eh_frame_addr = EhFrameAddress(contains, address);
-            info.eh_frame_size = ToU32(EhFrameSize(contains, info.eh_frame_addr), "eh_frame size");
+            info.eh_frame_addr = tables.frames;
+            info.eh_frame_size = ToU32(tables.framesSize + TerminatorSize, "eh_frame size");
         } else if (header.p_type == PT_DYNAMIC) {
             for (const auto* entry = reinterpret_cast<const ElfW(Dyn)*>(address); entry->d_tag != DT_NULL; ++entry) {
                 if (entry->d_tag == DT_INIT) info.init_proc_addr = image.dlpi_addr + entry->d_un.d_ptr;
@@ -228,22 +158,21 @@ bool Fill(std::uintptr_t address, ModuleInfoEx& info) {
     const auto sectionCount = nt->FileHeader.NumberOfSections;
     bool relinked = false;
     for (unsigned i = 0; i < sectionCount; ++i) relinked = relinked || SectionNamed(sections[i], ".elf0");
+    EhFrame::Tables tables;
+    const bool hasEhmeta = EhFrame::ReadEhmeta(base, *nt, Caller, tables);
+    if (hasEhmeta) {
+        info.eh_frame_hdr_addr = tables.header;
+        info.eh_frame_hdr_size = ToU32(tables.headerSize, "eh_frame_hdr size");
+        info.eh_frame_addr = tables.frames;
+        info.eh_frame_size = ToU32(tables.framesSize + TerminatorSize, "eh_frame size");
+    }
     for (unsigned i = 0; i < sectionCount; ++i) {
         const auto& section = sections[i];
         const auto start = base + section.VirtualAddress;
-        if (SectionNamed(section, ".ehmeta")) {
-            if (!contains(start, 4)) throw std::runtime_error("sceKernelGetModuleInfoFromAddr: .ehmeta outside the image");
-            std::uint32_t headerRva;
-            std::memcpy(&headerRva, reinterpret_cast<const void*>(start), sizeof(headerRva));
-            info.eh_frame_hdr_addr = base + headerRva;
-            info.eh_frame_addr = EhFrameAddress(contains, info.eh_frame_hdr_addr);
-            info.eh_frame_hdr_size = ToU32(EhFrameHeaderSize(contains, info.eh_frame_hdr_addr), "eh_frame_hdr size");
-            info.eh_frame_size = ToU32(EhFrameSize(contains, info.eh_frame_addr), "eh_frame size");
-            continue;
-        }
-        if (SectionNamed(section, ".ehfram") && info.eh_frame_addr == 0) {
+        if (SectionNamed(section, ".ehmeta")) continue;
+        if (SectionNamed(section, ".ehfram") && !hasEhmeta) {
             info.eh_frame_addr = start;
-            info.eh_frame_size = ToU32(EhFrameSize(contains, start), "eh_frame size");
+            info.eh_frame_size = ToU32(EhFrame::FramesSize(contains, start, Caller) + TerminatorSize, "eh_frame size");
             continue;
         }
         if (relinked && std::strncmp(reinterpret_cast<const char*>(section.Name), ".elf", 4) != 0) continue;
