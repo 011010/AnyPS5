@@ -322,7 +322,10 @@ void testCopies() {
     execute(state, clockCopy(&clock[0]));
     execute(state, clockCopy(&clock[1]));
     check(clock[0] != 0 && clock[1] >= clock[0], "GPU clock COPY_DATA failed");
-    const auto clockStore = AgcDriver::Pm4::ResolveStore(clockCopy(&clock[0]), state, 64);
+    alignas(8) std::array<std::uint32_t, 2> clock32{0, 0xdeadbeef};
+    execute(state, makePacket(0x40, {0x06006209, 0, 0, low(clock32.data()), high(clock32.data())}));
+    check(clock32[0] != 0 && clock32[1] == 0xdeadbeef, "32-bit GPU clock COPY_DATA did not write only the low half");
+    const auto clockStore =AgcDriver::Pm4::ResolveStore(clockCopy(&clock[0]), state, 64);
     check(clockStore.has_value() && clockStore->Bytes().size() == 8, "GPU clock COPY_DATA did not resolve as an 8-byte store");
     expectFailure([&] { AgcDriver::Pm4::Validate(makePacket(0x40, {0x1020a, 0, 0, low(&clock[0]), high(&clock[0])}), 0); }, "reference-clock");
     execute(state, makePacket(0x50, {0x60000000, low(source.data()), high(source.data()), low(destination.data()), high(destination.data()), 16}));
