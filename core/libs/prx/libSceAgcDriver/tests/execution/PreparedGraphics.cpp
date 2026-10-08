@@ -81,6 +81,8 @@ void Check(AgcDriver::VulkanDevice& device, AgcDriver::Graphics::ShaderPath path
     ShaderRegistry registry;
     for (const auto* fixture : {&front, &back, &domain, &fragment}) registry.emplace(fixture->snapshot->codeAddress, fixture->snapshot);
     AgcDriver::QueueState queue{};
+    queue.context[0x8e] = 0xfu;
+    queue.context[0x8f] = 0xfu;
     front.Bind(queue, tessellation ? 0x148u : 0xc8u, tessellation ? 0x10bu : 0x8bu);
     if (tessellation || mesh) back.Bind(queue, tessellation ? 0x108u : 0x88u, tessellation ? 0x10bu : 0x8bu);
     if (tessellation) domain.Bind(queue, 0xc8u, 0x8bu);

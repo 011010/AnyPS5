@@ -692,7 +692,8 @@ void verifyBufferAlignmentSpecialization() {
         require(unaligned.spirv.data() == relocated.spirv.data(), "relocation with unchanged alignment rebuilt the buffer specialization");
     }
     request.userData[0] = 0x10000000u;
-    require(Recompile(request.request).spirv.data() == aligned.spirv.data(), "unaligned buffers replaced the aligned specialization");
+    const auto restored = Recompile(request.request);
+    require(restored.spirv.data() == aligned.spirv.data(), "unaligned buffers replaced the aligned specialization");
 }
 
 void verifyBindingPlanSelection() {

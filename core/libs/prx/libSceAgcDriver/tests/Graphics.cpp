@@ -1660,6 +1660,7 @@ void resourceTests() {
         const auto expectStageResources = [&](Role role, Kind kind, std::uint32_t words, std::uint32_t limit, std::string_view reason) {
             vertex.bindings.back().role = role;
             vertex.bindings.back().kind = kind;
+            vertex.bindings.back().binding = kind == Kind::StorageImage ? ShaderRecompiler::RuntimeAbi::FirstStorageImageBinding : kind == Kind::Sampler ? static_cast<std::uint32_t>(ShaderRecompiler::RuntimeAbi::Binding::Samplers) : ShaderRecompiler::RuntimeAbi::FirstImageBinding;
             vertex.bindings.back().guestDescriptor.assign(words, 0);
             mock = MockVulkan{};
             auto limited = mockContext();
@@ -1688,6 +1689,8 @@ void descriptorCacheTests() {
     mock = MockVulkan{};
     auto context = mockContext();
     context.limits.maxDescriptorSetStorageBuffers = 8192;
+    context.limits.maxPerStageDescriptorStorageBuffers = 8192;
+    context.limits.maxPerStageResources = 8192;
     context.limits.maxDescriptorSetSampledImages = 2048;
     {
         AgcDriver::Graphics::DescriptorCache cache(context);
