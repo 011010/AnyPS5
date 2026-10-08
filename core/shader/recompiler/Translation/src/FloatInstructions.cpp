@@ -490,6 +490,38 @@ bool TranslationContext::floatTernary(const RdnaInstruction& inst, IrOpcode opco
     return true;
 }
 
+bool TranslationContext::ieeeMinMaxF32(const RdnaInstruction& inst, IrOpcode opcode) {
+    if (inst.destination.omod != 0u) throw std::runtime_error("IEEE-mode f32 min/max/med3 with an output modifier is not implemented");
+    const bool ternary = opcode == IrOpcode::FPMinTri32 || opcode == IrOpcode::FPMaxTri32 || opcode == IrOpcode::FPMedTri32;
+    std::array<IrValue*, 3> args{};
+    for (std::uint32_t index = 0u; index < (ternary ? 3u : 2u); ++index) args[index] = readOperand(sourceAt(inst, index), IrType::F32);
+    const auto signaling = [&](IrValue* value) {
+        IrValue& bits = ir.BitCastU32(*value);
+        return &ir.LogicalAnd(ir.IEqual(ir.BitwiseAnd(bits, ir.Constant(0x7fc00000u)), ir.Constant(0x7f800000u)), ir.INotEqual(ir.BitwiseAnd(bits, ir.Constant(0x003fffffu)), ir.Constant(0u)));
+    };
+    const auto quiet = [&](IrValue* value) { return &ir.BitCastF32(ir.BitwiseOr(ir.BitCastU32(*value), ir.Constant(0x00400000u))); };
+    const auto pair = [&](IrOpcode pairOpcode, IrValue* lhs, IrValue* rhs) {
+        IrValue& plain = ir.Emit(pairOpcode, IrType::F32, {lhs, rhs});
+        IrValue& rhsChecked = ir.Emit(IrOpcode::SelectF32, IrType::F32, {signaling(rhs), quiet(rhs), &plain});
+        return &ir.Emit(IrOpcode::SelectF32, IrType::F32, {signaling(lhs), quiet(lhs), &rhsChecked});
+    };
+    IrValue* result = nullptr;
+    if (opcode == IrOpcode::FPMin32 || opcode == IrOpcode::FPMax32) {
+        result = pair(opcode, args[0], args[1]);
+    } else if (opcode == IrOpcode::FPMinTri32 || opcode == IrOpcode::FPMaxTri32) {
+        const auto pairOpcode = opcode == IrOpcode::FPMinTri32 ? IrOpcode::FPMin32 : IrOpcode::FPMax32;
+        result = pair(pairOpcode, pair(pairOpcode, args[0], args[1]), args[2]);
+    } else {
+        const auto isNan = [&](IrValue* value) { return &ir.Emit(IrOpcode::FPIsNan32, IrType::U1, {value}); };
+        IrValue& anyNan = ir.LogicalOr(ir.LogicalOr(*isNan(args[0]), *isNan(args[1])), *isNan(args[2]));
+        IrValue* minimum = pair(IrOpcode::FPMin32, pair(IrOpcode::FPMin32, args[0], args[1]), args[2]);
+        IrValue& median = ir.Emit(IrOpcode::FPMedTri32, IrType::F32, {args[0], args[1], args[2]});
+        result = &ir.Emit(IrOpcode::SelectF32, IrType::F32, {&anyNan, minimum, &median});
+    }
+    writeOperand(inst.destination, result);
+    return true;
+}
+
 bool TranslationContext::vFmaLegacyF32(const RdnaInstruction& inst) {
     IrValue* lhs = readOperand(sourceAt(inst, 0u), IrType::F32);
     IrValue* rhs = readOperand(sourceAt(inst, 1u), IrType::F32);
