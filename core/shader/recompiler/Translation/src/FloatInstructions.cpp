@@ -525,7 +525,6 @@ bool TranslationContext::floatTernary(const RdnaInstruction& inst, IrOpcode opco
 }
 
 bool TranslationContext::ieeeMinMaxF32(const RdnaInstruction& inst, IrOpcode opcode) {
-    if (inst.destination.omod != 0u) throw std::runtime_error("IEEE-mode f32 min/max/med3 with an output modifier is not implemented");
     const bool ternary = opcode == IrOpcode::FPMinTri32 || opcode == IrOpcode::FPMaxTri32 || opcode == IrOpcode::FPMedTri32;
     std::array<IrValue*, 3> args{};
     for (std::uint32_t index = 0u; index < (ternary ? 3u : 2u); ++index) args[index] = readOperand(sourceAt(inst, index), IrType::F32);
