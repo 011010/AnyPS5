@@ -3,6 +3,7 @@
 #include "SpirvBackend/SpirvBda.hpp"
 #include "SpirvBackend/SpirvBufferFormat.hpp"
 #include "SpirvBackend/SpirvMemory/SpirvSubgroup.hpp"
+#include "SpirvBackend/SpirvMemory/SpirvInputOutput.hpp"
 #include "PipelineSpecialization.hpp"
 #include <algorithm>
 #include <array>
@@ -69,7 +70,9 @@ RuntimeDescriptor descriptor(SpirvValueEmitContext& context, const IrValue& inst
         index = context.Arg(instruction, 1u);
         const auto addTid = nonzero(state, field(state, word3, 23u, 1u));
         if (state.program.Resources().stage == IrShaderStage::Compute) {
-            index = Binary(state, spv::OpIAdd, u32, index, Select(state, u32, addTid, EmitSubgroupLocalInvocationId(state), ConstantU32(state, 0u)));
+            const auto lane = state.laneCount == 1u && state.hostSubgroupSize < state.program.WaveSize() ?
+                Binary(state, spv::OpBitwiseAnd, u32, EmitLocalInvocationIndex(state), ConstantU32(state, state.program.WaveSize() - 1u)) : EmitSubgroupLocalInvocationId(state);
+            index = Binary(state, spv::OpIAdd, u32, index, Select(state, u32, addTid, lane, ConstantU32(state, 0u)));
         } else {
             invalid = Binary(state, spv::OpLogicalOr, TypeBool(state), invalid, addTid);
         }
