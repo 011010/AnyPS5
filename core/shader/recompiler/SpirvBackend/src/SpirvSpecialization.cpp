@@ -399,6 +399,23 @@ private:
             if (block != 0u) blocks[block].push_back(index);
         }
         bool changed = false;
+        const auto linearSelection = [&](std::uint32_t target, std::uint32_t merge) {
+            std::set<std::uint32_t> visited;
+            while (target != merge) {
+                if (!visited.insert(target).second) return false;
+                const auto& indices = blocks.at(target);
+                for (const auto index : indices) {
+                    const auto op = Opcode(instructions[index]);
+                    if (op == spv::OpSelectionMerge || op == spv::OpLoopMerge) return false;
+                }
+                const auto& terminal = instructions[indices.back()];
+                const auto op = Opcode(terminal);
+                if (op == spv::OpBranchConditional || op == spv::OpSwitch) return false;
+                if (op != spv::OpBranch) return true;
+                target = terminal.at(1);
+            }
+            return true;
+        };
         std::map<std::uint32_t, std::vector<std::uint32_t>> edges;
         for (const auto& [label, indices] : blocks) {
             auto& terminal = instructions[indices.back()];
@@ -416,10 +433,20 @@ private:
                 }
             }
             if (target != 0u) {
-                for (const auto index : indices) if (Opcode(instructions[index]) == spv::OpSelectionMerge) instructions[index].clear();
-                terminal = Make(spv::OpBranch, {target});
-                op = spv::OpBranch;
-                changed = true;
+                bool retainMerge = false;
+                for (const auto index : indices) {
+                    auto& instruction = instructions[index];
+                    if (Opcode(instruction) != spv::OpSelectionMerge) continue;
+                    retainMerge = !linearSelection(target, instruction.at(1));
+                    if (!retainMerge) instruction.clear();
+                }
+                const auto replacement = !retainMerge ? Make(spv::OpBranch, {target}) : op == spv::OpSwitch ?
+                    Make(spv::OpSwitch, {terminal.at(1), target}) : Make(spv::OpBranchConditional, {terminal.at(1), target, target});
+                if (terminal != replacement) {
+                    terminal = replacement;
+                    changed = true;
+                }
+                op = Opcode(terminal);
             }
             auto& successors = edges[label];
             if (op == spv::OpBranch) successors.push_back(terminal.at(1));
