@@ -98,7 +98,8 @@ int main(int argc, char** argv) {
 #ifndef _WIN32
     Require(dlsym_nid_postfix(nullptr, "malloc") == nullptr);
     Require(dlsym_nid_postfix(nullptr, "dlopen") == nullptr);
-    Require(dlsym_nid_postfix(nullptr, "pthread_create") == nullptr);    Require(dlsym_nid_postfix(nullptr, "GuestDefaultScopeOnly") == reinterpret_cast<void*>(&GuestDefaultScopeOnly));
+    Require(dlsym_nid_postfix(nullptr, "pthread_create") == nullptr);
+    Require(dlsym_nid_postfix(nullptr, "GuestDefaultScopeOnly") == reinterpret_cast<void*>(&GuestDefaultScopeOnly));
     Require(dlsym_nid_postfix(reinterpret_cast<void*>(-2), "GuestDefaultScopeOnly") == reinterpret_cast<void*>(&GuestDefaultScopeOnly));
     const auto hostLoaded = std::filesystem::absolute("anyps5-host-loaded-module-for-test.prx");
     std::filesystem::copy_file(argv[1], hostLoaded, std::filesystem::copy_options::overwrite_existing);
