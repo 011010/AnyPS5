@@ -92,6 +92,16 @@ if(BUILD_TESTING)
         set_tests_properties(guest_wide_formatting PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
+
+    add_test_executable(guest_wide_string_tests ${LIBS_INCLUDE_DIR}/tests/GuestWideStrings.cpp)
+    target_include_directories(guest_wide_string_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(guest_wide_string_tests PRIVATE libc)
+    configure_windows_unwind(guest_wide_string_tests)
+    add_test(NAME guest_wide_strings COMMAND guest_wide_string_tests)
+    if(WIN32)
+        set_tests_properties(guest_wide_strings PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
     add_test_executable(guest_character_tests ${LIBS_INCLUDE_DIR}/tests/GuestCharacter.cpp)
     target_include_directories(guest_character_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(guest_character_tests PRIVATE libc)

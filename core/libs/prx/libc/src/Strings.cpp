@@ -9,6 +9,27 @@
 
 #include "prx/libc/include/General.hpp"
 
+namespace {
+
+int CompareUnits(char16_t left, char16_t right) {
+    return left < right ? -1 : 1;
+}
+
+bool Contains(const char16_t* set, char16_t character) {
+    for (; *set != 0; ++set) {
+        if (*set == character) return true;
+    }
+    return false;
+}
+
+size_t Length(const char16_t* s) {
+    size_t length = 0;
+    while (s[length] != 0) ++length;
+    return length;
+}
+
+}
+
 extern "C" {
 
 void* APS5_VABI memset_nid_postfix(void* s, int c, size_t n) {
@@ -117,20 +138,28 @@ std::div_t APS5_VABI div_nid_postfix(int numerator, int denominator) {
     return std::div(numerator, denominator);
 }
 
-const wchar_t* APS5_VABI wmemchr_nid_postfix(const wchar_t* s, wchar_t c, size_t n) {
-    return std::wmemchr(s, c, n);
+const char16_t* APS5_VABI wmemchr_nid_postfix(const char16_t* s, char16_t c, size_t n) {
+    for (; n != 0; ++s, --n) {
+        if (*s == c) return s;
+    }
+    return nullptr;
 }
 
-int APS5_VABI wmemcmp_nid_postfix(const wchar_t* s1, const wchar_t* s2, size_t n) {
-    return std::wmemcmp(s1, s2, n);
+int APS5_VABI wmemcmp_nid_postfix(const char16_t* s1, const char16_t* s2, size_t n) {
+    for (; n != 0; ++s1, ++s2, --n) {
+        if (*s1 != *s2) return CompareUnits(*s1, *s2);
+    }
+    return 0;
 }
 
-wchar_t* APS5_VABI wmemcpy_nid_postfix(wchar_t* dest, const wchar_t* src, size_t n) {
-    return std::wmemcpy(dest, src, n);
+char16_t* APS5_VABI wmemcpy_nid_postfix(char16_t* dest, const char16_t* src, size_t n) {
+    if (n != 0) std::memcpy(dest, src, n * sizeof(char16_t));
+    return dest;
 }
 
-wchar_t* APS5_VABI wmemmove_nid_postfix(wchar_t* dest, const wchar_t* src, size_t n) {
-    return std::wmemmove(dest, src, n);
+char16_t* APS5_VABI wmemmove_nid_postfix(char16_t* dest, const char16_t* src, size_t n) {
+    if (n != 0) std::memmove(dest, src, n * sizeof(char16_t));
+    return dest;
 }
 
 }
@@ -274,48 +303,79 @@ unsigned long long APS5_VABI _Stoull_nid_postfix(const char* str, char** endptr,
     return std::strtoull(str, endptr, base);
 }
 
-size_t APS5_VABI wcslen_nid_postfix(const wchar_t* s) {
-    return std::wcslen(s);
+size_t APS5_VABI wcslen_nid_postfix(const char16_t* s) {
+    return Length(s);
 }
 
-int APS5_VABI wcscmp_nid_postfix(const wchar_t* s1, const wchar_t* s2) {
-    return std::wcscmp(s1, s2);
+int APS5_VABI wcscmp_nid_postfix(const char16_t* s1, const char16_t* s2) {
+    for (; *s1 == *s2; ++s1, ++s2) {
+        if (*s1 == 0) return 0;
+    }
+    return CompareUnits(*s1, *s2);
 }
 
-int APS5_VABI wcsncmp_nid_postfix(const wchar_t* s1, const wchar_t* s2, size_t n) {
-    return std::wcsncmp(s1, s2, n);
+int APS5_VABI wcsncmp_nid_postfix(const char16_t* s1, const char16_t* s2, size_t n) {
+    for (; n != 0; ++s1, ++s2, --n) {
+        if (*s1 != *s2) return CompareUnits(*s1, *s2);
+        if (*s1 == 0) return 0;
+    }
+    return 0;
 }
 
-wchar_t* APS5_VABI wcscpy_nid_postfix(wchar_t* dest, const wchar_t* src) {
-    return std::wcscpy(dest, src);
+char16_t* APS5_VABI wcscpy_nid_postfix(char16_t* dest, const char16_t* src) {
+    std::memcpy(dest, src, (Length(src) + 1) * sizeof(char16_t));
+    return dest;
 }
 
-wchar_t* APS5_VABI wcsncpy_nid_postfix(wchar_t* dest, const wchar_t* src, size_t n) {
-    return std::wcsncpy(dest, src, n);
+char16_t* APS5_VABI wcsncpy_nid_postfix(char16_t* dest, const char16_t* src, size_t n) {
+    size_t index = 0;
+    for (; index < n && src[index] != 0; ++index) dest[index] = src[index];
+    for (; index < n; ++index) dest[index] = 0;
+    return dest;
 }
 
-const wchar_t* APS5_VABI wcschr_nid_postfix(const wchar_t* s, wchar_t c) {
-    return std::wcschr(s, c);
+const char16_t* APS5_VABI wcschr_nid_postfix(const char16_t* s, char16_t c) {
+    for (;; ++s) {
+        if (*s == c) return s;
+        if (*s == 0) return nullptr;
+    }
 }
 
-const wchar_t* APS5_VABI wcsrchr_nid_postfix(const wchar_t* s, wchar_t c) {
-    return std::wcsrchr(s, c);
+const char16_t* APS5_VABI wcsrchr_nid_postfix(const char16_t* s, char16_t c) {
+    const char16_t* found = nullptr;
+    for (;; ++s) {
+        if (*s == c) found = s;
+        if (*s == 0) return found;
+    }
 }
 
-const wchar_t* APS5_VABI wcsstr_nid_postfix(const wchar_t* haystack, const wchar_t* needle) {
-    return std::wcsstr(haystack, needle);
+const char16_t* APS5_VABI wcsstr_nid_postfix(const char16_t* haystack, const char16_t* needle) {
+    const size_t length = Length(needle);
+    if (length == 0) return haystack;
+    for (; *haystack != 0; ++haystack) {
+        size_t matched = 0;
+        while (matched < length && haystack[matched] == needle[matched]) ++matched;
+        if (matched == length) return haystack;
+    }
+    return nullptr;
 }
 
-const wchar_t* APS5_VABI wcspbrk_nid_postfix(const wchar_t* s, const wchar_t* accept) {
-    return std::wcspbrk(s, accept);
+const char16_t* APS5_VABI wcspbrk_nid_postfix(const char16_t* s, const char16_t* accept) {
+    for (; *s != 0; ++s) {
+        if (Contains(accept, *s)) return s;
+    }
+    return nullptr;
 }
 
-size_t APS5_VABI wcsspn_nid_postfix(const wchar_t* s, const wchar_t* accept) {
-    return std::wcsspn(s, accept);
+size_t APS5_VABI wcsspn_nid_postfix(const char16_t* s, const char16_t* accept) {
+    size_t count = 0;
+    while (s[count] != 0 && Contains(accept, s[count])) ++count;
+    return count;
 }
 
-wchar_t* APS5_VABI wmemset_nid_postfix(wchar_t* s, wchar_t c, size_t n) {
-    return std::wmemset(s, c, n);
+char16_t* APS5_VABI wmemset_nid_postfix(char16_t* s, char16_t c, size_t n) {
+    for (size_t index = 0; index < n; ++index) s[index] = c;
+    return s;
 }
 
 double APS5_VABI wcstod_nid_postfix(const wchar_t* str, wchar_t** endptr) {
