@@ -607,6 +607,13 @@ void DisabledColorTests() {
     queue.context[0x00b] = std::bit_cast<std::uint32_t>(1.0f);
     const auto depthOnly = AgcDriver::Graphics::DecodeState(queue);
     Require(!depthOnly.hasColorTarget && depthOnly.depth && depthOnly.depthTest && depthOnly.depthWrite && depthOnly.renderExtent.height == 64, "COLOR_INVALID discarded a depth-only draw");
+    for (const auto colorControl : {0x0u, 0xcc0000u}) {
+        queue = makeState();
+        queue.context[0x202] = colorControl;
+        const auto unwritten = AgcDriver::Graphics::DecodeState(queue);
+        Require(!unwritten.hasColorTarget && unwritten.colors.empty() && unwritten.color.address == 0, "CB_COLOR_CONTROL mode disable kept a color attachment");
+        Require(unwritten.renderExtent.width == 64 && unwritten.renderExtent.height == 4, "CB_COLOR_CONTROL mode disable lost the screen scissor extent");
+    }
 }
 
 void TuningFieldTests() {
