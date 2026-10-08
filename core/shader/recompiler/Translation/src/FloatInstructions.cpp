@@ -3,7 +3,6 @@
 #include <array>
 #include <cstdint>
 #include <stdexcept>
-#include <utility>
 
 namespace ShaderRecompiler {
 
@@ -12,6 +11,9 @@ void TranslateFloatInstruction(IrBuilder& builder, const RdnaInstruction& instru
 }
 
 bool TranslationContext::packedFloat16(const RdnaInstruction& inst, IrOpcode opcode, bool accumulator, bool quietSnan) {
+    if (floatMode.has_value() && (floatMode->floatMode & 0xccu) != 0xc0u) {
+        throw std::runtime_error("packed f16 at pc " + std::to_string(inst.programCounter) + " in FLOAT_MODE " + std::to_string(floatMode->floatMode) + " (f16 denormals not kept or rounding not to nearest even) is not implemented");
+    }
     const auto translateLane = [&](bool high) -> IrF32 {
         const IrF32 lhs = readF16LaneAsF32(sourceAt(inst, 0u), high, true);
         const IrF32 rhs = readF16LaneAsF32(sourceAt(inst, 1u), high, true);
@@ -26,22 +28,54 @@ bool TranslationContext::packedFloat16(const RdnaInstruction& inst, IrOpcode opc
         return applyF32ResultModifiers(inst.destination, IrF32(ir.Emit(opcode, IrType::F32, {&lhs.Value(), &rhs.Value()})));
     };
     IrU32 result = packHalf2x16(translateLane(false), translateLane(true));
-    if (quietSnan) {
-        const auto quietSnanLane = [&](const RdnaOperand& operand, bool high) {
-            const IrU32 bits = readU16LaneAsU32(operand, high, false);
-            const IrU32 exponent(ir.BitwiseAnd(bits.Value(), ir.Constant(0x7c00u)));
-            const IrU32 payload(ir.BitwiseAnd(bits.Value(), ir.Constant(0x01ffu)));
-            const IrU1 snan(ir.LogicalAnd(ir.IEqual(exponent.Value(), ir.Constant(0x7c00u)), ir.INotEqual(payload.Value(), ir.Constant(0u))));
-            const IrU32 quiet(ir.BitwiseOr(bits.Value(), ir.Constant(0x0200u)));
-            return std::pair<IrU1, IrU32>(snan, quiet);
+    if (!inst.destination.clamp) {
+        const auto laneBits = [&](const RdnaOperand& operand, bool high) {
+            const IrU32 source = readF16SourceBits(operand);
+            const bool selectHigh = high ? operand.opSelHi : operand.opSel;
+            IrU32 bits(ir.Emit(IrOpcode::BitFieldUExtract, IrType::U32, {&source.Value(), &ir.Constant(selectHigh ? 16u : 0u), &ir.Constant(16u)}));
+            if (operand.absolute) bits = IrU32(ir.BitwiseAnd(bits.Value(), ir.Constant(0x7fffu)));
+            if (high ? operand.negateHi : operand.negate) bits = IrU32(ir.BitwiseXor(bits.Value(), ir.Constant(0x8000u)));
+            return bits;
         };
-        const auto overrideLane = [&](bool high) {
-            const auto [lhsSnan, lhsQuiet] = quietSnanLane(sourceAt(inst, 0u), high);
-            const auto [rhsSnan, rhsQuiet] = quietSnanLane(sourceAt(inst, 1u), high);
-            const IrU32 normal(high ? ir.ShiftRightLogical(result.Value(), ir.Constant(16u)) : ir.BitwiseAnd(result.Value(), ir.Constant(0xffffu)));
-            return IrU32(ir.Select(lhsSnan.Value(), lhsQuiet.Value(), ir.Select(rhsSnan.Value(), rhsQuiet.Value(), normal.Value())));
+        const auto isNan = [&](const IrU32& bits) {
+            return IrU1(ir.UGreaterThan(ir.BitwiseAnd(bits.Value(), ir.Constant(0x7fffu)), ir.Constant(0x7c00u)));
         };
-        result = packU16Lanes(overrideLane(false), overrideLane(true));
+        const auto isSnan = [&](const IrU32& bits) {
+            return IrU1(ir.LogicalAnd(isNan(bits).Value(), ir.IEqual(ir.BitwiseAnd(bits.Value(), ir.Constant(0x0200u)), ir.Constant(0u))));
+        };
+        const auto quiet = [&](const IrU32& bits) { return ieeeMode ? IrU32(ir.BitwiseOr(bits.Value(), ir.Constant(0x0200u))) : bits; };
+        const auto magnitude = [&](const IrU32& bits) { return IrU32(ir.BitwiseAnd(bits.Value(), ir.Constant(0x7fffu))); };
+        const auto invalidProduct = [&](const IrU32& lhs, const IrU32& rhs) {
+            const auto infZero = [&](const IrU32& inf, const IrU32& zero) {
+                return IrU1(ir.LogicalAnd(ir.IEqual(magnitude(inf).Value(), ir.Constant(0x7c00u)), ir.IEqual(magnitude(zero).Value(), ir.Constant(0u))));
+            };
+            return IrU1(ir.LogicalOr(infZero(lhs, rhs).Value(), infZero(rhs, lhs).Value()));
+        };
+        const auto nanLane = [&](bool high) {
+            const std::uint32_t count = accumulator ? 3u : inst.sourceCount;
+            std::array<IrU32, 3> bits{};
+            for (std::uint32_t index = 0u; index < count; ++index) {
+                bits[index] = laneBits(accumulator && index == 2u ? accumulatorOperand(inst) : sourceAt(inst, index), high);
+            }
+            IrU32 lane(high ? ir.ShiftRightLogical(result.Value(), ir.Constant(16u)) : ir.BitwiseAnd(result.Value(), ir.Constant(0xffffu)));
+            if (quietSnan) {
+                lane = IrU32(ir.Select(isNan(bits[0]).Value(), bits[1].Value(), lane.Value()));
+                lane = IrU32(ir.Select(isNan(bits[1]).Value(), bits[0].Value(), lane.Value()));
+                if (!ieeeMode) return lane;
+                for (std::uint32_t index = count; index-- > 0u;) {
+                    lane = IrU32(ir.Select(isSnan(bits[index]).Value(), quiet(bits[index]).Value(), lane.Value()));
+                }
+                return lane;
+            }
+            lane = IrU32(ir.Select(isNan(lane).Value(), ir.Constant(0xfe00u), lane.Value()));
+            for (std::uint32_t index = count; index-- > 0u;) {
+                IrU1 selected = isNan(bits[index]);
+                if (index == 2u) selected = IrU1(ir.LogicalAnd(selected.Value(), ir.LogicalNot(invalidProduct(bits[0], bits[1]).Value())));
+                lane = IrU32(ir.Select(selected.Value(), quiet(bits[index]).Value(), lane.Value()));
+            }
+            return lane;
+        };
+        result = packU16Lanes(nanLane(false), nanLane(true));
     }
     writeRawU32(inst.destination, result);
     return true;
