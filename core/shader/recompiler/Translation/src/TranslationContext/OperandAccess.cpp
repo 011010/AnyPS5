@@ -248,8 +248,19 @@ IrU32 TranslationContext::applyBitSourceModifiers(const RdnaOperand& operand, Ir
     return value;
 }
 
+bool TranslationContext::outputModifierApplies(std::uint32_t denormalShift) const {
+    const std::uint32_t mode = floatMode.has_value() ? floatMode->floatMode : 0xc0u;
+    return !ieeeMode && ((mode >> denormalShift) & 2u) == 0u;
+}
+
+void TranslationContext::rejectHalfOrDoubleOutputModifier(const RdnaOperand& operand) const {
+    if (operand.omod != 0u && outputModifierApplies(6u)) {
+        throw std::runtime_error("output modifier on an f16 or f64 result with f16/f64 output denormals flushed is not implemented");
+    }
+}
+
 IrF32 TranslationContext::applyF32ResultModifiers(const RdnaOperand& operand, IrF32 value) {
-    if (operand.omod != 0u) {
+    if (operand.omod != 0u && outputModifierApplies(4u)) {
         IrValue& bits = ir.BitCastU32(value.Value());
         IrValue& magnitude = ir.BitwiseAnd(bits, ir.Constant(0x7fffffffu));
         IrValue& sign = ir.BitwiseAnd(bits, ir.Constant(0x80000000u));
@@ -271,6 +282,7 @@ IrF32 TranslationContext::applyF32ResultModifiers(const RdnaOperand& operand, Ir
 }
 
 IrF32 TranslationContext::applyF16ResultModifiers(const RdnaOperand& operand, IrF32 value) {
+    rejectHalfOrDoubleOutputModifier(operand);
     if (!operand.clamp) {
         return value;
     }
@@ -281,6 +293,7 @@ IrF32 TranslationContext::applyF16ResultModifiers(const RdnaOperand& operand, Ir
 }
 
 IrU32 TranslationContext::clampF16Bits(const RdnaOperand& operand, IrU32 bits) {
+    rejectHalfOrDoubleOutputModifier(operand);
     if (!operand.clamp) {
         return bits;
     }
