@@ -22,7 +22,7 @@ constexpr std::uint32_t Results = 16;
 alignas(256) std::array<std::uint32_t, Threads * Inputs> Input{};
 alignas(256) std::array<std::uint32_t, Threads * Results> Output{};
 
-alignas(256) constexpr std::array<std::uint32_t, 207> Code{
+alignas(256) constexpr std::array<std::uint32_t, 171> Code{
     0x34020084, 0xe0381000, 0x80000201, 0x340c0082, 0xbf8c3f70, 0x4a0e0cff, 0x00001000, 0x4a100c80,
     0xd8340000, 0x00000207, 0xd8340000, 0x00000308, 0xda007c00, 0x00000007, 0xd8d80000, 0x0a000007,
     0x4a0e0cff, 0x00001080, 0x4a100cff, 0x00002080, 0xd8340000, 0x00000207, 0xd8340000, 0x00000308,
@@ -43,12 +43,8 @@ alignas(256) constexpr std::array<std::uint32_t, 207> Code{
     0x4a0e0cff, 0x00001580, 0x4a100cff, 0x00002580, 0xd8340000, 0x00000207, 0xd8340000, 0x00000308,
     0xda2c0400, 0x00000007, 0xd8d80000, 0x15000007, 0x4a0e0cff, 0x00001600, 0x4a100cff, 0x00000600,
     0xd8340000, 0x00000207, 0xd8340000, 0x00000308, 0xda347c00, 0x00000007, 0xd8d80000, 0x16000007,
-    0x4a0e0cff, 0x00001680, 0x4a100cff, 0x00002680, 0xd8340000, 0x00000407, 0xd8340000, 0x00000508,
-    0xda480400, 0x00000007, 0xd8d80000, 0x17000007, 0x4a0e0cff, 0x00001700, 0x4a100cff, 0x00000700,
-    0xd8340000, 0x00000407, 0xd8340000, 0x00000508, 0xda4c7c00, 0x00000007, 0xd8d80000, 0x18000007,
-    0x4a0e0cff, 0x00001780, 0x4a100cff, 0x00002780, 0xd8340000, 0x00000407, 0xd8340000, 0x00000508,
-    0xda540400, 0x00000007, 0xd8d80000, 0x19000007, 0x34020086, 0xbf8cc07f, 0xe0781000, 0x80010a01,
-    0xe0781010, 0x80010e01, 0xe0781020, 0x80011201, 0xe0781030, 0x80011601, 0xbf810000,
+    0x34020086, 0xbf8cc07f, 0xe0781000, 0x80010a01, 0xe0781010, 0x80010e01, 0xe0781020, 0x80011201,
+    0xe0781030, 0x80011601, 0xbf810000,
 };
 
 alignas(256) constexpr std::array<std::uint32_t, 3> AddressOffsetCode{0xda008000, 0x00000000, 0xbf810000};
@@ -64,7 +60,7 @@ void Fill(std::uint32_t tid, std::uint32_t* words) {
 
 std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
     const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x01016facu};
+    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x31016facu};
 }
 
 std::string Hex(std::uint32_t value) {
@@ -100,9 +96,9 @@ void Run(AgcDriver::VulkanDevice& device) {
 }
 
 void CheckLanes() {
-    constexpr std::array<const char*, Results> names{
+    constexpr std::array<const char*, 13> names{
         "ds_add_src2_u32", "ds_sub_src2_u32", "ds_rsub_src2_u32", "ds_inc_src2_u32", "ds_dec_src2_u32", "ds_min_src2_i32", "ds_max_src2_i32", "ds_min_src2_u32",
-        "ds_max_src2_u32", "ds_and_src2_b32", "ds_or_src2_b32", "ds_xor_src2_b32", "ds_write_src2_b32", "ds_min_src2_f32", "ds_max_src2_f32", "ds_add_src2_f32",
+        "ds_max_src2_u32", "ds_and_src2_b32", "ds_or_src2_b32", "ds_xor_src2_b32", "ds_write_src2_b32",
     };
     for (std::uint32_t tid = 0; tid < Threads; ++tid) {
         const std::uint32_t* in = &Input[tid * Inputs];
@@ -110,18 +106,29 @@ void CheckLanes() {
         const std::uint32_t b = in[1];
         const auto sa = static_cast<std::int32_t>(a);
         const auto sb = static_cast<std::int32_t>(b);
-        const float fa = std::bit_cast<float>(in[2]);
-        const float fb = std::bit_cast<float>(in[3]);
-        const std::array<std::uint32_t, Results> expected{
+        const std::array<std::uint32_t, 13> expected{
             a + b, a - b, b - a, a >= b ? 0u : a + 1u, (a == 0u || a > b) ? b : a - 1u,
             static_cast<std::uint32_t>(std::min(sa, sb)), static_cast<std::uint32_t>(std::max(sa, sb)), std::min(a, b), std::max(a, b),
             a & b, a | b, a ^ b, b,
-            std::bit_cast<std::uint32_t>(std::min(fa, fb)), std::bit_cast<std::uint32_t>(std::max(fa, fb)), std::bit_cast<std::uint32_t>(fa + fb),
         };
-        for (std::uint32_t op = 0; op < Results; ++op) {
+        for (std::uint32_t op = 0; op < expected.size(); ++op) {
             const std::uint32_t actual = Output[tid * Results + op];
             Require(actual == expected[op], "lds src2: lane " + std::to_string(tid) + " " + names[op] + " is " + Hex(actual) + ", expected " + Hex(expected[op]));
         }
+    }
+}
+
+void CheckFloatRejected(AgcDriver::VulkanDevice& device) {
+    for (const std::uint32_t opcode : {0x92u, 0x93u, 0x95u}) {
+        alignas(256) static std::array<std::uint32_t, 3> code{};
+        code = {0xd8000000u | (opcode << 18u) | 1u, 0x00000000u, 0xbf810000u};
+        bool refused = false;
+        try {
+            (void)Compile(device, code);
+        } catch (const std::exception& error) {
+            refused = std::string(error.what()).find("f32 denormal mode") != std::string::npos;
+        }
+        Require(refused, "lds src2: f32 opcode " + Hex(opcode) + " was not refused");
     }
 }
 
@@ -143,6 +150,7 @@ int main() {
         Run(*device);
         CheckLanes();
         CheckAddressOffsetRejected(*device);
+        CheckFloatRejected(*device);
         std::puts("lds src2 tests passed");
         return 0;
     } catch (const std::exception& error) {
