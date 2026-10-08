@@ -42,6 +42,8 @@ constexpr int NET_EFAULT = 14;
 constexpr int NET_EINVAL = 22;
 constexpr int NET_ENOSPC = 28;
 constexpr int NET_EAGAIN = 35;
+constexpr int NET_EINPROGRESS = 36;
+constexpr int NET_EALREADY = 37;
 constexpr int NET_ENOTSOCK = 38;
 constexpr int NET_EOPNOTSUPP = 45;
 constexpr int NET_EPROTONOSUPPORT = 43;
@@ -84,6 +86,8 @@ void close_socket(NativeSocket socket) { closesocket(socket); }
 int native_error() {
     switch (WSAGetLastError()) {
         case WSAEWOULDBLOCK: return NET_EAGAIN;
+        case WSAEINPROGRESS: return NET_EINPROGRESS;
+        case WSAEALREADY: return NET_EALREADY;
         case WSAEADDRINUSE: return NET_EADDRINUSE;
         case WSAEAFNOSUPPORT: return NET_EAFNOSUPPORT;
         case WSAENETUNREACH: return NET_ENETUNREACH;
@@ -112,6 +116,8 @@ int native_error() {
 #if EWOULDBLOCK != EAGAIN
         case EWOULDBLOCK: return NET_EAGAIN;
 #endif
+        case EINPROGRESS: return NET_EINPROGRESS;
+        case EALREADY: return NET_EALREADY;
         case EADDRINUSE: return NET_EADDRINUSE;
         case EAFNOSUPPORT: return NET_EAFNOSUPPORT;
         case ENETUNREACH: return NET_ENETUNREACH;
@@ -480,8 +486,11 @@ int APS5_VABI sceNetConnect(int s, const void* addr, uint32_t addrlen) {
     NativeLength native_length = 0;
     if (!guest_to_native_address(addr, addrlen, native, native_length)) return fail(NET_EINVAL);
     if (native.ss_family != (socket.family == NET_AF_INET ? AF_INET : AF_INET6)) return fail(NET_EAFNOSUPPORT);
-    return ::connect(socket.native->value, reinterpret_cast<const sockaddr*>(&native), native_length) == 0
-        ? 0 : fail(native_error());
+    if (::connect(socket.native->value, reinterpret_cast<const sockaddr*>(&native), native_length) == 0) return 0;
+#ifdef _WIN32
+    if (WSAGetLastError() == WSAEWOULDBLOCK) return fail(NET_EINPROGRESS);
+#endif
+    return fail(native_error());
 }
 
 int64_t APS5_VABI sceNetRecv(int s, void* buf, size_t len, int flags) {
