@@ -103,19 +103,29 @@ int main() {
     try {
         const auto device = OpenVulkanTestDevice();
         if (!device) return VulkanTestSkipped;
+        const auto defaultTarget = device->Target();
+        const auto wave32Target = device->ComputeTarget(32);
+        const bool distinctTarget = defaultTarget.subgroupSize != wave32Target.subgroupSize;
+        std::printf("static call targets: default subgroup %u, ComputeTarget(32) subgroup %u\n", defaultTarget.subgroupSize, wave32Target.subgroupSize);
+        std::uint32_t lanes = 0u, dispatches = 0u;
         const std::array<std::span<const std::uint32_t>, 5> variants{SwappcForward, CallForward, CallBackward, CallAfterEnd, MixedNested};
         const std::array<const char*, 5> names{"SWAPPC forward", "CALL forward", "CALL backward", "CALL after endpgm", "mixed nested calls"};
         for (std::size_t index = 0; index < variants.size(); ++index) {
             const auto code = variants[index];
-            Run(*device, code, 32, device->ComputeTarget(32));
+            Run(*device, code, 32, wave32Target);
             Check(names[index], 32);
-            Run(*device, code, 64, device->Target());
+            Run(*device, code, 64, defaultTarget);
             Check(names[index], 64);
-            Run(*device, code, 64, device->ComputeTarget(32));
-            Check(names[index], 64);
-            std::printf("passed %s: 160 lanes, 640 output comparisons\n", names[index]);
+            if (distinctTarget) {
+                Run(*device, code, 64, wave32Target);
+                Check(names[index], 64);
+            }
+            const std::uint32_t variantLanes = distinctTarget ? 160u : 96u;
+            lanes += variantLanes;
+            dispatches += distinctTarget ? 3u : 2u;
+            std::printf("passed %s: %u lanes, %u output comparisons\n", names[index], variantLanes, variantLanes * Results);
         }
-        std::puts("static call execution passed: 5 variants, 800 lanes, 3200 output comparisons");
+        std::printf("static call execution passed: 5 variants, %u dispatches, %u lanes, %u output comparisons\n", dispatches, lanes, lanes * Results);
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
