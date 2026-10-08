@@ -14,6 +14,7 @@ struct ResourceSpecialization {
         IrBufferFormat descriptorFormat = IrBufferFormat::Invalid;
         std::uint32_t descriptorSwizzle = ShaderImageIdentitySwizzle;
         bool empty = false;
+        std::uint8_t baseMisalignment = 0;
 
         bool operator==(const Buffer& other) const;
     };
@@ -33,6 +34,7 @@ struct ResourceSpecialization {
         bool depthUnorm16 = false;
         IrBufferFormat packedFormat = IrBufferFormat::Invalid;
         std::uint32_t emulatedCompare = 0;
+        bool srgbDecode = false;
 
         bool operator==(const Image& other) const;
     };

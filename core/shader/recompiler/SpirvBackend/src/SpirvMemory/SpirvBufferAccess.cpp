@@ -1,4 +1,5 @@
 #include "SpirvBackend/SpirvMemory/SpirvBufferAccess.hpp"
+#include "SpirvBackend/SpirvEmitterHelpers.hpp"
 #include "SpirvBackend/SpirvMemory/SpirvTypes.hpp"
 #include "SpirvBackend/SpirvMemory/SpirvDescriptors.hpp"
 #include <spirv/unified1/spirv.hpp>
@@ -10,27 +11,6 @@
 namespace ShaderRecompiler
 {
 namespace {
-
-    [[noreturn]] void FailEmit(const std::string& reason) {
-        throw std::runtime_error("SPIR-V module emission failed: " + reason);
-    }
-
-    const ShaderWorkgroupInputInfo* ShaderWorkgroupInput(const SpirvEmitterState& state) {
-        switch (state.program.Resources().stage) {
-        case IrShaderStage::Compute:
-            if (state.inputInfo.compute == nullptr) {
-                FailEmit("compute input info is missing");
-            }
-            return state.inputInfo.compute;
-        case IrShaderStage::Mesh:
-            if (state.inputInfo.vertex == nullptr) {
-                FailEmit("vertex input info is missing");
-            }
-            return &state.inputInfo.vertex->mesh;
-        default:
-            return nullptr;
-        }
-    }
 
     void EnsureLdsStorage(SpirvEmitterState& state) {
         if (state.ldsVariable != 0) {
@@ -82,9 +62,7 @@ IrBufferFormat StorageBufferFormat(const SpirvEmitterState& state, const MemoryI
 
 void EmitMemoryOffsets(SpirvEmitterState& state) {
     const IrBindingLayout& layout = state.program.Metadata().bindings;
-    if (layout.memoryOffsetCount > state.memoryByteOffsets.size()) {
-        FailEmit("memory offset count exceeds the buffer limit");
-    }
+    state.memoryByteOffsets.assign(layout.memoryOffsetCount, 0u);
     for (std::uint32_t i = 0; i < layout.memoryOffsetCount; i++) {
         const auto word = EmitShaderDataDwordLoad(state, layout.memoryOffsetDword + i / 4u);
         const auto shift = ConstantU32(state, (i % 4u) * 8u);
@@ -121,8 +99,9 @@ MemoryResourceAccess PrepareStorageBufferResourceAccess(SpirvEmitterState& state
     access.memoryAccess = mem.coherent ? spv::MemoryAccessVolatileMask : 0u;
     access.length = state.module.AllocateId();
     state.module.AddFunction(spv::OpArrayLength, TypeU32(state), access.length, access.objectPointer, 0u);
-    if (mem.resource < state.program.Info().buffers.size() && state.program.Info().buffers[mem.resource].empty) {
-        access.length = ConstantU32(state, 0u);
+    if (mem.resource < state.program.Info().buffers.size()) {
+        if (state.program.Info().buffers[mem.resource].empty) access.length = ConstantU32(state, 0u);
+        access.misalignment = state.program.Info().buffers[mem.resource].baseMisalignment;
     }
     return access;
 }
@@ -173,8 +152,9 @@ std::uint32_t EmitMemoryElementIndex(SpirvEmitterState& state, const MemoryResou
 }
 
 std::uint32_t EmitMemoryElementInBounds(SpirvEmitterState& state, const MemoryResourceAccess& access, std::uint32_t index) {
+    const auto last = access.misalignment != 0u ? EmitAddU32(state, index, ConstantU32(state, 1u)) : index;
     const auto inBounds = state.module.AllocateId();
-    state.module.AddFunction(spv::OpULessThan, TypeBool(state), inBounds, index, access.length);
+    state.module.AddFunction(spv::OpULessThan, TypeBool(state), inBounds, last, access.length);
     return inBounds;
 }
 

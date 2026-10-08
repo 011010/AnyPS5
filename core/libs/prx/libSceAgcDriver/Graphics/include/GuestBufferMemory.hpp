@@ -27,9 +27,11 @@ struct HostImport {
     VkDeviceMemory memory;
     VkDeviceAddress address;
     void* alias = nullptr;
+    std::weak_ptr<const GuestAllocations::Range> range {};
     // Identity for the life of this import (see HostImportSerial); 0 until first asked for.
     std::uint64_t serial = 0;
     bool unwatched = false;
+    bool dmaBuf = false;
 };
 
 enum class ImportWatch : std::uint8_t { Watch, Unwatch };
@@ -40,9 +42,11 @@ struct ImportProbe {
     std::uint32_t pages = 0;
     std::uint32_t writtenAtImport = 0;
     std::uint32_t writtenAfterSubmit = 0;
+    std::uint32_t writtenByCpu = 0;
 };
 
 ImportProbe ProbeImportWriteProtection(const Context& context);
+ImportProbe ProbeDmaBufImportWriteProtection(const Context& context);
 ImportWatch PrepareImportWatch(const Context& context);
 void SetImportWatch(const Context& context, ImportWatch watch);
 
@@ -149,6 +153,7 @@ struct MirrorStats {
 };
 MirrorStats MirrorCounters();
 void ClearImageMirrors(VkDevice device);
+void ClearHostImports(VkDevice device);
 
 struct AddressCopy {
     std::uint64_t begin;
@@ -199,6 +204,7 @@ public:
     void UploadPrepare(bool addressable);
     void UploadFinish(bool addressable);
     VkDescriptorBufferInfo Descriptor(std::uint64_t address, std::size_t bytes, std::uint32_t& adjustment) const;
+    static std::uint64_t ViewBytes(std::uint64_t bytes, std::uint32_t adjustment);
     std::vector<ShaderRecompiler::BdaAbi::Range> AddressRanges() const;
     // The BDA table of the cached address space when it serves this upload alone (an address-based
     // build with no region outside it): its ranges, immutable while the space lives, and the
