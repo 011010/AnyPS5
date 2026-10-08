@@ -1,5 +1,7 @@
 import contextlib
 import io
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +11,64 @@ import hw_oracle
 
 
 MODES = dict(ieee=0, denorm32=0, denorm16=3, dx10_clamp=1, round32=0, round16=0, fp16_overflow=0)
+
+
+class OracleCacheTests(unittest.TestCase):
+    def test_failed_build_is_not_cached_and_can_be_retried(self):
+        for previous in (None, b"old executable"):
+            with self.subTest(previous=previous), tempfile.TemporaryDirectory() as tmp:
+                cache = Path(tmp) / "cache"
+                cache.mkdir()
+                binary = cache / "oracle"
+                if previous is not None:
+                    binary.write_bytes(previous)
+                    os.utime(binary, (0, 0))
+
+                def fail(command, *, check):
+                    self.assertTrue(check)
+                    Path(command[command.index("-o") + 1]).write_bytes(b"partial executable")
+                    raise subprocess.CalledProcessError(1, command)
+
+                def succeed(command, *, check):
+                    self.assertTrue(check)
+                    Path(command[command.index("-o") + 1]).write_bytes(b"complete executable")
+
+                with patch.object(hw_oracle, "CACHE", cache), patch.object(hw_oracle, "rocm_root", return_value=None), \
+                        patch.object(hw_oracle.subprocess, "run", side_effect=fail) as compiler:
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        hw_oracle.oracle()
+                    self.assertEqual(binary.read_bytes() if binary.exists() else None, previous)
+                    self.assertEqual(list(cache.iterdir()), [binary] if previous is not None else [])
+                    compiler.side_effect = succeed
+                    self.assertEqual(hw_oracle.oracle(), binary)
+                    self.assertEqual(binary.read_bytes(), b"complete executable")
+                    self.assertEqual(hw_oracle.oracle(), binary)
+                    self.assertEqual(compiler.call_count, 2)
+                    self.assertEqual(list(cache.iterdir()), [binary])
+
+    def test_overlapping_builds_do_not_expose_partial_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / "cache"
+            binary = cache / "oracle"
+            outputs = []
+
+            def compile(command, *, check):
+                self.assertTrue(check)
+                output = Path(command[command.index("-o") + 1])
+                outputs.append(output)
+                output.write_bytes(b"partial executable")
+                if len(outputs) == 1:
+                    self.assertFalse(binary.exists())
+                    self.assertEqual(hw_oracle.oracle().read_bytes(), b"complete executable")
+                output.write_bytes(b"complete executable")
+
+            with patch.object(hw_oracle, "CACHE", cache), patch.object(hw_oracle, "rocm_root", return_value=None), \
+                    patch.object(hw_oracle.subprocess, "run", side_effect=compile) as compiler:
+                self.assertEqual(hw_oracle.oracle(), binary)
+                self.assertEqual(binary.read_bytes(), b"complete executable")
+                self.assertEqual(compiler.call_count, 2)
+                self.assertNotEqual(outputs[0], outputs[1])
+                self.assertEqual(list(cache.iterdir()), [binary])
 
 
 class FloatModeTests(unittest.TestCase):
