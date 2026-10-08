@@ -38,6 +38,7 @@ namespace {
 // FreeBSD errno numbers as reported through sceNetErrnoLoc (SCE_NET_ERROR_* is 0x80410100 + errno).
 constexpr int NET_ENOENT = 2;
 constexpr int NET_EBADF = 9;
+constexpr int NET_EACCES = 13;
 constexpr int NET_EFAULT = 14;
 constexpr int NET_EINVAL = 22;
 constexpr int NET_ENOSPC = 28;
@@ -49,11 +50,16 @@ constexpr int NET_EOPNOTSUPP = 45;
 constexpr int NET_EPROTONOSUPPORT = 43;
 constexpr int NET_EAFNOSUPPORT = 47;
 constexpr int NET_EADDRINUSE = 48;
+constexpr int NET_EADDRNOTAVAIL = 49;
 constexpr int NET_ENETUNREACH = 51;
 constexpr int NET_ECONNABORTED = 53;
+constexpr int NET_ENOBUFS = 55;
+constexpr int NET_EISCONN = 56;
+constexpr int NET_ENOTCONN = 57;
 constexpr int NET_EMSGSIZE = 40;
 constexpr int NET_ETIMEDOUT = 60;
 constexpr int NET_ECONNREFUSED = 61;
+constexpr int NET_EHOSTUNREACH = 65;
 constexpr int NET_ERROR_BASE = static_cast<int>(0x80410100u);
 constexpr int NET_ERROR_RESOLVER_ENODNS = static_cast<int>(0x804101E1u);
 
@@ -89,10 +95,15 @@ int native_error() {
         case WSAEINPROGRESS: return NET_EINPROGRESS;
         case WSAEALREADY: return NET_EALREADY;
         case WSAEADDRINUSE: return NET_EADDRINUSE;
+        case WSAEADDRNOTAVAIL: return NET_EADDRNOTAVAIL;
         case WSAEAFNOSUPPORT: return NET_EAFNOSUPPORT;
         case WSAENETUNREACH: return NET_ENETUNREACH;
-        case WSAEHOSTUNREACH: return NET_ENETUNREACH;
+        case WSAEHOSTUNREACH: return NET_EHOSTUNREACH;
         case WSAECONNABORTED: return NET_ECONNABORTED;
+        case WSAENOBUFS: return NET_ENOBUFS;
+        case WSAEISCONN: return NET_EISCONN;
+        case WSAENOTCONN: return NET_ENOTCONN;
+        case WSAEACCES: return NET_EACCES;
         case WSAECONNRESET: return 54;
         case WSAETIMEDOUT: return NET_ETIMEDOUT;
         case WSAECONNREFUSED: return NET_ECONNREFUSED;
@@ -119,10 +130,15 @@ int native_error() {
         case EINPROGRESS: return NET_EINPROGRESS;
         case EALREADY: return NET_EALREADY;
         case EADDRINUSE: return NET_EADDRINUSE;
+        case EADDRNOTAVAIL: return NET_EADDRNOTAVAIL;
         case EAFNOSUPPORT: return NET_EAFNOSUPPORT;
         case ENETUNREACH: return NET_ENETUNREACH;
-        case EHOSTUNREACH: return NET_ENETUNREACH;
+        case EHOSTUNREACH: return NET_EHOSTUNREACH;
         case ECONNABORTED: return NET_ECONNABORTED;
+        case ENOBUFS: return NET_ENOBUFS;
+        case EISCONN: return NET_EISCONN;
+        case ENOTCONN: return NET_ENOTCONN;
+        case EACCES: return NET_EACCES;
         case ECONNRESET: return 54;
         case ETIMEDOUT: return NET_ETIMEDOUT;
         case ECONNREFUSED: return NET_ECONNREFUSED;

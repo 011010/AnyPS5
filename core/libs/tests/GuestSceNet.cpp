@@ -207,6 +207,7 @@ int main() {
     address_size = peer.size();
     const int accepted = sceNetAccept(listener, peer.data(), &address_size);
     Require(accepted >= 0 && address_size == 16);
+    Require(sceNetConnect(client, address.data(), address.size()) == static_cast<int>(0x80410138) && *sceNetErrnoLoc() == 56);
     const int nonblocking = 1;
     Require(sceNetSetsockopt(accepted, 0xffff, 0x1200, &nonblocking, sizeof(nonblocking)) == 0);
     char pending = 0;
