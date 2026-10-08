@@ -3,9 +3,9 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-NARROW_SUBGROUPS = re.compile(r"skipped,.*subgroup", re.IGNORECASE)
+DEVICE_LIMITATION = re.compile(r"skipped,.*(subgroup|the device has no|the device reports)", re.IGNORECASE)
 
-WINDOWS_PREFIX = "agc_driver_"
+WINDOWS_PREFIX = "agc"
 
 
 def skips(path):
@@ -35,8 +35,8 @@ if __name__ == "__main__":
         unexpected = [name for name, _ in found if not name.startswith(WINDOWS_PREFIX)]
         expected = f"any {WINDOWS_PREFIX}* test, which the runner has no Vulkan driver for"
     else:
-        unexpected = [name for name, output in found if not NARROW_SUBGROUPS.search(output)]
-        expected = "any test that reports the device's subgroups are too narrow for it"
+        unexpected = [name for name, output in found if not DEVICE_LIMITATION.search(output)]
+        expected = "any test that reports the device limitation it needs, such as narrow subgroups or a missing extension"
     for name in unexpected:
         print(f"error: {name} skipped")
     if unexpected:
