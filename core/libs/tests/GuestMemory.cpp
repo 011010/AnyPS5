@@ -1123,6 +1123,11 @@ int main() {
     Require(memory[page * 2] == 73);
     Require(munmap_nid_postfix(memory + page * 2, page) == 0);
     Require(munmap_nid_postfix(memory, page) == -1);
+    *__error_nid_postfix() = 0;
+    Require(mprotect_nid_postfix(memory, page, 1) == -1 && *__error_nid_postfix() == 22);
+    *__error_nid_postfix() = 0;
+    Require(mprotect_nid_postfix(memory, std::numeric_limits<std::size_t>::max(), 1) == -1 &&
+            *__error_nid_postfix() == 22);
     for (int protection : {0, 1, 3, 5}) {
         void* mapped = mmap_nid_postfix(memory, 1, protection, 0x1002, -1, 0);
         Require(mapped != failed);
