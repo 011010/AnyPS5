@@ -634,6 +634,14 @@ bool TranslationContext::emitMemory(const RdnaInstruction& inst) {
     case RdnaOpcode::ImageStoreBy4:
     case RdnaOpcode::ImageStoreMipBy2:
     case RdnaOpcode::ImageStoreMipBy4:
+    case RdnaOpcode::ImageLoadPck2:
+    case RdnaOpcode::ImageLoadPck4:
+    case RdnaOpcode::ImageLoadMipPck2:
+    case RdnaOpcode::ImageLoadMipPck4:
+    case RdnaOpcode::ImageStorePck2:
+    case RdnaOpcode::ImageStorePck4:
+    case RdnaOpcode::ImageStoreMipPck2:
+    case RdnaOpcode::ImageStoreMipPck4:
         return imageBy(inst);
     case RdnaOpcode::ImageLoad:
     case RdnaOpcode::ImageLoadMip:
