@@ -170,9 +170,10 @@ DecodedImage decodeImageDescriptor(const DescriptorValue& descriptor, const Imag
         decoded.packedFormat = format;
     }
     decoded.conversionFormat = RemapTextureFormat(format) != format ? format : IrBufferFormat::Invalid;
-    if (format == IrBufferFormat::Format11_11_10UNorm) {
-        if (!base.srgbDecodeCompatible) throw std::runtime_error("sampling, gathering or querying LOD of a converted unorm image is not implemented");
-        if (!base.depthBitsCompatible) throw std::runtime_error("reads or writes a converted unorm image with 16-bit data, which is not implemented");
+    if (format == IrBufferFormat::Format11_11_10UNorm || format == IrBufferFormat::Format10_11_11Float) {
+        const bool floating = format == IrBufferFormat::Format10_11_11Float;
+        if (!base.srgbDecodeCompatible) throw std::runtime_error(floating ? "samples or gathers a converted float image, or queries its LOD, which is not implemented" : "sampling, gathering or querying LOD of a converted unorm image is not implemented");
+        if (!base.depthBitsCompatible) throw std::runtime_error(floating ? "reads or writes a converted float image with 16-bit data, which is not implemented" : "reads or writes a converted unorm image with 16-bit data, which is not implemented");
         for (std::uint32_t component = 0; component < 4u; ++component) {
             if (((descriptorImageSwizzle(descriptor) >> (component * 3u)) & 7u) == 7u) throw std::runtime_error("selects a channel the converted image format does not have");
         }
@@ -594,7 +595,7 @@ std::vector<ImageResource> ResourceMaterializer::RuntimeImageModes(const ImageRe
         mode.cube = false;
         mode.mipCount = mode.mipMode == ImageMipMode::DynamicStorage ? RuntimeAbi::StorageHeapCapacity : 1u;
         mode.shaderSwizzle = ShaderImageIdentitySwizzle;
-        if (conversion == IrBufferFormat::Format11_11_10UNorm) mode.shaderSwizzle = 0x2acu;
+        if (conversion == IrBufferFormat::Format11_11_10UNorm || conversion == IrBufferFormat::Format10_11_11Float) mode.shaderSwizzle = 0x2acu;
         modes.push_back(mode);
         if (image.dimension == RdnaImageDimension::Dim1DArray || image.dimension == RdnaImageDimension::Dim2DArray || image.dimension == RdnaImageDimension::Dim2DMsaaArray) {
             auto plain = mode;
@@ -629,7 +630,10 @@ std::vector<ImageResource> ResourceMaterializer::RuntimeImageModes(const ImageRe
             append(IrTextureNumericClass::Uint, IrBufferFormat::Invalid, IrBufferFormat::Invalid, false, false);
             if (!storage) append(IrTextureNumericClass::Sint, IrBufferFormat::Invalid, IrBufferFormat::Invalid, false, false);
             append(IrTextureNumericClass::Uint, IrBufferFormat::Format11_11_10UInt, IrBufferFormat::Invalid, false, false);
-            if (image.srgbDecodeCompatible && image.depthBitsCompatible) append(IrTextureNumericClass::Uint, IrBufferFormat::Format11_11_10UNorm, IrBufferFormat::Invalid, false, false);
+            if (image.srgbDecodeCompatible && image.depthBitsCompatible) {
+                append(IrTextureNumericClass::Uint, IrBufferFormat::Format11_11_10UNorm, IrBufferFormat::Invalid, false, false);
+                append(IrTextureNumericClass::Uint, IrBufferFormat::Format10_11_11Float, IrBufferFormat::Invalid, false, false);
+            }
             if (!storage) {
                 if (image.depthBitsCompatible) {
                     append(IrTextureNumericClass::Float, IrBufferFormat::Invalid, IrBufferFormat::Invalid, true, false);

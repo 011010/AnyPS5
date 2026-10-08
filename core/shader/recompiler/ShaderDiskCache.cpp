@@ -73,7 +73,7 @@ static_assert(sizeof(VertexInput) == 12, "VertexInput changed: update the vertex
 static_assert(sizeof(FragmentParameter) == 12, "FragmentParameter changed: update the parameter encoder");
 static_assert(sizeof(CompiledShaderInfo) == 328, "CompiledShaderInfo changed: update the info encoder");
 static_assert(sizeof(ShaderInfo) == 224, "ShaderInfo changed: update the info encoder");
-static_assert(sizeof(BufferResource) == 24, "BufferResource changed: update the info encoder");
+static_assert(sizeof(BufferResource) == 32, "BufferResource changed: update the info encoder");
 static_assert(sizeof(ImageResource) == 104, "ImageResource changed: update the info encoder");
 static_assert(sizeof(SamplerResource) == 16, "SamplerResource changed: update the info encoder");
 static_assert(sizeof(SampledResourcePair) == 12, "SampledResourcePair changed: update the info encoder");
@@ -445,6 +445,7 @@ void encodeInfo(Writer& writer, const CompiledShaderInfo& compiled) {
         out.Value(buffer.descriptorFormatted);
         out.Value(buffer.formattedReadMask);
         out.Value(buffer.scalar);
+        out.Value(buffer.typedAlignment);
     });
     writer.List(info.images, [](Writer& out, const ImageResource& image) {
         out.Value(image.source);
@@ -530,7 +531,7 @@ void decodeInfo(Reader& reader, CompiledShaderInfo& compiled) {
     auto& info = compiled.info;
     reader.Value(info.scratchDwords);
     reader.Value(info.sharedMemoryBytes);
-    reader.List(info.buffers, 26, [](Reader& in, BufferResource& buffer) {
+    reader.List(info.buffers, 27, [](Reader& in, BufferResource& buffer) {
         in.Value(buffer.source);
         in.Value(buffer.firstUsePc);
         in.Value(buffer.maxByteExtent);
@@ -542,6 +543,7 @@ void decodeInfo(Reader& reader, CompiledShaderInfo& compiled) {
         in.Value(buffer.descriptorFormatted);
         in.Value(buffer.formattedReadMask);
         in.Value(buffer.scalar);
+        in.Value(buffer.typedAlignment);
     });
     reader.List(info.images, 72, [](Reader& in, ImageResource& image) {
         in.Value(image.source);

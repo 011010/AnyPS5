@@ -1,6 +1,7 @@
 #include "Optimization/ResourceTracker.hpp"
 #include "Optimization/SrtWalker.hpp"
 #include "Optimization/ResourceMaterializer.hpp"
+#include "SpirvBackend/SpirvBufferFormat.hpp"
 #include "IntermediateRepresentation/IrBuilder.hpp"
 #include "Optimization/SrtWalker/SrtInstructionPredicates.hpp"
 
@@ -851,6 +852,11 @@ private:
         resource.atomic = resource.atomic || atomic;
         resource.formatted = resource.formatted || memory.formatted;
         resource.descriptorFormatted = resource.descriptorFormatted || (memory.formatted && !memory.typed);
+        if (memory.formatted && memory.typed) {
+            const auto format = GetFormatInfo(DecodeTBufferFormat(memory.dataFormat, memory.numberFormat));
+            if (format.byteSize == 0u) fail("typed buffer instruction has an invalid format");
+            resource.typedAlignment = std::max(resource.typedAlignment, static_cast<std::uint8_t>(std::min(format.byteSize, 4u)));
+        }
         if (memory.formatted && !memory.typed && !write) resource.formattedReadMask |= (1u << std::min(memory.dataDwords, 4u)) - 1u;
         resource.scalar = resource.scalar || op == IrOpcode::ReadConstBuffer || memory.kind == ResourceKind::ScalarBuffer;
     }

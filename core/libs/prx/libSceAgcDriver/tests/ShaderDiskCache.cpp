@@ -175,6 +175,7 @@ CompiledVariant sampleVariant() {
     buffer.scalar = true;
     buffer.descriptorFormatted = true;
     buffer.formattedReadMask = 5u;
+    buffer.typedAlignment = 2u;
     info.info.buffers = {buffer, BufferResource{}};
     ImageResource image{};
     image.source = 5;
@@ -628,8 +629,11 @@ void verifyInvocationIsolation() {
     const auto restored = Recompile(request.request);
     requireSameResult(first, restored, "restored invocation");
     const auto original = request.userData;
-    const std::array<std::array<std::uint32_t, 4>, 7> descriptors{{
+    const std::array<std::array<std::uint32_t, 4>, 10> descriptors{{
         {original[0] + 0x20000u, original[1], original[2], original[3]},
+        {original[0] + 1u, original[1], original[2], original[3]},
+        {original[0] + 2u, original[1], original[2], original[3]},
+        {original[0] + 3u, original[1], original[2], original[3]},
         {original[0], original[1] | 1u, original[2], original[3]},
         {original[0], original[1], original[2] / 2u, original[3]},
         {original[0], original[1] | (16u << 16u), original[2], original[3]},
@@ -641,7 +645,7 @@ void verifyInvocationIsolation() {
         request.userData = descriptor;
         const auto changed = Recompile(request.request);
         require(changed.cacheHit && first.variantId == changed.variantId, "buffer metadata changed the compiled variant");
-        if ((descriptor[1] & 0xffff0000u) == (original[1] & 0xffff0000u) && descriptor[3] == original[3] && (descriptor[0] != 0u || (descriptor[1] & 0xffffu) != 0u)) {
+        if ((descriptor[0] & 3u) == (original[0] & 3u) && (descriptor[1] & 0xffff0000u) == (original[1] & 0xffff0000u) && descriptor[3] == original[3] && (descriptor[0] != 0u || (descriptor[1] & 0xffffu) != 0u)) {
             require(first.spirv.data() == changed.spirv.data() && first.PipelineVariantId() == changed.PipelineVariantId(), "buffer address or size rebuilt the specialized module");
         }
         ComputeRequest fresh(false);
@@ -656,6 +660,38 @@ void verifyInvocationIsolation() {
     try { static_cast<void>(Recompile(request.request)); }
     catch (const std::runtime_error&) { rejected = true; }
     require(rejected, "an unsupported buffer descriptor type was accepted");
+}
+
+void verifyBufferAlignmentSpecialization() {
+    ComputeRequest request(true);
+    request.request.context.waveSize = 32u;
+    request.request.context.compute->numThreads = {32u, 1u, 1u};
+    request.userData[3] = 0x31027facu;
+    static_cast<void>(PrepareShader(request.request));
+    const auto misses = diskMisses();
+    const auto aligned = Recompile(request.request);
+    const auto countAtomics = [](const RecompileResult& result) {
+        std::size_t atomics = 0;
+        for (std::size_t cursor = 5; cursor < result.spirv.size();) {
+            const auto count = result.spirv[cursor] >> 16u;
+            require(count != 0u && count <= result.spirv.size() - cursor, "invalid specialized buffer instruction");
+            if ((result.spirv[cursor] & 0xffffu) == spv::OpAtomicCompareExchange) ++atomics;
+            cursor += count;
+        }
+        return atomics;
+    };
+    require(countAtomics(aligned) == 0u, "aligned DWORD store retained unaligned atomic updates");
+    for (std::uint32_t offset = 1; offset < 4u; ++offset) {
+        request.userData[0] = 0x10000000u + offset;
+        const auto unaligned = Recompile(request.request);
+        require(unaligned.variantId == aligned.variantId && diskMisses() == misses, "base alignment repeated static shader preparation");
+        require(countAtomics(unaligned) == 2u, "unaligned DWORD store did not split into two atomic updates");
+        request.userData[0] += 0x10000u;
+        const auto relocated = Recompile(request.request);
+        require(unaligned.spirv.data() == relocated.spirv.data(), "relocation with unchanged alignment rebuilt the buffer specialization");
+    }
+    request.userData[0] = 0x10000000u;
+    require(Recompile(request.request).spirv.data() == aligned.spirv.data(), "unaligned buffers replaced the aligned specialization");
 }
 
 void verifyBindingPlanSelection() {
@@ -703,6 +739,31 @@ void verifyBindingPlanSelection() {
     try { builder.Populate(populated, compiled, selected, 0u, snapshot, {}); }
     catch (const std::runtime_error&) { rejected = true; }
     require(rejected, "selected plan accepted an invalid live buffer descriptor");
+    snapshot.buffers[0].dwordCount = 4u;
+    const auto rejectsAlignment = [&](const char* diagnostic) {
+        try { static_cast<void>(builder.Prepare(compiled.layout, info, IrShaderStage::Compute, snapshot)); }
+        catch (const std::runtime_error& error) {
+            require(std::string_view(error.what()).find(diagnostic) != std::string_view::npos, "alignment check returned an unrelated failure");
+            return;
+        }
+        throw std::runtime_error("binding plan accepted an unsupported buffer alignment");
+    };
+    snapshot.buffers[0].dwords[0] |= 2u;
+    rejectsAlignment("buffer atomic on a V# whose base is not DWORD aligned");
+    snapshot.buffers[0].dwords[0] &= ~3u;
+    info.buffers[1].typedAlignment = 2u;
+    snapshot.buffers[1].dwords[0] |= 2u;
+    static_cast<void>(builder.Prepare(compiled.layout, info, IrShaderStage::Compute, snapshot));
+    snapshot.buffers[1].dwords[0] |= 1u;
+    rejectsAlignment("base is not aligned to its element");
+    info.buffers[1].typedAlignment = 1u;
+    info.buffers[1].descriptorFormatted = true;
+    snapshot.buffers[1].dwords[3] = 0x3100bfacu;
+    rejectsAlignment("base is not aligned to its element");
+    snapshot.buffers[1].dwords[0] &= ~1u;
+    static_cast<void>(builder.Prepare(compiled.layout, info, IrShaderStage::Compute, snapshot));
+    snapshot.buffers[1].dwords[3] = 0x31014facu;
+    rejectsAlignment("base is not aligned to its element");
 }
 
 void verifyVertexTypeSpecialization() {
@@ -936,6 +997,7 @@ int main(int argc, char** argv) {
         verifyEmissionFailureMemo();
         verifyFailureMemoSwitch(argv[0]);
         verifyInvocationIsolation();
+        verifyBufferAlignmentSpecialization();
         verifyBindingPlanSelection();
         verifyVertexTypeSpecialization();
         verifyBuiltinSpecialization();

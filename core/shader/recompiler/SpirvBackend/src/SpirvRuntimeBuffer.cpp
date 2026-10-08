@@ -131,28 +131,48 @@ MemoryResourceAccess directAccess(SpirvValueEmitContext& context, const IrValue&
     return access;
 }
 
+std::uint32_t baseMisalignment(SpirvValueEmitContext& context, const IrValue& instruction) {
+    const auto& memory = context.Memory(instruction);
+    if (memory.kind == ResourceKind::ScalarBuffer) return ConstantU32(context.state, 0u);
+    const auto first = PipelineSpecialization::BufferBase + memory.resource * PipelineSpecialization::BufferWords;
+    return context.state.module.SpecializationConstant(TypeU32(context.state), first + 3u, 0u);
+}
+
+std::uint32_t directWordIndex(SpirvEmitterState& state, const MemoryResourceAccess& access, std::uint32_t address) {
+    const auto relative = Binary(state, spv::OpShiftRightLogical, TypeU32(state), address, ConstantU32(state, 2u));
+    const auto base = Binary(state, spv::OpShiftRightLogical, TypeU32(state), access.byteOffset, ConstantU32(state, 2u));
+    return EmitAddU32(state, relative, base);
+}
+
 std::uint32_t readBuffer(SpirvValueEmitContext& context, const IrValue& instruction, std::uint32_t address, std::uint32_t bits) {
     if (context.Memory(instruction).gpuDescriptor) return EmitBdaRead(context, instruction, address, bits);
     auto& state = context.state;
     const auto access = directAccess(context, instruction);
-    const auto byte = EmitAddU32(state, address, access.byteOffset);
-    const auto index = Binary(state, spv::OpShiftRightLogical, TypeU32(state), byte, ConstantU32(state, 2u));
-    const auto shift = Binary(state, spv::OpShiftLeftLogical, TypeU32(state), EmitAndConstant(state, byte, 3u), ConstantU32(state, 3u));
-    const auto load = [&](std::uint32_t word) {
-        return EmitValueOrZeroIfCondition(state, EmitMemoryElementInBounds(state, access, word), [&] {
+    const auto index = directWordIndex(state, access, address);
+    const auto misalignment = baseMisalignment(context, instruction);
+    const auto unaligned = nonzero(state, misalignment);
+    const auto next = EmitAddU32(state, index, ConstantU32(state, 1u));
+    const auto last = Select(state, TypeU32(state), unaligned, next, index);
+    return EmitValueOrZeroIfCondition(state, EmitMemoryElementInBounds(state, access, last), [&] {
+        const auto load = [&](std::uint32_t word) {
             const auto value = state.module.AllocateId();
             const auto pointer = EmitMemoryElementPointer(state, access, word);
             if (access.memoryAccess != 0u) state.module.AddFunction(spv::OpLoad, TypeU32(state), value, pointer, access.memoryAccess);
             else state.module.AddFunction(spv::OpLoad, TypeU32(state), value, pointer);
             return value;
+        };
+        const auto shift = Binary(state, spv::OpShiftLeftLogical, TypeU32(state), misalignment, ConstantU32(state, 3u));
+        const auto low = Binary(state, spv::OpShiftRightLogical, TypeU32(state), load(index), shift);
+        const auto high = EmitValueOrZeroIfCondition(state, unaligned, [&] {
+            return Binary(state, spv::OpShiftLeftLogical, TypeU32(state), load(next), Binary(state, spv::OpISub, TypeU32(state), ConstantU32(state, 32u), shift));
         });
-    };
-    const auto low = Binary(state, spv::OpShiftRightLogical, TypeU32(state), load(index), shift);
-    const auto crosses = Binary(state, spv::OpUGreaterThan, TypeBool(state), shift, ConstantU32(state, 32u - bits));
-    const auto high = EmitValueOrZeroIfCondition(state, crosses, [&] {
-        return Binary(state, spv::OpShiftLeftLogical, TypeU32(state), load(EmitAddU32(state, index, ConstantU32(state, 1u))), Binary(state, spv::OpISub, TypeU32(state), ConstantU32(state, 32u), shift));
+        auto value = EmitOrU32(state, low, high);
+        if (bits != 32u) {
+            const auto subwordShift = Binary(state, spv::OpShiftLeftLogical, TypeU32(state), EmitAndConstant(state, address, 3u), ConstantU32(state, 3u));
+            value = Binary(state, spv::OpShiftRightLogical, TypeU32(state), value, subwordShift);
+        }
+        return EmitAndConstant(state, value, bits == 32u ? 0xffffffffu : (1u << bits) - 1u);
     });
-    return EmitAndConstant(state, EmitOrU32(state, low, high), bits == 32u ? 0xffffffffu : (1u << bits) - 1u);
 }
 
 void writeBuffer(SpirvValueEmitContext& context, const IrValue& instruction, std::uint32_t address, std::uint32_t value, std::uint32_t bits = 32u) {
@@ -163,33 +183,38 @@ void writeBuffer(SpirvValueEmitContext& context, const IrValue& instruction, std
     auto& state = context.state;
     const auto access = directAccess(context, instruction);
     const auto u32 = TypeU32(state);
-    const auto byte = EmitAddU32(state, address, access.byteOffset);
-    const auto index = Binary(state, spv::OpShiftRightLogical, u32, byte, ConstantU32(state, 2u));
-    const auto shift = Binary(state, spv::OpShiftLeftLogical, u32, EmitAndConstant(state, byte, 3u), ConstantU32(state, 3u));
-    const auto mask = ConstantU32(state, bits == 32u ? 0xffffffffu : (1u << bits) - 1u);
-    const auto masked = Binary(state, spv::OpBitwiseAnd, u32, value, mask);
-    const auto update = [&](std::uint32_t word, std::uint32_t wordMask, std::uint32_t replacement) {
-        EmitIfCondition(state, EmitMemoryElementInBounds(state, access, word), [&] {
-            const auto pointer = EmitMemoryElementPointer(state, access, word);
-            AtomicUpdate(state, pointer, access.kind, [&](std::uint32_t old) {
+    const auto index = directWordIndex(state, access, address);
+    const auto misalignment = baseMisalignment(context, instruction);
+    const auto unaligned = nonzero(state, misalignment);
+    const auto next = EmitAddU32(state, index, ConstantU32(state, 1u));
+    const auto last = Select(state, u32, unaligned, next, index);
+    EmitIfCondition(state, EmitMemoryElementInBounds(state, access, last), [&] {
+        auto mask = ConstantU32(state, bits == 32u ? 0xffffffffu : (1u << bits) - 1u);
+        auto masked = Binary(state, spv::OpBitwiseAnd, u32, value, mask);
+        if (bits != 32u) {
+            const auto subwordShift = Binary(state, spv::OpShiftLeftLogical, u32, EmitAndConstant(state, address, 3u), ConstantU32(state, 3u));
+            mask = Binary(state, spv::OpShiftLeftLogical, u32, mask, subwordShift);
+            masked = Binary(state, spv::OpShiftLeftLogical, u32, masked, subwordShift);
+        }
+        const auto update = [&](std::uint32_t word, std::uint32_t wordMask, std::uint32_t replacement) {
+            AtomicUpdate(state, EmitMemoryElementPointer(state, access, word), access.kind, [&](std::uint32_t old) {
                 return EmitOrU32(state, Binary(state, spv::OpBitwiseAnd, u32, old, Unary(state, spv::OpNot, u32, wordMask)), replacement);
             });
-        });
-    };
-    const auto unaligned = nonzero(state, shift);
-    if (bits == 32u) {
-        EmitIfCondition(state, both(state, Unary(state, spv::OpLogicalNot, TypeBool(state), unaligned), EmitMemoryElementInBounds(state, access, index)), [&] {
-            const auto pointer = EmitMemoryElementPointer(state, access, index);
-            if (access.memoryAccess != 0u) state.module.AddFunction(spv::OpStore, pointer, value, access.memoryAccess);
-            else state.module.AddFunction(spv::OpStore, pointer, value);
-        });
-    }
-    EmitIfCondition(state, bits == 32u ? unaligned : ConstantBool(state, true), [&] {
-        update(index, Binary(state, spv::OpShiftLeftLogical, u32, mask, shift), Binary(state, spv::OpShiftLeftLogical, u32, masked, shift));
-        const auto crosses = Binary(state, spv::OpUGreaterThan, TypeBool(state), shift, ConstantU32(state, 32u - bits));
-        EmitIfCondition(state, crosses, [&] {
-            const auto remaining = Binary(state, spv::OpISub, u32, ConstantU32(state, 32u), shift);
-            update(EmitAddU32(state, index, ConstantU32(state, 1u)), Binary(state, spv::OpShiftRightLogical, u32, mask, remaining), Binary(state, spv::OpShiftRightLogical, u32, masked, remaining));
+        };
+        if (bits == 32u) {
+            EmitIfCondition(state, Unary(state, spv::OpLogicalNot, TypeBool(state), unaligned), [&] {
+                const auto pointer = EmitMemoryElementPointer(state, access, index);
+                if (access.memoryAccess != 0u) state.module.AddFunction(spv::OpStore, pointer, value, access.memoryAccess);
+                else state.module.AddFunction(spv::OpStore, pointer, value);
+            });
+        }
+        EmitIfCondition(state, bits == 32u ? unaligned : ConstantBool(state, true), [&] {
+            const auto shift = Binary(state, spv::OpShiftLeftLogical, u32, misalignment, ConstantU32(state, 3u));
+            update(index, Binary(state, spv::OpShiftLeftLogical, u32, mask, shift), Binary(state, spv::OpShiftLeftLogical, u32, masked, shift));
+            EmitIfCondition(state, unaligned, [&] {
+                const auto remaining = Binary(state, spv::OpISub, u32, ConstantU32(state, 32u), shift);
+                update(next, Binary(state, spv::OpShiftRightLogical, u32, mask, remaining), Binary(state, spv::OpShiftRightLogical, u32, masked, remaining));
+            });
         });
     });
 }
@@ -369,7 +394,7 @@ std::uint32_t EmitRuntimeBufferLoad(SpirvValueEmitContext& context, const IrValu
         const auto wide = directAccess(context, instruction, true);
         const auto byte = EmitAddU32(state, runtime.guest, wide.byteOffset);
         const auto index = Binary(state, spv::OpShiftRightLogical, TypeU32(state), byte, ConstantU32(state, 3u));
-        const auto aligned = equal(state, EmitAndConstant(state, byte, 7u), ConstantU32(state, 0u));
+        const auto aligned = both(state, equal(state, baseMisalignment(context, instruction), ConstantU32(state, 0u)), equal(state, EmitAndConstant(state, byte, 7u), ConstantU32(state, 0u)));
         const auto inBounds = both(state, runtime.inBounds, EmitMemoryElementInBounds(state, wide, index));
         return EmitValueIfElse(state, both(state, aligned, inBounds), type, [&] {
             const auto pointer = EmitStorageBufferElementPointer(state, wide, index, TypeStorageBufferU64ElementPointer(state));

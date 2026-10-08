@@ -117,10 +117,6 @@ void RequireAlignedAtomic(SpirvValueEmitContext& ctx, const MemoryResourceAccess
     if (resource.misalignment != 0u) ctx.Fail("buffer atomic on a V# whose base is not DWORD aligned");
 }
 
-void RequireAlignedFormattedElement(SpirvValueEmitContext& ctx, const IrValue& inst, const MemoryResourceAccess& resource, const SpirvBufferFormatInfo& info) {
-    if (resource.misalignment % std::min(info.byteSize, 4u) != 0u) ctx.Fail(inst, "is a formatted buffer access through a V# whose base is not aligned to its element");
-}
-
 std::uint32_t LoadSubwordInBounds(SpirvValueEmitContext& ctx, const MemoryResourceAccess& resource, std::uint32_t address, std::uint32_t index, std::uint32_t bits, bool signExtend) {
     auto& state = ctx.state;
     if (bits != 8u && bits != 16u) {

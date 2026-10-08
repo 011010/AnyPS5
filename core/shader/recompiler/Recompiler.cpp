@@ -517,7 +517,8 @@ std::shared_ptr<PreparedBindingPlan> preparedBindingPlan(const CompiledVariant& 
         key.push_back(descriptor.dwordCount);
         key.push_back(descriptor.dwords[1] & 0xffff0000u);
         key.push_back(descriptor.dwords[3]);
-        key.push_back(descriptor.dwords[0] != 0u || (descriptor.dwords[1] & 0xffffu) != 0u);
+        const bool present = descriptor.dwords[2] != 0u && (descriptor.dwords[0] != 0u || (descriptor.dwords[1] & 0xffffu) != 0u);
+        key.push_back(present ? 4u | (descriptor.dwords[0] & 3u) : 0u);
     }
     for (std::size_t index = 0; index < variant.info.info.images.size(); ++index) {
         const auto& descriptor = snapshot.images.at(index);
