@@ -7,6 +7,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <windows.h>
 
 extern "C" {
 int APS5_VABI sceKernelInstallExceptionHandler(int signum, void* handler);
@@ -102,6 +103,24 @@ static void* APS5_VABI Leaving(void* arg) {
     return nullptr;
 }
 
+static constexpr DWORD ContinuedCode = 0xe0000001u;
+static constexpr int ContinuingRounds = 50;
+static std::atomic<int> continued{0};
+
+static LONG CALLBACK ContinueRaised(EXCEPTION_POINTERS* info) {
+    if (info->ExceptionRecord->ExceptionCode != ContinuedCode) return EXCEPTION_CONTINUE_SEARCH;
+    continued.fetch_add(1);
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+static void* APS5_VABI Continuing(void* arg) {
+    auto& worker = *static_cast<Worker*>(arg);
+    worker.id = std::this_thread::get_id();
+    worker.started.store(true);
+    while (!worker.stop.load()) RaiseException(ContinuedCode, 0, 0, nullptr);
+    return nullptr;
+}
+
 static std::atomic<bool> finishedReturned{false};
 
 static void* APS5_VABI Finished(void*) {
@@ -190,6 +209,20 @@ int main() {
     }
     Require(scePthreadJoin(leavingThread, nullptr) == 0);
     Require(sceKernelDeleteSema(leaving.sem) == 0);
+
+    void* const vectored = AddVectoredExceptionHandler(1, ContinueRaised);
+    Require(vectored != nullptr);
+    Worker continuing;
+    Pthread continuingThread = nullptr;
+    Require(scePthreadCreate(&continuingThread, nullptr, Continuing, &continuing, "continuing") == 0);
+    while (!continuing.started.load() || continued.load() == 0) std::this_thread::yield();
+    for (int raised = 0; raised < ContinuingRounds; ++raised) {
+        Require(sceKernelRaiseException(continuingThread, SIGUSR1) == 0);
+        ExpectDelivery(1 + 2 * Repeats + HostRounds + LeavingRounds + raised, continuing.id);
+    }
+    continuing.stop.store(true);
+    Require(scePthreadJoin(continuingThread, nullptr) == 0);
+    Require(RemoveVectoredExceptionHandler(vectored) != 0);
 
     Pthread finishedThread = nullptr;
     Require(scePthreadCreate(&finishedThread, nullptr, Finished, nullptr, "finished") == 0);
