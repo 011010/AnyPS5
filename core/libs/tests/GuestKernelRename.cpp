@@ -33,7 +33,7 @@ static void Check(bool value, int line) {
 int main() {
     const RenameFunction rename_nid_postfix = LoadKernelRename();
     if (rename_nid_postfix == nullptr) { std::fputs("libkernel does not export rename_nid_postfix\n", stderr); return 1; }
-    const auto root = std::filesystem::temp_directory_path() / ("aps5-kernel-rename-" +
+    const auto root = std::filesystem::path("anyps5-kernel-rename-test-" +
         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     Require(std::filesystem::create_directory(root));
     const auto file = root / "file.txt";
