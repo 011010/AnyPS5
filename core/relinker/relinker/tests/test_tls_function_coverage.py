@@ -346,6 +346,28 @@ def main():
         external[0x1300:0x1310] = external[0x1240:0x1250]
         external[0x1240:0x1250] = b"\xe8" + struct.pack("<i", 0x1300 - 0x1245) + b"\xc3" + b"\x90" * 10
         convert("direct-call-from-indirect-block", external, tls_address=0x1300)
+
+        def convert_padded(name, image):
+            source = work / (name + ".elf")
+            output = source.with_suffix(".exe")
+            source.write_bytes(image)
+            result = subprocess.run([str(relinker), "--skip-sce-module", "--windows", str(source), str(output)],
+                                    capture_output=True, text=True, timeout=30)
+            assert result.returncode == 0, (name, result.stdout, result.stderr)
+            return output.read_bytes()
+
+        unreferenced = make_image("register", "unwind")
+        unreferenced[0x18f0:0x1900] = b"\xcc" * 16
+        unreferenced[0x1900:0x1900 + len(TLS_LOAD) + 4] = TLS_LOAD + bytes.fromhex("8b 40 f0 c3")
+        pe = convert_padded("unreferenced-padded-function", unreferenced)
+        assert pe_bytes_at(pe, 0x11900, 1)[0] == 0xe9, "unreferenced-padded-function"
+        assert pe_bytes_at(pe, 0x11850, len(TLS_LOAD)) == TLS_LOAD, "unreferenced-padded-function"
+        zero_filled = make_image("register", "unwind")
+        zero_filled[0x18f0:0x1900] = b"\xcc" * 16
+        zero_filled[0x1900:0x1910] = bytes(16)
+        zero_filled[0x1910:0x1910 + len(TLS_LOAD)] = TLS_LOAD
+        pe = convert_padded("zero-filled-after-padding", zero_filled)
+        assert pe_bytes_at(pe, 0x11910, len(TLS_LOAD)) == TLS_LOAD, "zero-filled-after-padding"
         for register in range(16):
             offset, body = register_load(register)
             image = make_image("register", "unwind", body=body)
