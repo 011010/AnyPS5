@@ -381,9 +381,6 @@ RdnaInstruction DecodeRdnaMimg(std::uint32_t programCounter, std::span<const std
     if (nsa == 0u && addressDwords > 256u - vaddr) {
         throw std::runtime_error("MIMG address register range overflow");
     }
-    // Packed horizontal gathers write one VGPR per set DMASK bit (measured on gfx1031): the
-    // window element for bit k lands in the k-th destination register, each holding the texel's
-    // raw packed value. A zero mask still writes a single zero dword to vdst.
     const auto dataComponents = pckGather ? static_cast<std::uint32_t>(std::popcount(dmask)) : info.gather || msaaLoad ? 4u : static_cast<std::uint32_t>(std::popcount(dmask));
     const auto dataDwords = d16 ? (dataComponents + 1u) / 2u : dataComponents;
     const auto statusDwords = (word0 & 0x00010000u) != 0u ? 1u : 0u;

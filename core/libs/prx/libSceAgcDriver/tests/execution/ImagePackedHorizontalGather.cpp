@@ -30,10 +30,7 @@ alignas(256) std::array<std::uint32_t, Threads * 4> Input{};
 alignas(256) std::array<std::uint32_t, Threads * 4> Output{};
 alignas(4096) std::array<std::uint8_t, 4096> Texels{};
 
-// IMAGE_GATHER4H_PCK (MIMG opcode 0x62) with DMASK 0xF, VDATA v[8:11], VADDR v[4:5], image
-// descriptor s[8:15] and sampler descriptor s[16:19]. The words are the raw encoding because LLVM
-// has never accepted this mnemonic; see the RDNA2 ISA opcode table entry 98.
-alignas(256) constexpr std::array<std::uint32_t, 10> PckGather4h{
+alignas(256) std::array<std::uint32_t, 10> PckGather4h{
     0x34020084, 0xe0381000, 0x80000401, 0xbf8c3f70, 0xf1880f08, 0x00820804, 0xbf8c3f70, 0xe0781000,
     0x80010801, 0xbf810000,
 };
@@ -55,8 +52,6 @@ std::array<std::uint32_t, 8> TextureDescriptor() {
 }
 
 std::array<std::uint32_t, 4> SamplerDescriptor() {
-    // Clamp-to-edge on all axes with FORCE_UNNORM clear, so coordinates are normalized sampling
-    // coordinates, as the hardware applies to packed horizontal gathers (measured).
     return {(2u << 3u) | (2u << 6u), 0u, 0u, 0u};
 }
 
@@ -76,9 +71,22 @@ void FillTexels() {
 }
 
 void FillInput() {
+    constexpr std::array<std::array<float, 2>, 16> edges{{
+        {0.03125f, 0.0f}, {0.09375f, 0.25f}, {0.53125f, 0.5f}, {0.96875f, 0.75f},
+        {-0.25f, -0.3f}, {1.5f, 0.99f}, {0.4f, 1.0f}, {0.2f, 2.0f},
+        {0.3f, 0.6f}, {0.7f, 0.1f}, {0.0f, -1.0f}, {1.0f, 0.5f},
+        {0.0625f, 0.0f}, {0.15f, 0.375f}, {0.85f, 0.875f}, {-3.0f, 0.2f},
+    }};
     for (std::uint32_t tid = 0; tid < Threads; ++tid) {
-        Input[tid * 4u + 0u] = std::bit_cast<std::uint32_t>(static_cast<float>(tid % Width) / static_cast<float>(Width));
-        Input[tid * 4u + 1u] = std::bit_cast<std::uint32_t>(static_cast<float>(tid % Height) / static_cast<float>(Height));
+        float u = static_cast<float>(tid % Width) / static_cast<float>(Width);
+        float v = static_cast<float>(tid % Height) / static_cast<float>(Height);
+        if (tid >= Width) {
+            u = edges[tid - Width][0];
+            v = edges[tid - Width][1];
+            if (tid % 2u == 1u && tid < Width + 4u) u = std::nextafter(u, -1.0f);
+        }
+        Input[tid * 4u + 0u] = std::bit_cast<std::uint32_t>(u);
+        Input[tid * 4u + 1u] = std::bit_cast<std::uint32_t>(v);
         Input[tid * 4u + 2u] = 0u;
         Input[tid * 4u + 3u] = 0u;
     }
@@ -86,7 +94,7 @@ void FillInput() {
 
 std::uint32_t TexelBits(std::int32_t x, std::int32_t y) {
     const auto cx = static_cast<std::uint32_t>(std::clamp(x, 0, static_cast<int>(Width) - 1));
-    const auto cy = static_cast<std::uint32_t>(y);
+    const auto cy = static_cast<std::uint32_t>(std::max(y, 0));
     if (cy >= Height) {
         return 0u;
     }
@@ -98,10 +106,7 @@ std::uint32_t TexelBits(std::int32_t x, std::int32_t y) {
     return bits;
 }
 
-// The measured rule: window element k is at floor(u*width-0.5)+k-1 with DMASK bit i picking stream
-// word i of the four concatenated raw texels; rows at or past the height read zeros. Coordinates
-// are normalized sampling coordinates, as hardware applies to a sampler without FORCE_UNNORM.
-std::array<std::uint32_t, 4> Expected(std::uint32_t tid) {
+std::array<std::uint32_t, 4> Expected(std::uint32_t tid, std::uint32_t dmask) {
     const float u = std::bit_cast<float>(Input[tid * 4u + 0u]);
     const float v = std::bit_cast<float>(Input[tid * 4u + 1u]);
     const auto anchor = static_cast<std::int32_t>(std::floor(u * static_cast<float>(Width) - 0.5f));
@@ -111,7 +116,12 @@ std::array<std::uint32_t, 4> Expected(std::uint32_t tid) {
         const auto bits = TexelBits(anchor + static_cast<std::int32_t>(element) - 1, row);
         stream[element] = bits;
     }
-    return {stream[0], stream[1], stream[2], stream[3]};
+    std::array<std::uint32_t, 4> selected{};
+    std::uint32_t next = 0;
+    for (std::uint32_t bit = 0; bit < 4u; ++bit) {
+        if (((dmask >> bit) & 1u) != 0u) selected[next++] = stream[bit];
+    }
+    return selected;
 }
 
 ShaderRecompiler::RecompileResult Compile(AgcDriver::VulkanDevice& device) {
@@ -136,16 +146,17 @@ ShaderRecompiler::RecompileResult Compile(AgcDriver::VulkanDevice& device) {
     return ShaderRecompiler::Recompile(request);
 }
 
-void Run(AgcDriver::VulkanDevice& device) {
+void Run(AgcDriver::VulkanDevice& device, std::uint32_t dmask) {
+    PckGather4h[4] = 0xf1880008u | (dmask << 8u);
     Output.fill(0xdeadbeefu);
     const auto result = Compile(device);
     device.Dispatch(result, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(PckGather4h.data()));
     device.WaitIdle();
     for (std::uint32_t tid = 0; tid < Threads; ++tid) {
-        const auto expected = Expected(tid);
-        for (std::uint32_t component = 0; component < 4u; ++component) {
+        const auto expected = Expected(tid, dmask);
+        for (std::uint32_t component = 0; component < static_cast<std::uint32_t>(std::popcount(dmask)); ++component) {
             const std::uint32_t actual = Output[tid * 4u + component];
-            Require(actual == expected[component], std::string("packed horizontal gather: thread ") + std::to_string(tid) + " register " + std::to_string(component) + " is 0x" + std::to_string(actual) + ", expected 0x" + std::to_string(expected[component]));
+            Require(actual == expected[component], std::string("packed horizontal gather: dmask ") + std::to_string(dmask) + " thread " + std::to_string(tid) + " register " + std::to_string(component) + " is 0x" + std::to_string(actual) + ", expected 0x" + std::to_string(expected[component]));
         }
     }
 }
@@ -158,7 +169,7 @@ int main() {
         if (!device) return VulkanTestSkipped;
         FillTexels();
         FillInput();
-        Run(*device);
+        for (const std::uint32_t dmask : {0xfu, 0x1u, 0x5u, 0xau, 0x8u}) Run(*device, dmask);
         std::puts("image packed horizontal gather tests passed");
         return 0;
     } catch (const std::exception& error) {
