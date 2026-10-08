@@ -148,7 +148,8 @@ private:
         for (auto& [begin, region] : regions) {
             const auto effectiveEnd = trailingZeroStart(begin, region.End);
             Codegen::ControlFlowKind lastFlow = Codegen::ControlFlowKind::Sequential;
-            for (auto address = begin; address < effectiveEnd;) {
+            auto address = begin;
+            while (address < effectiveEnd) {
                 const auto instruction = decode(address, region.End);
                 const auto& info = instruction.Info;
                 const auto next = address + info.Length;
@@ -183,7 +184,7 @@ private:
                 lastFlow = info.FlowKind;
                 address = next;
             }
-            if (effectiveEnd != region.End) lastFlow = Codegen::ControlFlowKind::Sequential;
+            if (address < region.End) lastFlow = Codegen::ControlFlowKind::Sequential;
             if (!endsFlow(lastFlow) && isCode(region.End)) region.Edges.insert(region.End);
         }
     }
