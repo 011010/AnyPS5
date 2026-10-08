@@ -1,19 +1,21 @@
 #include "prx/libc/include/FileStream.hpp"
+#include "prx/libc/include/general/VabiMacros.hpp"
 #include <array>
 #include <cerrno>
+#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
 
 extern "C" {
-FileStream* fopen_nid_postfix(const char* filename, const char* mode);
-int fclose_nid_postfix(FileStream* stream);
-std::size_t fread_nid_postfix(void* buffer, std::size_t size, std::size_t count, FileStream* stream);
-std::size_t fwrite_nid_postfix(const void* buffer, std::size_t size, std::size_t count, FileStream* stream);
-int fseek_nid_postfix(FileStream* stream, long offset, int origin);
-long ftell_nid_postfix(FileStream* stream);
-int fputs_nid_postfix(const char* str, FileStream* stream);
-int fflush_nid_postfix(FileStream* stream);
+FileStream* APS5_VABI fopen_nid_postfix(const char* filename, const char* mode);
+int APS5_VABI fclose_nid_postfix(FileStream* stream);
+std::size_t APS5_VABI fread_nid_postfix(void* buffer, std::size_t size, std::size_t count, FileStream* stream);
+std::size_t APS5_VABI fwrite_nid_postfix(const void* buffer, std::size_t size, std::size_t count, FileStream* stream);
+int APS5_VABI fseek_nid_postfix(FileStream* stream, std::int64_t offset, int origin);
+std::int64_t APS5_VABI ftell_nid_postfix(FileStream* stream);
+int APS5_VABI fputs_nid_postfix(const char* str, FileStream* stream);
+int APS5_VABI fflush_nid_postfix(FileStream* stream);
 }
 
 static void Require(bool condition) {
