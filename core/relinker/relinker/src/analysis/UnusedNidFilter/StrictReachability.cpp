@@ -183,6 +183,7 @@ private:
                 lastFlow = info.FlowKind;
                 address = next;
             }
+            if (effectiveEnd != region.End) lastFlow = Codegen::ControlFlowKind::Sequential;
             if (!endsFlow(lastFlow) && isCode(region.End)) region.Edges.insert(region.End);
         }
     }
