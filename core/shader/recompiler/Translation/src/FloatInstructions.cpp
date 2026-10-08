@@ -28,7 +28,7 @@ bool TranslationContext::packedFloat16(const RdnaInstruction& inst, IrOpcode opc
         return applyF32ResultModifiers(inst.destination, IrF32(ir.Emit(opcode, IrType::F32, {&lhs.Value(), &rhs.Value()})));
     };
     IrU32 result = packHalf2x16(translateLane(false), translateLane(true));
-    if (!inst.destination.clamp) {
+    if (!inst.destination.clamp || !dx10Clamp()) {
         const auto laneBits = [&](const RdnaOperand& operand, bool high) {
             const IrU32 source = readF16SourceBits(operand);
             const bool selectHigh = high ? operand.opSelHi : operand.opSel;
@@ -75,7 +75,8 @@ bool TranslationContext::packedFloat16(const RdnaInstruction& inst, IrOpcode opc
             }
             return lane;
         };
-        result = packU16Lanes(nanLane(false), nanLane(true));
+        const auto clampedLane = [&](bool high) { return inst.destination.clamp ? clampF16Bits(inst.destination, nanLane(high)) : nanLane(high); };
+        result = packU16Lanes(clampedLane(false), clampedLane(true));
     }
     writeRawU32(inst.destination, result);
     return true;
@@ -92,7 +93,7 @@ bool TranslationContext::float16Unary(const RdnaInstruction& inst, IrOpcode opco
     const IrU32 half = readF16Bits(operand);
     const IrU1 nan(ir.UGreaterThan(ir.BitwiseAnd(half.Value(), ir.Constant(0x7fffu)), ir.Constant(0x7c00u)));
     const IrU32 special(ir.Select(nan.Value(), ir.BitwiseOr(half.Value(), ir.Constant(0x0200u)), ir.Constant(0xfe00u)));
-    const IrU32 value(ir.Select(ir.LogicalOr(nan.Value(), invalid.Value()), inst.destination.clamp ? ir.Constant(0u) : special.Value(), bits.Value()));
+    const IrU32 value(ir.Select(ir.LogicalOr(nan.Value(), invalid.Value()), inst.destination.clamp && dx10Clamp() ? ir.Constant(0u) : special.Value(), bits.Value()));
     write16Bits(inst.destination, value);
     return true;
 }
