@@ -337,7 +337,7 @@ bool TranslationContext::vMulLegacyF32(const RdnaInstruction& inst, bool accumul
     IrValue* rhs = readOperand(sourceAt(inst, 1u), IrType::F32);
     const auto isZero = [&](IrValue* value) { return IrU1(ir.IEqual(ir.BitwiseAnd(ir.BitCastU32(*value), ir.Constant(0x7fffffffu)), ir.Constant(0u))); };
     const IrU1 zero(ir.LogicalOr(isZero(lhs).Value(), isZero(rhs).Value()));
-    IrValue* result = &ir.Emit(IrOpcode::SelectF32, IrType::F32, {&zero.Value(), &ir.ConstantF32(0.0f), &ir.Emit(IrOpcode::FPMul32, IrType::F32, {lhs, rhs})});
+    IrValue* result = &ir.Emit(IrOpcode::SelectF32, IrType::F32, {&zero.Value(), &ir.ConstantF32(0.0f), &flushTinyProduct(lhs, rhs, &ir.Emit(IrOpcode::FPMul32, IrType::F32, {lhs, rhs})).Value()});
     if (accumulate) {
         IrValue* addend = readOperand(accumulatorOperand(inst), IrType::F32);
         result = &ir.Emit(IrOpcode::FPAdd32, IrType::F32, {result, addend});
@@ -491,7 +491,7 @@ bool TranslationContext::vDivFixupF32(const RdnaInstruction& inst) {
 }
 
 bool TranslationContext::floatUnary(const RdnaInstruction& inst, IrOpcode opcode) {
-    const IrU32 bits = readU32(sourceAt(inst, 0u));
+    const IrU32 bits = flushF32Denormal(readU32(sourceAt(inst, 0u)));
     const IrF32 argument(ir.BitCastF32(bits.Value()));
     const auto [result, invalid] = unaryFloatSpecials(opcode, argument, IrF32(ir.Emit(opcode, IrType::F32, {&argument.Value()})));
     const IrU1 nan(ir.UGreaterThan(ir.BitwiseAnd(bits.Value(), ir.Constant(0x7fffffffu)), ir.Constant(0x7f800000u)));
@@ -507,8 +507,9 @@ bool TranslationContext::floatBinary(const RdnaInstruction& inst, IrOpcode opcod
         const RdnaOperand& operand = sourceAt(inst, reverse ? 1u - index : index);
         args[index] = readOperand(operand, IrOpcodeArgumentType(opcode, index));
     }
-    IrValue& result = ir.Emit(opcode, IrOpcodeType(opcode), {args[0], args[1]});
-    writeOperand(inst.destination, &result);
+    IrValue* result = &ir.Emit(opcode, IrOpcodeType(opcode), {args[0], args[1]});
+    if (opcode == IrOpcode::FPMul32) result = &flushTinyProduct(args[0], args[1], result).Value();
+    writeOperand(inst.destination, result);
     return true;
 }
 
@@ -519,8 +520,9 @@ bool TranslationContext::floatTernary(const RdnaInstruction& inst, IrOpcode opco
         const IrType type = IrOpcodeArgumentType(opcode, index);
         args[index] = type == IrType::F32 && mix ? &readMixF32(operand).Value() : readOperand(operand, type);
     }
-    IrValue& result = ir.Emit(opcode, IrOpcodeType(opcode), {args[0], args[1], args[2]});
-    writeOperand(inst.destination, &result);
+    IrValue* result = &ir.Emit(opcode, IrOpcodeType(opcode), {args[0], args[1], args[2]});
+    if (opcode == IrOpcode::FPFma32) result = &flushTinyProduct(args[0], args[1], result, args[2]).Value();
+    writeOperand(inst.destination, result);
     return true;
 }
 
@@ -567,7 +569,7 @@ bool TranslationContext::vFmaLegacyF32(const RdnaInstruction& inst) {
 }
 
 bool TranslationContext::vFrexpMantF32(const RdnaInstruction& inst) {
-    const IrU32 bits = readU32(sourceAt(inst, 0u));
+    const IrU32 bits = flushF32Denormal(readU32(sourceAt(inst, 0u)));
     const IrU32 exponent(ir.Emit(IrOpcode::BitFieldUExtract, IrType::U32, {&bits.Value(), &ir.Constant(23u), &ir.Constant(8u)}));
     const IrU32 mantissa(ir.BitwiseAnd(bits.Value(), ir.Constant(0x007fffffu)));
     const IrU32 sign(ir.BitwiseAnd(bits.Value(), ir.Constant(0x80000000u)));

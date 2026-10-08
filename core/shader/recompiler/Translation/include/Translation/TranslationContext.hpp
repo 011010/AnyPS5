@@ -56,6 +56,8 @@ private:
     void write16Bits(const RdnaOperand& operand, IrU32 value);
     void writeF16(const RdnaOperand& operand, IrF32 value);
     IrU32 readU32(const RdnaOperand& operand);
+    IrU32 flushF32Denormal(IrU32 bits);
+    IrF32 flushTinyProduct(IrValue* lhs, IrValue* rhs, IrValue* product, IrValue* addend = nullptr);
     std::array<IrU32, 2> readU32Pair(const RdnaOperand& operand);
     IrU64 readU64(const RdnaOperand& operand);
     std::array<IrU32, 2> readF64Bits(const RdnaOperand& operand);
@@ -308,6 +310,7 @@ private:
     void eXP(const RdnaInstruction& inst);
     bool emitScalar(const RdnaInstruction& inst);
     bool emitVector(const RdnaInstruction& inst);
+    std::uint32_t f32DenormalFlushFor(const RdnaInstruction& inst) const;
     bool emitInterpolation(const RdnaInstruction& inst);
     bool emitMemory(const RdnaInstruction& inst);
 
@@ -320,6 +323,7 @@ private:
     IrBlock& block;
     IrU1 instructionBranchCondition;
     RdnaOpcode currentOpcode = RdnaOpcode::Unknown;
+    std::uint32_t f32DenormalFlush = 0u;
     std::uint32_t currentProgramCounter = 0;
     std::uint32_t currentVectorLimit = 1;
 };
