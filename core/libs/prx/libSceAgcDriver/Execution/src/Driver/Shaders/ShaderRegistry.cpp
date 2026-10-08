@@ -326,7 +326,7 @@ std::vector<PreparedShaders::Entry> PrepareRegistered(const ShaderSnapshot& snap
     if (stage != Stage::Compute) userCount |= ((resources >> 27u) & 1u) << 5u;
     if (userCount > 32) throw std::runtime_error("AGC driver: static user SGPR count exceeds the register bank");
     if (stage == Stage::Compute) {
-        compute = Graphics::DecodeComputeStageInfo(state.shader);
+        compute = Graphics::DecodeComputeStageInfo(state.shader, snapshot.header);
         const auto special = ReadHeaderArray(snapshot, header.specials, 1).front();
         wave = (special.dispatch_modifier & 0x8000u) != 0 ? 32u : 64u;
     } else if (stage == Stage::Fragment) {

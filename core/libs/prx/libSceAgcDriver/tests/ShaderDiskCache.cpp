@@ -3,6 +3,7 @@
 #include "VertexInputSpecialization.hpp"
 #include "SpirvBackend/SpirvSpecialization.hpp"
 #include "Optimization/ResourceMaterializer.hpp"
+#include "Optimization/ResourceProgram.hpp"
 #include "Optimization/DescriptorBindingBuilder.hpp"
 #include "ShaderCacheDirectory.hpp"
 #include <algorithm>
