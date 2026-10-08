@@ -775,9 +775,8 @@ int APS5_VABI _ZN3sce4Json6Parser5parseERNS0_5ValueEPKcm(Value* out, const char*
 }
 
 
-APS5_EXPORT("6i18OJSvFWk", sceJson2Unknown00);
-int APS5_VABI sceJson2Unknown00(void) {
-    NotImplemented_nid_no_patch("6i18OJSvFWk");
+int APS5_VABI _ZN3sce4Json17InitParameterRttiC1EPNS0_14AllocParamRttiEPvm(void) {
+    NotImplemented_nid_no_patch(__func__);
     return 0;
 }
 
