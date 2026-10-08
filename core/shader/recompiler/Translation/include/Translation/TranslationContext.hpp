@@ -117,6 +117,7 @@ private:
     bool dsRead2(const RdnaInstruction& inst);
     bool dsWrite(const RdnaInstruction& inst);
     bool dsWrite2(const RdnaInstruction& inst);
+    bool dsSrc2(const RdnaInstruction& inst, IrOpcode opcode);
     bool dsAtomic2(const RdnaInstruction& inst, IrOpcode opcode, bool returnsValue);
     bool dsAtomic64(const RdnaInstruction& inst, IrOpcode opcode, bool returnsValue);
     bool dsCondxchg32(const RdnaInstruction& inst);
