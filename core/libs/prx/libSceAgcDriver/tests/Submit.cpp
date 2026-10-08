@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
+#include "execution/VulkanTestDevice.hpp"
 #include "prx/libSceAgcDriver/Execution/include/QueueState.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver/Shaders/ShaderRegistry.hpp"
 #include "prx/libc/include/Shutdown.hpp"
@@ -113,6 +114,7 @@ void testClearState() {
     graphics.ClearContext();
     check(graphics.context == AgcDriver::InitialContextRegisters(), "CLEAR_STATE retained context registers");
     check(graphics.shader == shader && graphics.userConfig == userConfig, "CLEAR_STATE reset unrelated registers");
+    check(graphics.context.count(0x1b3) == 1 && graphics.context.at(0x1b3) == 0 && graphics.context.count(0x1b4) == 1 && graphics.context.at(0x1b4) == 0, "CLEAR_STATE left SPI_PS_INPUT_ENA/ADDR unset");
     graphics.context.emplace(0x10, 31);
     graphics.ClearContext();
     check(graphics.context == AgcDriver::InitialContextRegisters(), "repeated CLEAR_STATE retained context registers");
@@ -193,6 +195,14 @@ void testEndOfPipeInterrupts() {
     check(sceAgcDriverSubmitDcb(&packet) == 0, "plain release submit failed");
     AgcDriverWaitIdle_nid_postfix();
     check(owner->GetTriggeredEvents(events.data(), 2) == 0, "release without INT_SEL raised an interrupt");
+    alignas(8) static volatile std::uint64_t label = 0;
+    const auto labelAddress = reinterpret_cast<std::uintptr_t>(&label);
+    words = {0xc0064900, 0x528, (3u << 29u) | (3u << 24u) | (1u << 16u), static_cast<std::uint32_t>(labelAddress), static_cast<std::uint32_t>(static_cast<std::uint64_t>(labelAddress) >> 32u), 0x89abcdefu, 0x01234567u, 0};
+    check(sceAgcDriverSubmitDcb(&packet) == 0, "send-data release submit failed");
+    AgcDriverWaitIdle_nid_postfix();
+    check(label != 0, "send-data release did not write its label");
+    check(owner->GetTriggeredEvents(events.data(), 2) == 0, "release with INT_SEL send data after write confirm raised an interrupt");
+    words = {0xc0064900, 0, 1u << 24u, 0, 0, 0, 0, 0};
     check(sceAgcDriverDeleteEqEvent(eq, 0) == 0, "graphics event deletion failed");
     expectFailure([&] { sceAgcDriverDeleteEqEvent(eq, 0); });
     words[2] = 1u << 24u;
@@ -431,15 +441,28 @@ void testMultiSubmissions() {
 
 void testShaderHeaderAlignment() {
     alignas(256) static const std::array<std::uint32_t, 64> code{0xbf810000};
-    alignas(8) static std::array<std::byte, 2 * sizeof(Shader)> storage{};
+    struct Header {
+        Shader shader{};
+        std::array<ShaderRegister, 7> registers{};
+        ShaderSpecialRegs specials{};
+    };
+    alignas(8) static std::array<std::byte, sizeof(Header) + 8> storage{};
     Shader shader{};
     shader.file_header = 0x34333231;
     shader.version = 0x18;
-    shader.header_size = sizeof(Shader);
+    shader.header_size = sizeof(Header);
     shader.shader_size = sizeof(code);
     shader.code = code.data();
     const auto at = [](std::size_t offset, const Shader& fields) {
-        std::memcpy(storage.data() + offset, &fields, sizeof(fields));
+        Header header;
+        header.shader = fields;
+        const auto address = reinterpret_cast<std::uintptr_t>(fields.code);
+        header.registers = {{{0x20c, static_cast<std::uint32_t>(address >> 8u)}, {0x20d, static_cast<std::uint32_t>(address >> 40u)}, {0x207, 1}, {0x208, 1}, {0x209, 1}, {0x212, 0}, {0x213, 0}}};
+        header.specials.dispatch_modifier = 0x8000u;
+        header.shader.sh_registers = reinterpret_cast<ShaderRegister*>(storage.data() + offset + offsetof(Header, registers));
+        header.shader.num_sh_registers = header.registers.size();
+        header.shader.specials = reinterpret_cast<ShaderSpecialRegs*>(storage.data() + offset + offsetof(Header, specials));
+        std::memcpy(storage.data() + offset, &header, sizeof(header));
         return reinterpret_cast<const Shader*>(storage.data() + offset);
     };
     for (const std::size_t offset : {0, 4, 1}) AgcDriverRegisterShader_nid_postfix(at(offset, shader));
@@ -477,6 +500,8 @@ void testWorkerFailure() {
 
 int main() {
     try {
+        const auto device = OpenVulkanTestDevice();
+        if (!device) return VulkanTestSkipped;
         alignas(256) std::array<std::uint32_t, 64> rawCode{};
         rawCode.fill(0xbf800000);
         rawCode[0] = 0xbe8003ff;
