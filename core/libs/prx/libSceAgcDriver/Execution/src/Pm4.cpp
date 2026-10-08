@@ -716,6 +716,28 @@ DrawParameters ResolveDraw(std::span<const std::uint32_t> packet, const QueueSta
     return {address, count, indexSize, queue.instanceCount, packet.back(), true, indexOffset->second, 0};
 }
 
+std::vector<std::uint32_t> ReadIndirectRegisters(std::span<const std::uint32_t> packet) {
+    require(packet.size() == 5 && IndirectRegisterOpcode((packet[0] >> 8u) & 0xffu), "expected indirect register packet");
+    std::vector<std::uint32_t> pairs(static_cast<std::size_t>(packet[4]) * 2);
+    // Named for the [hooksync] attribution (the read goes through the flush hook).
+    const GuestMemory::ReadSiteScope site(GuestMemory::ReadSite::Registers);
+    GuestMemory::Read(address(packet[1], packet[2]), std::as_writable_bytes(std::span(pairs)), 4);
+    return pairs;
+}
+
+void ExecuteIndirectRegisters(std::span<const std::uint32_t> packet, std::span<const std::uint32_t> pairs, QueueState& queue) {
+    const auto opcode = (packet[0] >> 8u) & 0xffu;
+    require(packet.size() == 5 && IndirectRegisterOpcode(opcode), "expected indirect register packet");
+    require(pairs.size() == static_cast<std::size_t>(packet[4]) * 2, "indirect register list does not match its packet");
+    for (std::size_t i = 0; i < pairs.size(); i += 2) registerOffset(pairs[i]);
+    for (std::size_t i = 0; i < pairs.size(); i += 2) writeRegister(queue, opcode, registerOffset(pairs[i]), pairs[i + 1]);
+    if (queue.savedContext.has_value() && TraceContextState()) {
+        std::fprintf(stderr, "[context]   indirect 0x%x:", opcode);
+        for (std::size_t i = 0; i < pairs.size(); i += 2) std::fprintf(stderr, " %x", registerOffset(pairs[i]));
+        std::fprintf(stderr, "\n");
+    }
+}
+
 void Execute(std::span<const std::uint32_t> packet, QueueState& queue) {
     const auto opcode = (packet[0] >> 8u) & 0xffu;
     switch (opcode) {
@@ -764,20 +786,9 @@ void Execute(std::span<const std::uint32_t> packet, QueueState& queue) {
         case 0x26: queue.indexBase = address(packet[1], packet[2]); return;
         case 0x2a: queue.indexType = packet[1]; return;
         case 0x2f: queue.instanceCount = packet[1]; return;
-        case 0x63: case 0x64: case 0x9f: {
-            std::vector<std::uint32_t> pairs(static_cast<std::size_t>(packet[4]) * 2);
-            // Named for the [hooksync] attribution (the read goes through the flush hook).
-            const GuestMemory::ReadSiteScope site(GuestMemory::ReadSite::Registers);
-            GuestMemory::Read(address(packet[1], packet[2]), std::as_writable_bytes(std::span(pairs)), 4);
-            for (std::size_t i = 0; i < pairs.size(); i += 2) registerOffset(pairs[i]);
-            for (std::size_t i = 0; i < pairs.size(); i += 2) writeRegister(queue, opcode, registerOffset(pairs[i]), pairs[i + 1]);
-            if (queue.savedContext.has_value() && TraceContextState()) {
-                std::fprintf(stderr, "[context]   indirect 0x%x:", opcode);
-                for (std::size_t i = 0; i < pairs.size(); i += 2) std::fprintf(stderr, " %x", registerOffset(pairs[i]));
-                std::fprintf(stderr, "\n");
-            }
+        case 0x63: case 0x64: case 0x9f:
+            ExecuteIndirectRegisters(packet, ReadIndirectRegisters(packet), queue);
             return;
-        }
         case 0x59: break;
         case 0x3c: case 0x93: {
             // The waited-on value is written by the CPU or another queue; poll it like the CP would.
