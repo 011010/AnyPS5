@@ -15,6 +15,7 @@ int APS5_VABI sceHttpUriUnescape(char*, std::size_t*, std::size_t, const char*);
 int APS5_VABI sceHttpUriSweepPath(char*, const char*, std::size_t);
 int APS5_VABI sceHttpCreateEpoll(int, HttpEpollHandle*);
 int APS5_VABI sceHttpDestroyEpoll(int, HttpEpollHandle);
+int APS5_VABI sceHttpWaitRequest(HttpEpollHandle, HttpNBEvent*, int, int);
 int APS5_VABI sceHttpReadData(int, void*, std::size_t);
 int APS5_VABI sceHttpCreateRequest2(int, const char*, const char*, std::uint64_t);
 int APS5_VABI sceHttpsEnableOption(int, std::uint32_t);
@@ -185,6 +186,12 @@ int main() {
     HttpEpollHandle epoll = nullptr;
     Require(sceHttpCreateEpoll(1, nullptr) == invalidValue);
     Require(sceHttpCreateEpoll(1, &epoll) == 0 && epoll != nullptr);
+    HttpNBEvent events[2]{};
+    Require(sceHttpWaitRequest(epoll, events, 2, 0) == 0);
+    Require(sceHttpWaitRequest(epoll, events, 2, 1000) == 0);
+    Require(sceHttpWaitRequest(epoll, nullptr, 2, 0) == invalidValue);
+    Require(sceHttpWaitRequest(epoll, events, 0, 0) == invalidValue);
+    Require(sceHttpWaitRequest(nullptr, events, 2, 0) == invalidValue);
     Require(sceHttpDestroyEpoll(1, epoll) == 0);
 
     char data[16];
