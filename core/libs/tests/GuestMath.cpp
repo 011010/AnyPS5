@@ -1,4 +1,6 @@
 #include "prx/libc/include/general/VabiMacros.hpp"
+#include <bit>
+#include <cfenv>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -185,6 +187,13 @@ int main() {
     Require(std::isinf(hypot_nid_postfix(std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN())));
     Require(std::isinf(hypotf_nid_postfix(std::numeric_limits<float>::quiet_NaN(), -std::numeric_limits<float>::infinity())));
     Require(std::isnan(hypot_nid_postfix(1.0, std::numeric_limits<double>::quiet_NaN())));
+    for (const bool signalingFirst : {true, false}) {
+        const float signaling = std::bit_cast<float>(std::uint32_t{0x7f800001});
+        const float infinity = std::numeric_limits<float>::infinity();
+        std::feclearexcept(FE_ALL_EXCEPT);
+        const float result = signalingFirst ? hypotf_nid_postfix(signaling, infinity) : hypotf_nid_postfix(infinity, signaling);
+        Require(std::isinf(result) && result > 0.f && std::fetestexcept(FE_INVALID) != 0);
+    }
     Require(log10f_nid_postfix(100.f) == 2.f);
     Require(logbf_nid_postfix(8.f) == 3.f && logbf_nid_postfix(-0.75f) == -1.f);
     Require(logbf_nid_postfix(std::numeric_limits<float>::denorm_min()) == -149.f);
