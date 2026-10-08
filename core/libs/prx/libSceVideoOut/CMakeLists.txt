@@ -40,6 +40,10 @@ if(BUILD_TESTING)
             add_test(NAME video_out_flip_${flipMode} COMMAND video_out_flip_tests ${flipMode})
         endif()
         set_tests_properties(video_out_flip_${flipMode} PROPERTIES TIMEOUT 60 ENVIRONMENT "SDL_VIDEODRIVER=offscreen")
+        if(WIN32)
+            set_tests_properties(video_out_flip_${flipMode} PROPERTIES ENVIRONMENT_MODIFICATION
+                "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+        endif()
     endforeach()
 endif()
 
