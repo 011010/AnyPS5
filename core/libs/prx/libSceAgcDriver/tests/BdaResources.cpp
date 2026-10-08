@@ -15,6 +15,7 @@
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <new>
 #include <string>
 
 namespace {
@@ -30,6 +31,54 @@ void reject(TAction action, const char* reason) {
         return;
     }
     throw std::runtime_error(std::string("expected BDA rejection: ") + reason);
+}
+
+void importCrossingTests(const Context& context, const BdaTestAccess& access) {
+    constexpr std::size_t half = 65536;
+    void* block = ::operator new(2 * half, std::align_val_t{half});
+    auto* guest = static_cast<std::uint8_t*>(block);
+    std::memset(guest, 0x11, half);
+    std::memset(guest + half, 0x22, half);
+    const auto first = reinterpret_cast<std::uintptr_t>(block);
+    const auto second = first + half;
+    auto importing = context;
+    importing.hostImportAlignment = half;
+    const auto registry = [&](bool add) {
+        auto* mutation = GuestAllocations::GuestAllocationsBegin_nid_postfix();
+        for (auto* range : {guest, guest + half}) {
+            if (add) GuestAllocations::GuestAllocationsAdd_nid_postfix(mutation, range, half, true, false);
+            else GuestAllocations::GuestAllocationsRemove_nid_postfix(mutation, range);
+        }
+        GuestAllocations::GuestAllocationsEnd_nid_postfix(mutation);
+    };
+    registry(true);
+    {
+        GuestBufferMemory leased(importing);
+        leased.AcquireRegistered();
+        Require(HostImportCovers(importing, first, half) && HostImportCovers(importing, second, half), "the registered ranges were not imported");
+        const auto secondImport = *HostImportFor(importing, second, half);
+        leased.AddReadable(second - 16, 32);
+        leased.AddReadable(second + 64, 16);
+        leased.Upload(true);
+        std::uint32_t adjustment = 0;
+        const auto crossing = leased.Descriptor(second - 16, 32, adjustment);
+        const auto crossingBytes = access.bytes(crossing.buffer);
+        Require(crossing.offset + crossing.range <= crossingBytes.size(), "a view crossing into the next registered range is bound past its host import");
+        Require(crossingBytes[crossing.offset + adjustment + 15] == std::byte{0x11} && crossingBytes[crossing.offset + adjustment + 16] == std::byte{0x22}, "a view crossing into the next registered range misses its bytes");
+        const auto inside = leased.Descriptor(second + 64, 16, adjustment);
+        const auto insideBytes = access.bytes(inside.buffer);
+        Require(inside.offset + inside.range <= insideBytes.size() && (inside.buffer == secondImport.buffer ? inside.offset + adjustment == 64 : insideBytes[inside.offset + adjustment] == std::byte{0x22}), "a view in the second registered range is bound past its buffer or misses its bytes");
+        for (const auto& range : leased.AddressRanges()) {
+            if (range.end <= first || range.begin >= second + half) continue;
+            const auto mapped = access.addressBytes(range.deviceAddress);
+            Require(mapped.size() >= range.end - range.begin, "a BDA range runs past the end of its host import");
+            if (range.begin <= second && second < range.end && range.deviceAddress != secondImport.address) Require(mapped[second - range.begin] == std::byte{0x22}, "the BDA range over the second registered range misses its bytes");
+        }
+        leased.WriteBack();
+    }
+    registry(false);
+    Require(HostImportFor(importing, first, half) == nullptr && !HostImportCovers(importing, second, half), "the host imports outlived their ranges");
+    ::operator delete(block, std::align_val_t{half});
 }
 
 ShaderRecompiler::DescriptorBinding binding(Role role, std::uint32_t slot) {
@@ -385,6 +434,7 @@ void RunBdaResourceTests(const Context& context, const BdaTestAccess& access) {
         const auto dropped = AddressSpaceCounters();
         if (dropped.enabled) Require(dropped.waiterDrops == after.waiterDrops + 1 && LeaseCounters().cacheDrops == dropped.waiterDrops, "the free did not drop the cached address space");
     }
+    importCrossingTests(context, access);
     heapMirrorTests(context, access);
     Require(AddressCopyOverflow({{0x1000, 0x3000, 0x2000, "uncommitted pages"}}, 0x2000).empty(), "copies within the limit were refused");
     const auto copies = AddressCopyOverflow({{0x1000, 0x2000, 0x1000, "not mirrored"}, {0x10000, 0x30000, 0x18000, "uncommitted pages"}}, 0x2000);
