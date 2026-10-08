@@ -1,6 +1,7 @@
 import argparse
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 TEST_OUTPUT = r"tests[\\/]"
@@ -8,10 +9,10 @@ TEST_OUTPUT = r"tests[\\/]"
 KNOWN_UNRUN = {
     "agc_driver_mesh_tests",
     "agc_driver_recorder_tests",
-    "guest_formatting_tests",
     "video_out_flip_tests",
-    "windows_exception_tests",
 }
+if sys.platform != "win32":
+    KNOWN_UNRUN.add("guest_formatting_tests")
 
 
 def built(build):
