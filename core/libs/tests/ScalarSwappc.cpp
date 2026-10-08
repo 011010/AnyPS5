@@ -178,7 +178,7 @@ static void CheckThrows() {
             Sop1(0x24u, 0u, 0x20u, 8u),
         }));
     });
-    ExpectThrow("recursive s_swappc_b64 call", [] {
+    ExpectThrow("recursive scalar call", [] {
         Build(Program({
             Sop1(0x00u, 4u, 0x1fu, 0u),
             Sop2Literal(0x04u, 4u, 0x00u, 4u, 0x10u),
