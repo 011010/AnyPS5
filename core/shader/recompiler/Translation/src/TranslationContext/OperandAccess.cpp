@@ -282,6 +282,14 @@ void TranslationContext::rejectHalfOrDoubleOutputModifier(const RdnaOperand& ope
     }
 }
 
+IrU32 TranslationContext::quietNan32(IrU32 bits) {
+    return ieeeMode ? IrU32(ir.BitwiseOr(bits.Value(), ir.Constant(0x00400000u))) : bits;
+}
+
+IrU32 TranslationContext::quietNan16(IrU32 bits) {
+    return ieeeMode ? IrU32(ir.BitwiseOr(bits.Value(), ir.Constant(0x0200u))) : bits;
+}
+
 IrF32 TranslationContext::applyF32ResultModifiers(const RdnaOperand& operand, IrF32 value) {
     if (operand.omod != 0u && outputModifierApplies(4u)) {
         IrValue& bits = ir.BitCastU32(value.Value());
