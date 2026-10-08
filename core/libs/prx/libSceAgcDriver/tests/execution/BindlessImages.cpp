@@ -30,6 +30,7 @@ std::array<std::uint32_t, 4> Buffer(const void* pointer, std::uint32_t stride, s
 void Run(AgcDriver::VulkanDevice& device) {
     textures[0].fill(0x40000000u);
     textures[1].fill(0x40400000u);
+    const auto threads = std::min(32u, device.Target().subgroupSize);
     CompiledShaderArtifact artifact;
     for (std::uint32_t iteration = 0u; iteration < guest.size(); ++iteration) {
         auto& data = guest[iteration];
@@ -53,7 +54,7 @@ void Run(AgcDriver::VulkanDevice& device) {
         data.output.fill(0xdeadbeefu);
         const auto output = Buffer(data.output.data(), 0u, 256u);
         std::copy(output.begin(), output.end(), data.srt.begin() + 12u);
-        const ShaderComputeStageInfo compute{{32u, 1u, 1u}, 0u, {false, false, false}, false, 1u};
+        const ShaderComputeStageInfo compute{{threads, 1u, 1u}, 0u, {false, false, false}, false, 1u};
         RecompileRequest request{{ShaderStage::Compute, reinterpret_cast<std::uintptr_t>(code.data()), code, 0u, {}}, {32u, 0u, userData, compute, std::nullopt, std::nullopt, regions}, device.Target(), {0u, 0u, 0u, 128u}};
         const auto shader = Recompile(request);
         if (artifact.variantId == 0u) artifact = shader;
