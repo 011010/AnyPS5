@@ -16,8 +16,9 @@ def guest(identity=None, module_name=None, missing_import=False, module_info_tag
     image = bytearray(0x3000)
     image[:16] = b'\x7fELF\x02\x01\x01' + bytes(9)
     struct.pack_into('<HHIQQQIHHHHHH', image, 16,
-                     3, 62, 1, 0, 64, 0, 0, 64, 56, 2, 0, 0, 0)
+                     3, 62, 1, 0, 64, 0, 0, 64, 56, 3, 0, 0, 0)
     struct.pack_into('<IIQQQQQQ', image, 64, 1, 7, 0, 0, 0, len(image), len(image), 0x1000)
+    struct.pack_into('<IIQQQQQQ', image, 176, 0x6474e551, 6, 0, 0, 0, 0, 0, 16)
     strings = b'\0shared#A#B\0' + (b'absent' if missing_import else b'Record') + b'\0'
     dependency = len(strings)
     strings += b'libc.prx\0'
