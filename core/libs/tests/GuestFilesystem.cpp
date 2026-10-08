@@ -20,6 +20,7 @@ int APS5_VABI fchmod_nid_postfix(int, int);
 int APS5_VABI futimes_nid_postfix(int, const KernelTimeval*);
 int APS5_VABI socket_nid_postfix(int, int, int);
 int APS5_VABI sceKernelFsync(int);
+int APS5_VABI fdatasync_nid_postfix(int);
 int APS5_VABI sceKernelWriteThrottlingStatus(std::uint64_t*);
 int APS5_VABI sceKernelFtruncate(int, long long);
 int APS5_VABI sceKernelTruncate_nid_postfix(const char*, long long);
@@ -131,6 +132,7 @@ int main() {
     const int descriptor = ::fileno(native);
 #endif
     Require(descriptor >= 0 && sceKernelFsync(descriptor) == 0);
+    Require(fdatasync_nid_postfix(descriptor) == 0);
     const auto ownerWrite = [&] {
         return (std::filesystem::status(sized).permissions() & std::filesystem::perms::owner_write) != std::filesystem::perms::none;
     };
@@ -153,15 +155,18 @@ int main() {
     Require(sceKernelFchmod(descriptor, 0600) == static_cast<int>(0x80020009u));
     Require(fchmod_nid_postfix(descriptor, 0600) == -1 && *__error_nid_postfix() == 9);
     Require(futimes_nid_postfix(descriptor, nullptr) == -1 && *__error_nid_postfix() == 9);
+    Require(fdatasync_nid_postfix(descriptor) == -1 && *__error_nid_postfix() == 9);
 #endif
     const int socket = socket_nid_postfix(2, 2, 0);
     Require(socket >= 0);
     Require(sceKernelFchmod(socket, 0600) == static_cast<int>(0x80020016u));
     Require(fchmod_nid_postfix(socket, 0600) == -1 && *__error_nid_postfix() == 22);
     Require(futimes_nid_postfix(socket, nullptr) == -1 && *__error_nid_postfix() == 22);
+    Require(fdatasync_nid_postfix(socket) == -1 && *__error_nid_postfix() == 22);
     Require(close_nid_postfix(socket) == 0);
     Require(fchmod_nid_postfix(socket, 0600) == -1 && *__error_nid_postfix() == 9);
     Require(futimes_nid_postfix(socket, nullptr) == -1 && *__error_nid_postfix() == 9);
+    Require(fdatasync_nid_postfix(socket) == -1 && *__error_nid_postfix() == 9);
     Require(remove_nid_postfix(sized.string().c_str()) == 0);
     const auto present = root / "present.txt";
     const auto presentName = present.string();
