@@ -991,6 +991,166 @@ SampleSetup MakeSampleSetup(SpirvValueEmitContext& ctx, const ImageEmitAccess& a
     return {dimensionInfo, layout, access.image.numericClass, dref, coord};
 }
 
+// IMAGE_GATHER4H_PCK on gfx1031, measured against the RX 6700 XT hardware oracle: the four
+// window texels are read raw and concatenated into a little-endian bitstream (window element k at
+// bit offset k*texelBits), and DMASK bit i writes stream word i to the next destination register.
+// The window anchor is floor(x-0.5) in texel space with elements at offsets -1, 0, +1, +2, clamped
+// horizontally into [0,width); the row is floor(y), negative rows clamp to row 0 and rows at or
+// past the height return zeros; sampler addressing modes do not affect the window. A format wider
+// than 32 bits per texel returns zeros in every register. Formats of 32 bits or less are rebuilt
+// from the sampled components, which reproduces the stored bits exactly for R8_UNORM, RG8_UNORM
+// and RGBA8 (measured). Coordinates follow the repo's normalized sampling convention: texel space
+// is coordinate times image size, matching how plain gathers reach the same window through Vulkan.
+void EmitPackedHorizontalGatherOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
+    auto& state = ctx.state;
+    const auto& mem = access.mem;
+    const auto dimension = access.image.dimension;
+    if (dimension != RdnaImageDimension::Dim1D && dimension != RdnaImageDimension::Dim2D) {
+        ctx.Fail(access.inst, "is a packed horizontal gather of an image dimension whose row and slice rules are not measured");
+    }
+    const auto layout = Layout(mem);
+    if (layout.clamp != NoImageComponent || HasFlag(mem, RdnaImageSampleFlagCompare)) {
+        ctx.Fail(access.inst, "is a packed horizontal gather with depth comparison or an LOD clamp, which is not implemented");
+    }
+    const auto& dimensionInfo = RdnaImageDimensionInfoFor(dimension);
+    if (AddressDimension(access).coordinateComponents < dimensionInfo.coordinateComponents) {
+        ctx.Fail(access.inst, "has an image address with too few coordinate components");
+    }
+    const auto info = PackedTexelFormat(ctx, access);
+    std::uint32_t texelBits = 0;
+    for (std::uint32_t component = 0; component < info.componentCount; component++) {
+        const auto bits = info.componentBits[component];
+        const bool exact = info.type == SpirvFormatComponentType::Uint || info.type == SpirvFormatComponentType::Sint || (info.type == SpirvFormatComponentType::Unorm && bits <= 16u) || (info.type == SpirvFormatComponentType::Float && bits == 32u);
+        if (!exact) {
+            ctx.Fail(access.inst, "reads packed texels of a format whose bits are not recoverable from the view");
+        }
+        texelBits += bits;
+    }
+    state.module.EmitCapability(spv::CapabilityImageQuery);
+    const auto image = LoadSampledImageDescriptor(state, mem.resource, access.slot);
+    const bool twoDimensional = dimension == RdnaImageDimension::Dim2D;
+    const auto sizeType = twoDimensional ? TypeU32Vector(state, 2) : TypeU32(state);
+    const auto size = state.module.AllocateId();
+    state.module.AddFunction(spv::OpImageQuerySizeLod, sizeType, size, image, ConstantU32(state, 0));
+    const auto widthF32 = state.module.AllocateId();
+    if (twoDimensional) {
+        const auto width = state.module.AllocateId();
+        state.module.AddFunction(spv::OpCompositeExtract, TypeU32(state), width, size, 0u);
+        state.module.AddFunction(spv::OpConvertUToF, TypeF32(state), widthF32, width);
+    } else {
+        state.module.AddFunction(spv::OpConvertUToF, TypeF32(state), widthF32, size);
+    }
+    const auto floorToInt = [&](std::uint32_t value) {
+        const auto floored = state.module.AllocateId();
+        state.module.AddFunction(spv::OpExtInst, TypeF32(state), floored, GlslStd450(state), GLSLstd450Floor, value);
+        return Unary(state, spv::OpConvertFToS, TypeI32(state), floored);
+    };
+    // Texel-space coordinates: the measured anchor is floor(u*width-0.5) with elements at -1..+2;
+    // the row is floor(v*height), negative rows clamped to 0.
+    const auto anchor = floorToInt(Binary(state, spv::OpFSub, TypeF32(state), Binary(state, spv::OpFMul, TypeF32(state), AddressF32(ctx, access, 0), widthF32), ConstantF32(state, 0x3f000000u)));
+    std::uint32_t rowI32 = 0;
+    std::uint32_t heightI32 = 0;
+    if (twoDimensional) {
+        const auto height = state.module.AllocateId();
+        state.module.AddFunction(spv::OpCompositeExtract, TypeU32(state), height, size, 1u);
+        const auto heightF32 = state.module.AllocateId();
+        state.module.AddFunction(spv::OpConvertUToF, TypeF32(state), heightF32, height);
+        const auto rowRaw = floorToInt(Binary(state, spv::OpFMul, TypeF32(state), AddressF32(ctx, access, 1), heightF32));
+        rowI32 = Select(state, TypeI32(state), Binary(state, spv::OpSLessThan, TypeBool(state), rowRaw, ConstantI32(state, 0)), ConstantI32(state, 0), rowRaw);
+        heightI32 = Unary(state, spv::OpBitcast, TypeI32(state), height);
+    }
+    const std::uint32_t sampledType = ImageVectorType(state, access.image.numericClass, info.componentCount);
+    const auto componentType = ImageScalarType(state, access.image.numericClass);
+    const auto sampledImage = MakeSampledImage(state, mem.resource, mem.sampler, access.slot);
+    std::uint32_t streamWords[4] = {ConstantU32(state, 0), ConstantU32(state, 0), ConstantU32(state, 0), ConstantU32(state, 0)};
+    if (texelBits <= 32u) {
+        std::uint32_t lastRowI32 = 0;
+        if (twoDimensional) {
+            const auto heightMinusOne = Binary(state, spv::OpISub, TypeI32(state), heightI32, ConstantI32(state, 1));
+            lastRowI32 = Select(state, TypeI32(state), Binary(state, spv::OpSLessThan, TypeBool(state), heightMinusOne, ConstantI32(state, 0)), ConstantI32(state, 0), heightMinusOne);
+        }
+        for (std::uint32_t element = 0; element < 4u; element++) {
+            const auto offset = Binary(state, spv::OpIAdd, TypeI32(state), anchor, ConstantI32(state, static_cast<std::int32_t>(element) - 1));
+            const auto clampedLow = Select(state, TypeI32(state), Binary(state, spv::OpSLessThan, TypeBool(state), offset, ConstantI32(state, 0)), ConstantI32(state, 0), offset);
+            const auto lastColumn = Binary(state, spv::OpISub, TypeI32(state), Unary(state, spv::OpConvertFToS, TypeI32(state), widthF32), ConstantI32(state, 1));
+            const auto texelX = Select(state, TypeI32(state), Binary(state, spv::OpSLessThan, TypeBool(state), lastColumn, clampedLow), lastColumn, clampedLow);
+            std::vector<std::uint32_t> sampleWords{spv::OpImageSampleExplicitLod};
+            const auto texel = state.module.AllocateId();
+            sampleWords.push_back(sampledType);
+            sampleWords.push_back(texel);
+            sampleWords.push_back(sampledImage);
+            if (!twoDimensional) {
+                const auto coordF32 = Binary(state, spv::OpFDiv, TypeF32(state), Binary(state, spv::OpFAdd, TypeF32(state), Unary(state, spv::OpConvertSToF, TypeF32(state), texelX), ConstantF32(state, 0x3f000000u)), widthF32);
+                sampleWords.push_back(coordF32);
+            } else {
+                const auto fetchRow = Select(state, TypeI32(state), Binary(state, spv::OpSLessThan, TypeBool(state), rowI32, heightI32), rowI32, lastRowI32);
+                const auto coordX = Binary(state, spv::OpFDiv, TypeF32(state), Binary(state, spv::OpFAdd, TypeF32(state), Unary(state, spv::OpConvertSToF, TypeF32(state), texelX), ConstantF32(state, 0x3f000000u)), widthF32);
+                const auto coord = state.module.AllocateId();
+                // Recompute height as F32 for the row centering; reuse it for the coordinate pair.
+                const auto heightForCoord = state.module.AllocateId();
+                state.module.AddFunction(spv::OpCompositeExtract, TypeU32(state), heightForCoord, size, 1u);
+                const auto heightF32ForCoord = state.module.AllocateId();
+                state.module.AddFunction(spv::OpConvertUToF, TypeF32(state), heightF32ForCoord, heightForCoord);
+                const auto coordYPair = Binary(state, spv::OpFDiv, TypeF32(state), Binary(state, spv::OpFAdd, TypeF32(state), Unary(state, spv::OpConvertSToF, TypeF32(state), fetchRow), ConstantF32(state, 0x3f000000u)), heightF32ForCoord);
+                state.module.AddFunction(spv::OpCompositeConstruct, TypeF32Vector(state, 2), coord, coordX, coordYPair);
+                sampleWords.push_back(coord);
+            }
+            sampleWords.push_back(spv::ImageOperandsLodMask);
+            sampleWords.push_back(ZeroF32(state));
+            state.module.AddFunction(sampleWords);
+            std::uint32_t bitPosition = element * texelBits;
+            for (std::uint32_t component = 0; component < info.componentCount; component++) {
+                const auto bits = info.componentBits[component];
+                const auto scalar = state.module.AllocateId();
+                state.module.AddFunction(spv::OpCompositeExtract, componentType, scalar, texel, component);
+                std::uint32_t value;
+                if (info.type == SpirvFormatComponentType::Unorm) {
+                    const auto scaled = Binary(state, spv::OpFMul, TypeF32(state), scalar, ConstantF32Value(state, static_cast<float>((1u << bits) - 1u)));
+                    value = Unary(state, spv::OpConvertFToU, TypeU32(state), Binary(state, spv::OpFAdd, TypeF32(state), scaled, ConstantF32Value(state, 0.5f)));
+                } else {
+                    value = SampledComponentBits(ctx, scalar, access.image.numericClass);
+                }
+                if (bits < 32u) {
+                    value = Binary(state, spv::OpBitwiseAnd, TypeU32(state), value, ConstantU32(state, (1u << bits) - 1u));
+                }
+                const auto lowWord = bitPosition / 32u;
+                const auto shift = bitPosition % 32u;
+                if (shift == 0u) {
+                    streamWords[lowWord] = Binary(state, spv::OpBitwiseOr, TypeU32(state), streamWords[lowWord], value);
+                } else {
+                    streamWords[lowWord] = Binary(state, spv::OpBitwiseOr, TypeU32(state), streamWords[lowWord], Binary(state, spv::OpShiftLeftLogical, TypeU32(state), value, ConstantU32(state, shift)));
+                    if (shift + bits > 32u && lowWord + 1u < 4u) {
+                        streamWords[lowWord + 1u] = Binary(state, spv::OpBitwiseOr, TypeU32(state), streamWords[lowWord + 1u], Binary(state, spv::OpShiftRightLogical, TypeU32(state), value, ConstantU32(state, 32u - shift)));
+                    }
+                }
+                bitPosition += bits;
+            }
+        }
+    }
+    // DMASK bit i picks stream word i into the next destination register. Words past the stream and
+    // every register of an out-of-range row are zero, as measured.
+    std::uint32_t selected[4] = {ConstantU32(state, 0), ConstantU32(state, 0), ConstantU32(state, 0), ConstantU32(state, 0)};
+    std::uint32_t nextRegister = 0;
+    for (std::uint32_t bit = 0; bit < 4u && nextRegister < 4u; bit++) {
+        if (((mem.dmask >> bit) & 1u) == 0u) {
+            continue;
+        }
+        const bool withinStream = texelBits <= 32u && bit * 32u < 4u * texelBits;
+        std::uint32_t value = ConstantU32(state, 0);
+        if (withinStream) {
+            value = streamWords[bit];
+            if (twoDimensional) {
+                const auto rowOk = Binary(state, spv::OpSLessThan, TypeBool(state), rowI32, heightI32);
+                value = Select(state, TypeU32(state), rowOk, value, ConstantU32(state, 0));
+            }
+        }
+        selected[nextRegister++] = value;
+    }
+    const auto result = state.module.AllocateId();
+    state.module.AddFunction(spv::OpCompositeConstruct, TypeU32Vector(state, 4), result, selected[0], selected[1], selected[2], selected[3]);
+    ctx.Define(access.inst, TableResult(ctx, access, result));
+}
+
 void EmitGatherOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, const SampleSetup& setup) {
     auto& state = ctx.state;
     const auto& mem = access.mem;
@@ -1303,6 +1463,10 @@ TableSelection TableSlot(SpirvValueEmitContext& ctx, const IrValue& inst, const 
 void EmitSamplingOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     if (access.image.srgbDecode) {
         ctx.Fail(access.inst, "samples or gathers an sRGB image the device cannot sample, which is not implemented");
+    }
+    if (access.mem.imagePacked) {
+        EmitPackedHorizontalGatherOp(ctx, access);
+        return;
     }
     const auto setup = MakeSampleSetup(ctx, access);
     if (access.inst.Opcode() == IrOpcode::ImageGatherRaw) {
