@@ -2,6 +2,7 @@
 #include "Translation/InstructionTranslator.hpp"
 #include "RdnaDecoder/RdnaScalarOpDecoder.hpp"
 #include "RdnaDecoder/RdnaInstructionDecoder.hpp"
+#include "RdnaDecoder/RdnaMemoryOpDecoder.hpp"
 #include "ControlFlow/GraphBuilder.hpp"
 #include <array>
 #include <cstdio>
@@ -21,7 +22,9 @@ static void ExpectThrow(const char* needle, TFunction fn) {
     try {
         fn();
     } catch (const std::exception& error) {
-        Require(std::string(error.what()).find(needle) != std::string::npos);
+        if (std::string(error.what()).find(needle) == std::string::npos) {
+            throw std::runtime_error(std::string("expected ") + needle + ", got " + error.what());
+        }
         return;
     }
     throw std::runtime_error(std::string("expected throw containing ") + needle);
@@ -137,12 +140,65 @@ static void CheckRejections() {
     });
 }
 
-int main() {
+static void CheckGuards(const std::string& only) {
+    bool checked = false;
+    const auto check = [&](const char* name, const char* needle, auto fn) {
+        if (only.empty() || only == name) {
+            checked = true;
+            ExpectThrow(needle, fn);
+        }
+    };
+    check("tuple", "escapes the constant-offset call/return model", [] {
+        auto load = Sopp(8u, 0u);
+        load.family = RdnaInstructionFamily::SMEM;
+        load.op = RdnaOpcode::SLoadDwordx8;
+        load.dataDwordCount = 8u;
+        load.destination.kind = RdnaOperandKind::ScalarRegister;
+        load.destination.reg = 4u;
+        Build({Call(0u, 8u, 1u), Sopp(4u, 1u), load, Sop1(12u, 0u, 0x20u, 8u)});
+    });
+    check("wrong_return", "escapes the constant-offset call/return model", [] {
+        Build({Call(0u, 8u, 1u), Sopp(4u, 1u), Sop1(8u, 0u, 0x20u, 9u)});
+    });
+    check("fallthrough", "control flow enters the call region", [] {
+        Build({Call(0u, 8u, 2u), Sopp(4u, 0u), Sopp(8u, 0u), Sopp(12u, 0u), Sop1(16u, 0u, 0x20u, 8u)});
+    });
+    check("conditional_fallthrough", "control flow enters the call region", [] {
+        Build({Call(0u, 8u, 2u), Sopp(4u, 2u), Sopp(8u, 4u, 2u), Sopp(12u, 0u), Sop1(16u, 0u, 0x20u, 8u), Sopp(20u, 1u)});
+    });
+    check("return_before_target", "return precedes the call target", [] {
+        Build({Call(0u, 8u, 2u), Sopp(4u, 1u), Sop1(8u, 0u, 0x20u, 8u), Sopp(12u, 0u), Sopp(16u, 1u)});
+    });
+    check("descriptor", "escapes the constant-offset call/return model", [] {
+        const std::array<std::uint32_t, 2> code{0xe0381000u, 0x80020401u};
+        const auto load = DecodeRdnaMubuf(8u, code, 0u);
+        Require(load.source1.reg == 8u);
+        Build({Call(0u, 10u, 1u), Sopp(4u, 1u), load, Sop1(16u, 0u, 0x20u, 10u)});
+    });
+    check("relative_read", "escapes the constant-offset call/return model", [] {
+        Build({Call(0u, 8u, 1u), Sopp(4u, 1u), Sop1(8u, 0u, 0x2eu, 0u), Sop1(12u, 0u, 0x20u, 8u)});
+    });
+    if (only.empty()) {
+        for (const auto link : {0u, 104u}) {
+            const auto cfg = Build({Call(0u, link, 1u), Sopp(4u, 1u), Sop1(8u, 0u, 0x20u, link)});
+            Require(cfg.FindBlockByProgramCounter(0u).terminator.kind == TerminatorKind::Branch);
+        }
+    }
+    Require(checked);
+}
+
+int main(int argc, char** argv) {
     try {
-        CheckDecode();
-        CheckLink();
-        CheckCallAfterEnd();
-        CheckRejections();
+        if (argc == 1) {
+            CheckDecode();
+            CheckLink();
+            CheckCallAfterEnd();
+            CheckRejections();
+            CheckGuards("");
+        } else {
+            Require(argc == 2);
+            CheckGuards(argv[1]);
+        }
     } catch (const std::exception& error) {
         std::fprintf(stderr, "scalar call regression: %s\n", error.what());
         return 1;
