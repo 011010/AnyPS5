@@ -831,6 +831,14 @@ bool IsImageOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::ImageStoreBy4:
         case RdnaOpcode::ImageStoreMipBy2:
         case RdnaOpcode::ImageStoreMipBy4:
+        case RdnaOpcode::ImageLoadPck2:
+        case RdnaOpcode::ImageLoadPck4:
+        case RdnaOpcode::ImageLoadMipPck2:
+        case RdnaOpcode::ImageLoadMipPck4:
+        case RdnaOpcode::ImageStorePck2:
+        case RdnaOpcode::ImageStorePck4:
+        case RdnaOpcode::ImageStoreMipPck2:
+        case RdnaOpcode::ImageStoreMipPck4:
         case RdnaOpcode::ImageMsaaLoad:
         case RdnaOpcode::ImageAtomicSwap:
         case RdnaOpcode::ImageAtomicAdd:
