@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -197,6 +198,35 @@ def main():
         if os.name == 'nt':
             run = subprocess.run([str(output)], capture_output=True, text=True, timeout=30)
             assert run.returncode != 0 and 'Failed to load module:' in run.stderr and 'missing.prx' in run.stderr, (run.returncode, run.stderr)
+
+        result, dummy = convert('empty-native-provider', 'c.prx')
+        assert result.returncode == 0, result.stderr
+        result, shared = convert('shared-native-provider', 'a.prx')
+        assert result.returncode == 0, result.stderr
+        empty_provider = dummy.parent / 'app0' / 'prx' / 'c.prx.guest.prx'
+        shared_provider = shared.parent / 'app0' / 'prx' / 'a.prx.guest.prx'
+        for name, native_owner, symbol, expected in (
+                ('guest-only', None, 'shared#A#B', 22),
+                ('internal-first', 'libSceLibcInternal.prx', 'shared#A#B', 11),
+                ('native-libc-first', 'libc.prx', 'shared#A#B', 11),
+                ('unresolved', None, 'absent#A#B', None)):
+            case = work / ('internal-guest-libc-' + name)
+            (case / 'sce_module').mkdir(parents=True)
+            (case / 'sce_module' / 'libc.prx').write_bytes(provider(22))
+            source = case / 'input.elf'
+            source.write_bytes(executable('libSceLibcInternal.prx', symbol, extra_dependencies=('libc.prx',)))
+            output = case / 'output.exe'
+            result = subprocess.run([str(relinker), '--windows', str(source), str(output)], capture_output=True, text=True, timeout=30)
+            assert result.returncode == 0, result.stderr
+            (case / 'libs').mkdir()
+            for owner in ('libSceLibcInternal.prx', 'libc.prx'):
+                shutil.copyfile(shared_provider if owner == native_owner else empty_provider, case / 'libs' / owner)
+            if os.name == 'nt':
+                run = subprocess.run([str(output)], capture_output=True, text=True, timeout=30)
+                if expected is None:
+                    assert run.returncode != 0 and 'unresolved ELF import absent' in run.stderr, (run.returncode, run.stdout, run.stderr)
+                else:
+                    assert run.returncode == expected, (run.returncode, run.stdout, run.stderr)
     print('Windows module-scoped import tests passed')
 
 
