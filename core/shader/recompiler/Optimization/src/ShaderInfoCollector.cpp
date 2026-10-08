@@ -491,13 +491,16 @@ void ShaderInfoCollector::Collect(IrProgram& program, const ShaderStageInputInfo
             break;
         case IrShaderStage::TessellationControl:
         case IrShaderStage::TessellationEvaluation:
+            break;
         case IrShaderStage::Mesh:
+            AddInput(next, StageInputKind::LocalInvocationIndex, 0, 1, "gl_LocalInvocationIndex");
             break;
         case IrShaderStage::Pixel:
             CollectPixelInputs(program, inputInfo.pixel, next);
             break;
         case IrShaderStage::Compute:
             CollectComputeInputs(inputInfo.compute, next);
+            if (!next.buffers.empty()) AddInput(next, StageInputKind::LocalInvocationIndex, 0, 1, "gl_LocalInvocationIndex");
             break;
         default:
             return Fail("unsupported shader stage for info collection");

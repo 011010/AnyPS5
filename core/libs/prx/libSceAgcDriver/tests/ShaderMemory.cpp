@@ -51,7 +51,7 @@ void expectFailure(TAction action, const char* expected, const char* message) {
     try {
         action();
     } catch (const std::runtime_error& error) {
-        require(std::string(error.what()).find(expected) != std::string::npos, "unexpected failure reason");
+        if (std::string(error.what()).find(expected) == std::string::npos) throw std::runtime_error(std::string(message) + ": expected failure containing '" + expected + "', got: " + error.what());
         return;
     }
     throw std::runtime_error(message);
@@ -1320,7 +1320,7 @@ void verifyUnnormalizedSamplers() {
         request.context.waveSize = 32;
         request.context.userDataBaseRegister = 0;
         request.context.userData = data;
-        request.context.compute = ShaderComputeStageInfo{{32u, 1u, 1u}, 0u, {false, false, false}, false, 1u};
+        request.context.compute = ShaderComputeStageInfo{{16u, 2u, 1u}, 0u, {false, false, false}, false, 1u};
         request.target.vulkanVersion = 0x00401000u;
         request.target.spirvVersion = 0x00010300u;
         request.target.subgroupSize = 32;
