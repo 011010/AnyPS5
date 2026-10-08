@@ -5,6 +5,7 @@
 #include "prx/libkernel/KernelErrors.hpp"
 #include "prx/libkernel/Pthread/include/Pthread.hpp"
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -101,6 +102,7 @@ GuestExceptionHandler Handler(int signum) {
 #ifdef _WIN32
 constexpr std::size_t RedZone = 128;
 constexpr std::size_t HomeArea = 32;
+constexpr auto RetryLimit = std::chrono::seconds(1);
 
 struct Delivery {
     GuestExceptionHandler handler;
@@ -216,6 +218,7 @@ bool RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
     const auto native = static_cast<HANDLE>(thread->nativeHandle);
     auto queued = std::make_unique<Delivery>(Delivery{handler, signum, {}});
     alignas(16) Delivery delivery{handler, signum, {}};
+    const auto retryDeadline = std::chrono::steady_clock::now() + RetryLimit;
     for (;;) {
         if (SuspendThread(native) == static_cast<DWORD>(-1)) {
             if (Exited(native)) return false;
@@ -239,6 +242,7 @@ bool RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
         }
         if (!RestoringContext(delivery.context.Rip) && !InWinpthread(delivery.context.Rip)) break;
         ResumeThread(native);
+        if (std::chrono::steady_clock::now() >= retryDeadline) throw std::runtime_error("sceKernelRaiseException: the target thread stayed inside NtContinue or winpthreads for 1 s");
         SwitchToThread();
     }
     const DWORD64 slot = (delivery.context.Rsp - RedZone - sizeof(Delivery)) & ~static_cast<DWORD64>(15);
