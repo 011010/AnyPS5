@@ -2150,6 +2150,16 @@ bool recompilesDebugBranch(std::uint32_t opcode) {
     return !ShaderRecompiler::Recompile(request).spirv.Words().empty();
 }
 
+void meshIndexBufferTests() {
+    const AgcDriver::Pm4::DrawParameters automatic{0, 96, 0, 1, 0, false};
+    const auto unindexed = AgcDriver::Graphics::MeshIndexBufferDescriptor(automatic);
+    Require(unindexed[0] == 0 && unindexed[1] == 0 && unindexed[2] == 0 && unindexed[3] == 0x31016facu, "a non-indexed mesh draw did not get a null index buffer V#");
+    const AgcDriver::Pm4::DrawParameters indexed{0x123456789a00ull, 5, 2, 1, 0, true};
+    const auto words = AgcDriver::Graphics::MeshIndexBufferDescriptor(indexed);
+    Require(words[0] == 0x56789a00u && words[1] == 0x1234u && words[2] == 12u && words[3] == 0x31016facu, "an indexed mesh draw's index buffer V# changed");
+    expectFailure([] { static_cast<void>(AgcDriver::Graphics::MeshIndexBufferDescriptor(AgcDriver::Pm4::DrawParameters{0, 3, 2, 1, 0, true})); }, "invalid mesh index buffer range");
+}
+
 void meshArgumentTests() {
     using AgcDriver::Graphics::MeshArguments;
     using AgcDriver::Graphics::ResolveMeshArguments;
@@ -2280,6 +2290,7 @@ int main() {
         misalignedShaderDataTests();
         debugBranchTests();
         meshArgumentTests();
+        meshIndexBufferTests();
         validationTests();
         vertexCopyTests();
         pixelParameterSlotTests();
