@@ -42,7 +42,7 @@ std::uint32_t GuestFormatFor(VkFormat format, std::uint32_t elementBytes) {
 
 // The color buffer as a single-mip 2D surface descriptor (tile mode SW_64KB_R_X).
 GuestTextureResource SurfaceForTarget(const ColorTarget& color) {
-    Require(color.tileMode == ColorTileMode::RenderTarget || color.tileMode == ColorTileMode::Standard4KB, "only 4 KiB standard and 64 KiB tiled color targets are resident");
+    Require(color.tileMode != ColorTileMode::Linear, "linear color targets are not resident");
     const bool chain = color.mipCount > 1;
     GuestTextureResource surface{};
     surface.baseAddress = chain ? color.surfaceAddress : color.address;
@@ -1546,7 +1546,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         timer.phase(PhaseSetup);
         // Debug aid: APS5_NO_RESIDENT_TARGETS=1 copies every target in and out again.
         static const bool residentTargets = std::getenv("APS5_NO_RESIDENT_TARGETS") == nullptr;
-        if ((binding.gpuTiling || (color.tileMode == ColorTileMode::Standard4KB && context.detiler != nullptr)) && residentTargets) {
+        if ((binding.gpuTiling || (color.tileMode != ColorTileMode::Linear && context.detiler != nullptr)) && residentTargets) {
             // The lookup refreshes the image on every draw (StorageTexture::Refresh: FlushPending,
             // CollectWrites over the target's pages, the DCC key scan of TextureClearKeys, then
             // UnchangedSince). The page walk is skipped while the worker's collect epoch lasts
@@ -2130,7 +2130,7 @@ DrawRecipeOutcome DrawWithRecipe(const Context& context, const State& state, con
 namespace {
 
 std::shared_ptr<StorageTexture> metadataPassResident(const Context& context, const ColorTarget& color) {
-    if ((color.tileMode != ColorTileMode::RenderTarget && color.tileMode != ColorTileMode::Standard4KB) || context.detiler == nullptr) return nullptr;
+    if (color.tileMode == ColorTileMode::Linear || context.detiler == nullptr) return nullptr;
     std::shared_ptr<StorageTexture> resident;
     try {
         resident = CachedStorageSurface(context, SurfaceForTarget(color));
