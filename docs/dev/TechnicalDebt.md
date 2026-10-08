@@ -33,6 +33,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceAvPlayerSetTrickSpeed](../../core/libs/prx/libSceAvPlayer/src/Source.cpp) (libSceAvPlayer) with a negative speed runs the clock backwards but delivers no frames; when a forward speed is set again, playback resumes from the rewound time.
 - [ulobjmgr](../../core/libs/prx/ulobjmgr/Export.cpp) registers no object: `_sceUlobjmgrRegisterObject` always hands out id 0 and `_sceUlobjmgrUnregisterObject` releases nothing, as shadPS4 does
 - [libSceHttp](../../core/libs/prx/libSceHttp/Export.cpp) - no request reaches the network, so `sceHttpSetResponseHeaderMaxSize` has no response header to limit and `sceHttpRedirectCacheFlush` no redirect to forget; `sceHttpsUnloadCert` returns success like `sceHttpsLoadCert`, which keeps no certificate
+- [sceFontGlyphDefineAttribute](../../core/libs/prx/libSceFont/src/Render.cpp) (libSceFont) checks the glyph and ignores the attribute and its value, whose meaning is unknown. PPSA01325 sets attribute 0x11 to 0 on a glyph from `sceFontGenerateCharGlyph` that it deletes unused, and draws the character with `sceFontRenderCharGlyphImageHorizontal`
 
 ### Unknown function info
 
