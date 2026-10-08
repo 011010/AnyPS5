@@ -200,6 +200,12 @@ bool RestoringContext(DWORD64 rip) {
     return false;
 }
 
+bool InWinpthread(DWORD64 rip) {
+    static const HMODULE winpthread = GetModuleHandleW(L"libwinpthread-1.dll");
+    MEMORY_BASIC_INFORMATION info{};
+    return winpthread != nullptr && VirtualQuery(reinterpret_cast<const void*>(rip), &info, sizeof(info)) == sizeof(info) && info.AllocationBase == winpthread;
+}
+
 bool RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
     if (thread == scePthreadSelf()) {
         CONTEXT context{};
@@ -231,7 +237,7 @@ bool RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
             queued.release();
             return true;
         }
-        if (!RestoringContext(delivery.context.Rip)) break;
+        if (!RestoringContext(delivery.context.Rip) && !InWinpthread(delivery.context.Rip)) break;
         ResumeThread(native);
         SwitchToThread();
     }

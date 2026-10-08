@@ -33,6 +33,7 @@ static std::atomic<int> calls{0};
 static std::atomic<std::thread::id> handlerThread;
 static std::atomic<std::uint64_t> handlerRsp{0};
 static std::atomic<std::uintptr_t> handlerFrame{0};
+static std::atomic<Pthread> handlerSelf{nullptr};
 
 static void APS5_VABI Handler(int signum, void* context) {
     Require(signum == SIGUSR1);
@@ -42,6 +43,7 @@ static void APS5_VABI Handler(int signum, void* context) {
     handlerFrame.store(reinterpret_cast<std::uintptr_t>(&local));
     handlerRsp.store(rsp);
     handlerThread.store(std::this_thread::get_id());
+    handlerSelf.store(scePthreadSelf());
     calls.fetch_add(1);
 }
 
@@ -111,6 +113,17 @@ static LONG CALLBACK ContinueRaised(EXCEPTION_POINTERS* info) {
     if (info->ExceptionRecord->ExceptionCode != ContinuedCode) return EXCEPTION_CONTINUE_SEARCH;
     continued.fetch_add(1);
     return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+static constexpr int SelfingRounds = 100;
+static std::atomic<Pthread> selfSink{nullptr};
+
+static void* APS5_VABI Selfing(void* arg) {
+    auto& worker = *static_cast<Worker*>(arg);
+    worker.id = std::this_thread::get_id();
+    worker.started.store(true);
+    while (!worker.stop.load()) selfSink.store(scePthreadSelf());
+    return nullptr;
 }
 
 static void* APS5_VABI Continuing(void* arg) {
@@ -223,6 +236,18 @@ int main() {
     continuing.stop.store(true);
     Require(scePthreadJoin(continuingThread, nullptr) == 0);
     Require(RemoveVectoredExceptionHandler(vectored) != 0);
+
+    Worker selfing;
+    Pthread selfingThread = nullptr;
+    Require(scePthreadCreate(&selfingThread, nullptr, Selfing, &selfing, "selfing") == 0);
+    while (!selfing.started.load()) std::this_thread::yield();
+    for (int raised = 0; raised < SelfingRounds; ++raised) {
+        Require(sceKernelRaiseException(selfingThread, SIGUSR1) == 0);
+        ExpectDelivery(1 + 2 * Repeats + HostRounds + LeavingRounds + ContinuingRounds + raised, selfing.id);
+        Require(handlerSelf.load() == selfingThread);
+    }
+    selfing.stop.store(true);
+    Require(scePthreadJoin(selfingThread, nullptr) == 0);
 
     Pthread finishedThread = nullptr;
     Require(scePthreadCreate(&finishedThread, nullptr, Finished, nullptr, "finished") == 0);
