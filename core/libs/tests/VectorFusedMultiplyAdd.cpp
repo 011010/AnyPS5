@@ -51,6 +51,7 @@ void Check(const std::string& name, std::uint32_t encoding, std::uint32_t wordCo
     auto& block = program.CreateBlock();
     program.SetEntryBlock(block);
     TranslationContext context(program, block, 256);
+    context.SetFloatMode(ShaderFloatMode{0xf0u, false, false, false});
     context.TranslateInstruction(instruction);
 
     const IrOpcode rejected = expected == IrOpcode::FPFma32 ? IrOpcode::FPMad32 : IrOpcode::FPFma32;
