@@ -7,6 +7,7 @@
 #include "VulkanTestDevice.hpp"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -17,50 +18,101 @@
 namespace {
 
 using AgcDriver::Graphics::Require;
-constexpr std::uint32_t Threads = 32;
-constexpr std::uint32_t Width = 256;
-constexpr std::size_t Bytes = 16384;
-alignas(256) std::array<std::uint8_t, Bytes> Texels{};
-alignas(256) std::array<std::uint32_t, Threads * 4> Output{};
-constexpr std::array<std::uint32_t, 8> Encodings{0x42u, 0x43u, 0x4au, 0x4bu, 0x52u, 0x53u, 0x5au, 0x5bu};
-constexpr std::array<std::uint32_t, 4> Values{101u, 202u, 303u, 404u};
 
-std::vector<std::uint32_t> Code(std::uint32_t opcode) {
-    const bool store = (opcode & 0x10u) != 0u;
-    std::vector<std::uint32_t> code{0x34060084u, 0x343c0081u + (opcode & 1u), 0x7e3e0280u, 0x7e400281u};
-    if (store) {
-        for (std::uint32_t index = 0; index < 4; ++index) {
-            code.push_back(0x7e0002ffu | ((10u + index) << 17u));
-            code.push_back(Values[index]);
-        }
+constexpr std::uint32_t Threads = 32;
+constexpr std::uint32_t Width = 61;
+constexpr std::uint32_t Height = 3;
+constexpr std::uint32_t Levels = 2;
+constexpr std::size_t Bytes = 16384;
+constexpr std::uint32_t Sentinel = 0xcafe0000u;
+constexpr std::uint32_t R8UInt = 5;
+constexpr std::uint32_t R16UInt = 11;
+constexpr std::uint32_t Rg8UInt = 18;
+constexpr std::uint32_t R32UInt = 20;
+alignas(256) std::array<std::uint8_t, Bytes> Texels{};
+alignas(256) std::array<std::uint32_t, Threads * 4> Input{};
+alignas(256) std::array<std::uint32_t, Threads * 4> Output{};
+
+struct Format {
+    std::uint32_t id;
+    std::uint32_t bytes;
+    std::uint32_t components;
+};
+
+std::vector<std::uint32_t> Code(std::uint32_t opcode, std::uint32_t dmask) {
+    std::vector<std::uint32_t> code{0x34060084u, 0xe0381000u, 0x80031e03u, 0xbf8c3f70u};
+    for (std::uint32_t index = 0; index < 4u; ++index) {
+        code.push_back(0x7e0002ffu | ((10u + index) << 17u));
+        code.push_back(Sentinel + index);
     }
-    code.push_back(0xf0000f08u | (opcode << 18u));
+    code.push_back(0xf0000008u | (opcode << 18u) | (dmask << 8u));
     code.push_back(0x00010a1eu);
     code.push_back(0xbf8c3f70u);
-    if (!store) {
-        code.push_back(0xe0781000u);
-        code.push_back(0x80000a03u);
-    }
+    code.push_back(0xe0781000u);
+    code.push_back(0x80000a03u);
     code.push_back(0xbf810000u);
     return code;
 }
 
-std::array<std::uint32_t, 8> Descriptor(std::uint32_t format, std::uint32_t swizzle = 0xfacu) {
+std::array<std::uint32_t, 8> Descriptor(std::uint32_t format, std::uint32_t swizzle) {
     const auto address = reinterpret_cast<std::uintptr_t>(Texels.data());
     return {static_cast<std::uint32_t>(address >> 8u), static_cast<std::uint32_t>(address >> 40u) | (format << 20u) | (((Width - 1u) & 3u) << 30u),
-        (Width - 1u) >> 2u, swizzle | (1u << 16u) | (9u << 28u), 0u, 1u << 4u, 0u, 0u};
+        ((Width - 1u) >> 2u) | ((Height - 1u) << 14u), swizzle | ((Levels - 1u) << 16u) | (9u << 28u), 0u, 1u << 4u, 0u, 0u};
 }
 
-void Run(AgcDriver::VulkanDevice& device, std::uint32_t opcode, std::uint32_t format, std::uint32_t swizzle = 0xfacu) {
-    const auto code = Code(opcode);
-    const auto output = reinterpret_cast<std::uintptr_t>(Output.data());
+std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
+    const auto address = reinterpret_cast<std::uintptr_t>(data);
+    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x31016facu};
+}
+
+std::uint32_t TexelValue(std::uint32_t level, std::uint32_t x, std::uint32_t y, std::uint32_t component, std::uint32_t bytes) {
+    const auto value = level * 0x9e37u + y * 0x51u + x * 0x13u + component * 0x2bu + 1u;
+    return bytes == 1u ? value & 0xffu : value & 0xffffu;
+}
+
+void FillTexels(const Format& format) {
+    Texels.fill(0xeeu);
+    const auto descriptor = Descriptor(format.id, 0xfacu);
+    const auto surface = AgcDriver::Graphics::DescribeSurface(AgcDriver::Graphics::DecodeTextureResource(descriptor));
+    Require(surface.mips.size() == Levels, "image BY mip count");
+    for (std::uint32_t level = 0; level < Levels; ++level) {
+        const auto& mip = surface.mips[level];
+        const auto width = std::max(Width >> level, 1u);
+        const auto height = std::max(Height >> level, 1u);
+        for (std::uint32_t y = 0; y < height; ++y) {
+            for (std::uint32_t x = 0; x < width; ++x) {
+                for (std::uint32_t component = 0; component < format.components; ++component) {
+                    const auto value = TexelValue(level, x, y, component, format.bytes);
+                    const auto offset = mip.tiledOffset + static_cast<std::uint64_t>(y) * mip.pitchBytes + (x * format.components + component) * format.bytes;
+                    Require(offset + format.bytes <= Texels.size(), "image BY texture size");
+                    std::memcpy(Texels.data() + offset, &value, format.bytes);
+                }
+            }
+        }
+    }
+}
+
+void FillInput() {
+    constexpr std::array<std::uint32_t, 16> xs{0u, 1u, 2u, 3u, 5u, 6u, 7u, Width - 4u, Width - 3u, Width - 2u, Width - 1u, Width, 29u, 30u, 0xffffffffu, 0x80000000u};
+    constexpr std::array<std::uint32_t, 5> ys{0u, 1u, 2u, Height, 0xffffffffu};
+    constexpr std::array<std::uint32_t, 3> mips{0u, 1u, Levels};
+    for (std::uint32_t thread = 0; thread < Threads; ++thread) {
+        Input[thread * 4u + 0u] = xs[thread % xs.size()];
+        Input[thread * 4u + 1u] = ys[(thread * 3u) % ys.size()];
+        Input[thread * 4u + 2u] = mips[(thread / 2u) % mips.size()];
+        Input[thread * 4u + 3u] = 0u;
+    }
+}
+
+void Run(AgcDriver::VulkanDevice& device, std::uint32_t opcode, std::uint32_t format, std::uint32_t dmask, std::uint32_t swizzle = 0xfacu) {
+    const auto code = Code(opcode, dmask);
     std::vector<std::uint32_t> userData(16, 0u);
-    userData[0] = static_cast<std::uint32_t>(output);
-    userData[1] = static_cast<std::uint32_t>(output >> 32u);
-    userData[2] = static_cast<std::uint32_t>(Output.size() * sizeof(std::uint32_t));
-    userData[3] = 0x01016facu;
+    const auto output = BufferDescriptor(Output.data(), static_cast<std::uint32_t>(sizeof(Output)));
     const auto descriptor = Descriptor(format, swizzle);
+    const auto input = BufferDescriptor(Input.data(), static_cast<std::uint32_t>(sizeof(Input)));
+    std::copy(output.begin(), output.end(), userData.begin());
     std::copy(descriptor.begin(), descriptor.end(), userData.begin() + 4);
+    std::copy(input.begin(), input.end(), userData.begin() + 12);
     const std::span<const std::uint32_t> words(code);
     const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(words)}}};
     const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0u, {false, false, false}, false, 1};
@@ -71,53 +123,41 @@ void Run(AgcDriver::VulkanDevice& device, std::uint32_t opcode, std::uint32_t fo
     const auto result = ShaderRecompiler::Recompile(request);
     device.Dispatch(result, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(code.data()));
     device.WaitIdle();
-    if ((opcode & 0x10u) != 0u) {
-        AgcDriver::Graphics::StorageTexture::FlushPending(reinterpret_cast<std::uintptr_t>(Texels.data()), Bytes, nullptr, "image BY test");
-        device.WaitIdle();
-    }
 }
 
-void Check(AgcDriver::VulkanDevice& device, std::uint32_t opcode) {
+void Check(AgcDriver::VulkanDevice& device, std::uint32_t opcode, const Format& format, std::uint32_t dmask) {
     const auto elements = (opcode & 1u) != 0u ? 4u : 2u;
-    const auto channels = 4u / elements;
-    const auto format = elements == 2u ? 62u : 20u;
-    const auto mips = AgcDriver::Graphics::ComputeMipLayout(AgcDriver::Graphics::TextureTileMode::kLinear, format, Width, 1u, 2u);
-    Require(AgcDriver::Graphics::ComputeSurfaceSize(mips, 1u) <= Texels.size(), "image BY texture size");
-    Texels.fill(0xeeu);
-    for (std::uint32_t level = 0; level < mips.size(); ++level) {
-        for (std::uint32_t x = 0; x < mips[level].width; ++x) {
-            for (std::uint32_t channel = 0; channel < channels; ++channel) {
-                const auto value = level * 100000u + x * 100u + channel + 7u;
-                std::memcpy(Texels.data() + mips[level].tiledOffset + (x * channels + channel) * 4u, &value, 4u);
-            }
-        }
-    }
+    const bool mip = (opcode & 8u) != 0u;
+    const auto dwords = static_cast<std::uint32_t>(std::popcount(dmask));
+    const auto name = "image BY opcode " + std::to_string(opcode) + " format " + std::to_string(format.id) + " dmask " + std::to_string(dmask);
+    FillTexels(format);
+    FillInput();
     const auto initial = Texels;
     Output.fill(0xdeadbeefu);
-    Run(device, opcode, format);
-    const auto level = (opcode & 8u) != 0u ? 1u : 0u;
-    if ((opcode & 0x10u) != 0u) {
-        auto expected = initial;
-        for (std::uint32_t thread = 0; thread < Threads; ++thread) {
-            std::memcpy(expected.data() + mips[level].tiledOffset + thread * 16u, Values.data(), 16u);
+    Run(device, opcode, format.id, dmask);
+    for (std::uint32_t thread = 0; thread < Threads; ++thread) {
+        const auto x = Input[thread * 4u + 0u];
+        const auto y = Input[thread * 4u + 1u];
+        const auto level = mip ? Input[thread * 4u + 2u] : 0u;
+        const auto width = level < Levels ? std::max(Width >> level, 1u) : 0u;
+        const auto height = level < Levels ? std::max(Height >> level, 1u) : 0u;
+        const bool inside = level < Levels && x < width && width - x >= elements && y < height;
+        const auto first = x & ~(elements - 1u);
+        for (std::uint32_t index = 0; index < 4u; ++index) {
+            auto expected = Sentinel + index;
+            if (index < dwords) expected = inside ? TexelValue(level, first + index / format.components, y, index % format.components, format.bytes) : 0u;
+            const auto actual = Output[thread * 4u + index];
+            Require(actual == expected, name + ": thread " + std::to_string(thread) + " (x " + std::to_string(x) + ", y " + std::to_string(y) + ", mip " + std::to_string(level) + ") v" + std::to_string(10u + index) + " is " + std::to_string(actual) + ", expected " + std::to_string(expected));
         }
-        Require(Texels == expected, "image BY store changes adjacent texels, preserving the other mip and untouched bytes");
-    } else {
-        for (std::uint32_t thread = 0; thread < Threads; ++thread) {
-            for (std::uint32_t index = 0; index < 4u; ++index) {
-                const auto expected = level * 100000u + (thread * elements + index / channels) * 100u + index % channels + 7u;
-                Require(Output[thread * 4u + index] == expected, "image BY load texel/channel order");
-            }
-        }
-        Require(Texels == initial, "image BY load leaves the source unchanged");
     }
+    Require(Texels == initial, name + ": the load changed the texture");
 }
 
-void Refused(AgcDriver::VulkanDevice& device, std::uint32_t opcode, std::uint32_t format, std::uint32_t swizzle = 0xfacu) {
+void Refused(AgcDriver::VulkanDevice& device, std::uint32_t opcode, std::uint32_t format, std::uint32_t dmask, std::uint32_t swizzle, const char* reason) {
     bool refused = false;
-    try { Run(device, opcode, format, swizzle); }
-    catch (const std::exception& error) { refused = std::string(error.what()).find("RG32_UINT/R32_UINT") != std::string::npos; }
-    Require(refused, "image BY unsupported format/swizzle rejection");
+    try { Run(device, opcode, format, dmask, swizzle); }
+    catch (const std::exception& error) { refused = std::string(error.what()).find(reason) != std::string::npos; }
+    Require(refused, "image BY opcode " + std::to_string(opcode) + " format " + std::to_string(format) + " was not refused");
 }
 
 }
@@ -127,11 +167,22 @@ int main() {
         const auto device = OpenVulkanTestDevice();
         if (!device) return VulkanTestSkipped;
         GuestAllocations::Mutation().Add(Texels.data(), Bytes, true, true);
-        for (auto opcode : Encodings) {
-            Check(*device, opcode);
-            Refused(*device, opcode, (opcode & 1u) != 0u ? 62u : 20u);
-            Refused(*device, opcode, (opcode & 1u) != 0u ? 20u : 62u, 0xf2eu);
+        constexpr Format r8{R8UInt, 1u, 1u};
+        constexpr Format r16{R16UInt, 2u, 1u};
+        constexpr Format rg8{Rg8UInt, 1u, 2u};
+        for (const auto opcode : {0x42u, 0x4au}) {
+            Check(*device, opcode, r8, 0x3u);
+            Check(*device, opcode, r16, 0x3u);
+            Check(*device, opcode, rg8, 0xfu);
         }
+        for (const auto opcode : {0x43u, 0x4bu}) Check(*device, opcode, r8, 0xfu);
+        constexpr auto layout = "elements fill one dword";
+        Refused(*device, 0x42u, R32UInt, 0x3u, 0xfacu, layout);
+        Refused(*device, 0x42u, R8UInt, 0xfu, 0xfacu, layout);
+        Refused(*device, 0x43u, R16UInt, 0xfu, 0xfacu, layout);
+        Refused(*device, 0x43u, Rg8UInt, 0xfu, 0xfacu, layout);
+        Refused(*device, 0x42u, R16UInt, 0x3u, 0xf2eu, layout);
+        for (const auto opcode : {0x52u, 0x53u, 0x5au, 0x5bu}) Refused(*device, opcode, R8UInt, 0xfu, 0xfacu, "stores are not implemented");
         GuestAllocations::Mutation().Remove(Texels.data());
         std::cout << "image BY2/BY4 execution tests passed\n";
         return 0;

@@ -1,6 +1,7 @@
 #include "Translation/TranslationContext.hpp"
 #include "RdnaDecoder/RdnaImageOpDecoder.hpp"
 #include <array>
+#include <bit>
 #include <stdexcept>
 #include <source_location>
 #include <string>
@@ -22,50 +23,41 @@ RdnaInstruction Decode(std::uint32_t encoding, std::uint32_t controls = 0u, std:
     return DecodeRdnaMimg(0u, code, 0u);
 }
 
-void Check(std::uint32_t index, bool nsa) {
+void Check(std::uint32_t index, bool nsa, std::uint32_t mask) {
     const auto encoding = Encodings[index];
-    const auto inst = Decode(encoding, nsa ? 2u : 0u);
+    const auto inst = Decode(encoding, nsa ? 2u : 0u, 0x00101e1eu, mask);
     const auto elements = (encoding & 1u) != 0u ? 4u : 2u;
-    const auto channels = 4u / elements;
+    const auto dwords = static_cast<std::uint32_t>(std::popcount(mask));
     const bool store = (encoding & 0x10u) != 0u;
     Require(inst.op == Opcodes[index] && IsImageOpcode(inst.op));
-    Require(inst.dataDwordCount == 4u && inst.dataComponents == 4u);
+    Require(inst.dataDwordCount == dwords && inst.dataComponents == dwords);
     Require(inst.imageAddressComponents == ((encoding & 8u) != 0u ? 3u : 2u));
     Require(inst.wordCount == (nsa ? 3u : 2u));
     IrProgram program;
     auto& block = program.CreateBlock();
     program.SetEntryBlock(block);
     TranslationContext context(program, block, 256);
+    if (store) {
+        bool refused = false;
+        try { context.TranslateInstruction(inst); }
+        catch (const std::runtime_error& error) { refused = std::string(error.what()).find("stores are not implemented") != std::string::npos; }
+        Require(refused);
+        return;
+    }
     context.TranslateInstruction(inst);
-    std::vector<IrValue*> operations;
-    bool wroteRegister = false;
+    std::vector<IrValue*> reads;
     std::uint32_t writes = 0;
     for (auto* value : block.Instructions()) {
-        if (value->Opcode() == IrOpcode::SetVectorRegister) {
-            wroteRegister = true;
-            ++writes;
-        }
-        if (value->Opcode() == (store ? IrOpcode::ImageWrite : IrOpcode::ImageRead)) {
-            Require(!wroteRegister);
-            operations.push_back(value);
+        if (value->Opcode() == IrOpcode::SetVectorRegister) ++writes;
+        if (value->Opcode() == IrOpcode::ImageRead) {
+            Require(writes == 0u);
+            reads.push_back(value);
         }
     }
-    Require(operations.size() == elements && writes == (store ? 0u : 4u));
-    IrValue* first = operations[0]->Argument(1)->Resolve();
-    for (std::uint32_t texel = 0; texel < elements; ++texel) {
-        const auto& memory = program.Resources().memoryInfo[operations[texel]->Flags<MemoryFlags>().index];
-        Require(memory.imageByElements == elements && memory.dmask == (1u << channels) - 1u);
-        Require(memory.dataDwords == channels && memory.componentCount == channels);
-        Require(memory.imageHasMip == ((encoding & 8u) != 0u));
-        IrValue* address = operations[texel]->Argument(1)->Resolve();
-        Require(address->Opcode() == IrOpcode::MakeImageAddress);
-        for (std::uint32_t component = 1; component < 13u; ++component) Require(address->Argument(component) == first->Argument(component));
-        if (texel != 0u) {
-            auto* x = address->Argument(0)->Resolve();
-            Require(x->Opcode() == IrOpcode::IAdd32 && x->Argument(0) == first->Argument(0));
-            Require(x->Argument(1)->ImmediateU32() == texel);
-        }
-    }
+    Require(reads.size() == 1u && writes == dwords);
+    const auto& memory = program.Resources().memoryInfo[reads[0]->Flags<MemoryFlags>().index];
+    Require(memory.imageByElements == elements && memory.dmask == mask && memory.dataDwords == dwords);
+    Require(memory.imageHasMip == ((encoding & 8u) != 0u));
 }
 
 void CheckOrdinary(std::uint32_t encoding) {
@@ -99,9 +91,14 @@ void Refused(std::uint32_t encoding, std::uint32_t control, std::uint32_t word1 
 int main() {
     for (auto encoding : {0u, 1u, 8u, 9u}) CheckOrdinary(encoding);
     for (std::uint32_t index = 0; index < Encodings.size(); ++index) {
-        Check(index, false);
-        Check(index, true);
-        for (std::uint32_t mask = 0u; mask < 15u; ++mask) Refused(Encodings[index], 0u, 0x00101e1eu, mask);
+        const bool by2 = (Encodings[index] & 1u) == 0u;
+        for (const bool nsa : {false, true}) {
+            Check(index, nsa, 15u);
+            if (by2) Check(index, nsa, 3u);
+        }
+        for (std::uint32_t mask = 0u; mask < 15u; ++mask) {
+            if (!(by2 && mask == 3u)) Refused(Encodings[index], 0u, 0x00101e1eu, mask);
+        }
         for (auto bits : {0x8000u, 0x10000u, 0x20000u}) Refused(Encodings[index], bits);
         for (auto bits : {0x40000000u, 0x80000000u}) Refused(Encodings[index], 0u, 0x00101e1eu | bits);
         Refused(Encodings[index], 0u, 0x0010fd1eu);

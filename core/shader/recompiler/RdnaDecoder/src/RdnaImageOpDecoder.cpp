@@ -359,8 +359,8 @@ RdnaInstruction DecodeRdnaMimg(std::uint32_t programCounter, std::span<const std
     const auto dmask = (word0 >> 8u) & 15u;
     const bool pckGather = opcode == 0x62u || opcode == 0x63u;
     const bool by = opcode == 0x42u || opcode == 0x43u || opcode == 0x4au || opcode == 0x4bu || opcode == 0x52u || opcode == 0x53u || opcode == 0x5au || opcode == 0x5bu;
-    if (by && (dmask != 15u || a16 || d16 || dimension != RdnaImageDimension::Dim2D || (word0 & 0x8000u) != 0u)) {
-        throw std::runtime_error("MIMG BY2/BY4 requires a full data mask, 32-bit addresses and data, a 2D image and a full descriptor");
+    if (by && ((dmask != 15u && (dmask != 3u || (opcode & 1u) != 0u)) || a16 || d16 || dimension != RdnaImageDimension::Dim2D || (word0 & 0x8000u) != 0u)) {
+        throw std::runtime_error("MIMG BY2/BY4 requires a data mask that covers every element (BY2 0x3 or 0xf, BY4 0xf), 32-bit addresses and data, a 2D image and a full descriptor");
     }
     const bool compareSwap = info.opcode == RdnaOpcode::ImageAtomicCmpswap || info.opcode == RdnaOpcode::ImageAtomicFcmpswap;
     const bool floatAtomic = info.opcode == RdnaOpcode::ImageAtomicFcmpswap || info.opcode == RdnaOpcode::ImageAtomicFmin || info.opcode == RdnaOpcode::ImageAtomicFmax;
