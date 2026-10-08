@@ -167,7 +167,9 @@ void includeInstructionVectorRegisters(const RdnaInstruction& instruction, std::
         case RdnaOpcode::DsWrite2B32:
         case RdnaOpcode::DsWrite2st64B32:
         case RdnaOpcode::DsWrite2B64:
-        case RdnaOpcode::DsWrite2st64B64: {
+        case RdnaOpcode::DsWrite2st64B64:
+        case RdnaOpcode::DsWrxchg2RtnB64:
+        case RdnaOpcode::DsWrxchg2st64RtnB64: {
             const std::uint32_t width = std::max(instruction.dataDwordCount / 2u, 1u);
             includeVector(instruction.source1, width);
             includeVector(instruction.source2, width);
@@ -363,6 +365,9 @@ void emitEntryPrologue(IrProgram& program, IrBlock& entryBlock, const TranslateO
             entryIr.SetVectorReg(static_cast<VectorReg>(vgpr(PixelInput::Ancillary)), builtin(StageInputKind::PackedAncillary));
         }
     } else if (options.stage == ShaderStageKind::Vertex) {
+        if (options.userDataBaseRegister >= 8u) {
+            entryIr.SetScalarReg(static_cast<ScalarReg>(3), entryIr.Constant(options.waveSize | (options.waveSize << 8u)));
+        }
         entryIr.SetVectorReg(static_cast<VectorReg>(5), builtin(StageInputKind::VertexIndex));
         entryIr.SetVectorReg(static_cast<VectorReg>(8), builtin(StageInputKind::InstanceIndex));
     }
