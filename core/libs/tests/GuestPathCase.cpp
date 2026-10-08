@@ -38,20 +38,20 @@ int main() {
     const auto name = "AnyPS5-Case-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
     const auto directory = host / name;
     Require(std::filesystem::create_directories(directory / "Data" / "Nested"));
-    { std::ofstream file(directory / "Data" / "Skyrim.ini"); file << 'x'; }
+    { std::ofstream file(directory / "Data" / "Settings.ini"); file << 'x'; }
     auto lower = name;
     for (auto& c : lower) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
-    CheckRead("/" + lower + "/dAtA/SKYRIM.INI", 'x');
+    CheckRead("/" + lower + "/dAtA/SETTINGS.INI", 'x');
     FileStat stat{};
-    Require(sceKernelStat(("/" + lower + "/DATA/skyrim.INI").c_str(), &stat) == 0);
+    Require(sceKernelStat(("/" + lower + "/DATA/settings.INI").c_str(), &stat) == 0);
     Require(chdir_nid_postfix(lower.c_str()) == 0);
-    Require(access_nid_postfix("DATA/SKYRIM.ini", 4) == 0);
-    auto* stream = fopen_nid_postfix("data\\SKYRIM.INI", "rb");
+    Require(access_nid_postfix("DATA/SETTINGS.ini", 4) == 0);
+    auto* stream = fopen_nid_postfix("data\\SETTINGS.INI", "rb");
     char value = 0;
     Require(stream && fread_nid_postfix(&value, 1, 1, stream) == 1 && value == 'x');
     Require(fclose_nid_postfix(stream) == 0);
     Require(chdir_nid_postfix("DATA/../data") == 0);
-    CheckRead("skyrim.INI", 'x');
+    CheckRead("settings.INI", 'x');
     Require(chdir_nid_postfix("..") == 0);
     const int created = sceKernelOpen("data/nested/New.DAT", SCE_KERNEL_O_CREAT | SCE_KERNEL_O_EXCL | SCE_KERNEL_O_WRONLY, 0600);
     Require(created >= 0 && sceKernelWrite(created, "y", 1) == 1 && sceKernelClose(created) == 0);
@@ -62,27 +62,27 @@ int main() {
     Require(remove_nid_postfix("DATA/NESTED/moved.dat") == 0);
     Require(sceKernelOpen("data/nested/missing", SCE_KERNEL_O_RDONLY, 0) == static_cast<int>(0x80020002u));
     AddPathAlias_nid_no_patch("case-mount", (directory / "Data").string().c_str());
-    CheckRead("/CASE-MOUNT/skyrim.INI", 'x');
-    Require(access_nid_postfix("/case-mount-other/Skyrim.ini", 0) == -1);
+    CheckRead("/CASE-MOUNT/settings.INI", 'x');
+    Require(access_nid_postfix("/case-mount-other/Settings.ini", 0) == -1);
     BlockPathAlias_nid_no_patch("CASE-MOUNT");
-    Require(access_nid_postfix("/case-mount/skyrim.ini", 0) == -1);
+    Require(access_nid_postfix("/case-mount/settings.ini", 0) == -1);
     AddPathAlias_nid_no_patch("Case-Mount", (directory / "Data").string().c_str());
-    CheckRead("/case-MOUNT/skyrim.INI", 'x');
+    CheckRead("/case-MOUNT/settings.INI", 'x');
     RemovePathAlias_nid_no_patch("CASE-mount");
-    Require(access_nid_postfix("/case-mount/skyrim.ini", 0) == -1);
+    Require(access_nid_postfix("/case-mount/settings.ini", 0) == -1);
 #ifndef _WIN32
     std::filesystem::create_directory_symlink("Data", directory / "Linked");
-    CheckRead("linked/SKYRIM.INI", 'x');
-    { std::ofstream file(directory / "Data" / "SKYRIM.INI"); file << 'z'; }
-    CheckRead("Data/Skyrim.ini", 'x');
-    CheckRead("Data/SKYRIM.INI", 'z');
+    CheckRead("linked/SETTINGS.INI", 'x');
+    { std::ofstream file(directory / "Data" / "SETTINGS.INI"); file << 'z'; }
+    CheckRead("Data/Settings.ini", 'x');
+    CheckRead("Data/SETTINGS.INI", 'z');
     bool ambiguous = false;
-    try { CheckRead("data/skyrim.ini", 'x'); } catch (const std::runtime_error&) { ambiguous = true; }
+    try { CheckRead("data/settings.ini", 'x'); } catch (const std::runtime_error&) { ambiguous = true; }
     Require(ambiguous);
-    std::filesystem::remove(directory / "Data" / "SKYRIM.INI");
-    std::filesystem::remove(directory / "Data" / "Skyrim.ini");
-    { std::ofstream file(directory / "Data" / "SKYRIM.ini"); file << 'n'; }
-    CheckRead("data/skyrim.ini", 'n');
+    std::filesystem::remove(directory / "Data" / "SETTINGS.INI");
+    std::filesystem::remove(directory / "Data" / "Settings.ini");
+    { std::ofstream file(directory / "Data" / "SETTINGS.ini"); file << 'n'; }
+    CheckRead("data/settings.ini", 'n');
     std::filesystem::create_symlink("absent", directory / "Dangling");
     Require(sceKernelOpen("dangling", SCE_KERNEL_O_RDONLY, 0) == static_cast<int>(0x80020002u));
 #endif
