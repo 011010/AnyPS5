@@ -43,11 +43,15 @@ void ensureTitleLoaded() {
 }
 
 const bool g_downloadDataMounted = [] {
-    const auto run = std::filesystem::current_path();
-    const auto paramJson = run / "app0" / "sce_sys" / "param.json";
-    if (!std::filesystem::exists(paramJson) || parseParamJson(paramJson).downloadDataSizeMiB == 0) return false;
-    std::filesystem::create_directories(run / "download0");
-    return true;
+    try {
+        const auto run = std::filesystem::current_path();
+        const auto paramJson = run / "app0" / "sce_sys" / "param.json";
+        if (!std::filesystem::exists(paramJson) || parseParamJson(paramJson).downloadDataSizeMiB == 0) return false;
+        std::filesystem::create_directories(run / "download0");
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
 }();
 
 void ensureIconLoaded() {
