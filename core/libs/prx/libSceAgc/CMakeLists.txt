@@ -209,14 +209,15 @@ if(BUILD_TESTING)
 endif()
 
 add_test_executable(agc_shader_fusion_tests EXCLUDE_FROM_ALL tests/ShaderFusion.cpp)
-target_include_directories(agc_shader_fusion_tests PRIVATE ${LIBS_INCLUDE_DIR})
-target_link_libraries(agc_shader_fusion_tests PRIVATE libSceAgc libc)
+target_include_directories(agc_shader_fusion_tests PRIVATE ${LIBS_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/core/shader/recompiler ${CMAKE_SOURCE_DIR}/3rdparty/Vulkan-Headers/include)
+target_link_libraries(agc_shader_fusion_tests PRIVATE libSceAgc libSceAgcDriver libc)
 set_target_properties(agc_shader_fusion_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(agc_shader_fusion_tests)
 
 if(BUILD_TESTING)
     set_target_properties(agc_shader_fusion_tests PROPERTIES EXCLUDE_FROM_ALL OFF)
     add_test(NAME agc_shader_fusion COMMAND agc_shader_fusion_tests)
+    set_tests_properties(agc_shader_fusion PROPERTIES SKIP_RETURN_CODE 77)
     if(WIN32)
         set_tests_properties(agc_shader_fusion PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
