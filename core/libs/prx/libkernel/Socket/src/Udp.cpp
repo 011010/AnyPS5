@@ -82,6 +82,7 @@ int NativeError() {
         case ETIMEDOUT: return 60;
         case EINTR: return 4;
         case EINVAL: return 22;
+        case EPIPE: return 32;
         default: return 5;
     }
 #endif
