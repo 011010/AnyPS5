@@ -180,12 +180,12 @@ target_include_directories(libSceAgcDriver PRIVATE
         ${CMAKE_SOURCE_DIR}/3rdparty/SPIRV-Headers/include
 )
 
-file(GLOB_RECURSE agcShaderCacheGuardSources CONFIGURE_DEPENDS
+file(GLOB_RECURSE agcShaderCacheGuardSources CONFIGURE_DEPENDS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
 )
-list(FILTER agcShaderCacheGuardSources EXCLUDE REGEX "^${CMAKE_CURRENT_SOURCE_DIR}/(tests|tools)/")
+list(FILTER agcShaderCacheGuardSources EXCLUDE REGEX "^(tests|tools)/")
 add_shader_recompiler(shader_recompiler_agc_driver libc
         GUARD_SOURCES
         ${agcShaderCacheGuardSources}
