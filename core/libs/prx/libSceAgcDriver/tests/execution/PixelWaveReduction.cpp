@@ -186,10 +186,12 @@ int main() {
             wide.subgroupSize = 64u;
             layouts.push_back(wide);
         }
-        const std::array<Reduction, 3> reductions{{
+        const std::array<Reduction, 5> reductions{{
             {"UMin", 0xffffffffu, 0x26000000u, 0x83800000u, [](std::uint32_t left, std::uint32_t right) { return std::min(left, right); }},
             {"UMax", 0u, 0x28000000u, 0x84800000u, [](std::uint32_t left, std::uint32_t right) { return std::max(left, right); }},
             {"IAdd", 0u, 0x4a000000u, 0x80000000u, [](std::uint32_t left, std::uint32_t right) { return left + right; }},
+            {"AND", 0xffffffffu, 0x36000000u, 0x87000000u, [](std::uint32_t left, std::uint32_t right) { return left & right; }},
+            {"OR", 0u, 0x38000000u, 0x88000000u, [](std::uint32_t left, std::uint32_t right) { return left | right; }},
         }};
         for (const auto& layout : layouts) {
             for (const auto& reduction : reductions) {
