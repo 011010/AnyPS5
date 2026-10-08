@@ -60,8 +60,8 @@ def commit(tree):
 
 def scan(pr):
     tree, conflicted = merge("refs/pr/base", pr["ref"])
-    pr["merged"] = None if conflicted else commit(tree)
-    old, new = (git("merge-base", "refs/pr/base", pr["ref"]).strip(), pr["ref"]) if conflicted else ("refs/pr/base", pr["merged"])
+    pr["tree"] = None if conflicted else commit(tree)
+    old, new = (git("merge-base", "refs/pr/base", pr["ref"]).strip(), pr["ref"]) if conflicted else ("refs/pr/base", pr["tree"])
     pr["files"], pr["added"] = set(), set()
     for line in git("diff", "--name-status", "--no-renames", old, new).splitlines():
         status, path = line.split("\t", 1)
@@ -74,7 +74,7 @@ def scan(pr):
 
 
 def hunks(pr, path):
-    diff = git("diff", "-U0", "--no-color", "refs/pr/base", pr["merged"], "--", path)
+    diff = git("diff", "-U0", "--no-color", "refs/pr/base", pr["tree"], "--", path)
     return [(int(start), int(start) + max(int(count or 1), 1) - 1) for start, count in HUNK.findall(diff)]
 
 
@@ -91,9 +91,9 @@ def clashes(a, b, path):
 
 
 def conflicts(a, b):
-    if not (a["merged"] and b["merged"] and a["files"] & b["files"]):
+    if not (a["tree"] and b["tree"] and a["files"] & b["files"]):
         return {}
-    files = merge("--merge-base=refs/pr/base", a["merged"], b["merged"])[1]
+    files = merge("--merge-base=refs/pr/base", a["tree"], b["tree"])[1]
     return {path: [] if path in a["added"] else clashes(a, b, path) for path in files}
 
 
