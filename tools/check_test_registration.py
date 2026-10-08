@@ -6,7 +6,6 @@ from pathlib import Path
 TEST_OUTPUT = r"tests[\\/]"
 
 KNOWN_UNRUN = {
-    "agc_driver_bda_device_tests",
     "agc_driver_mesh_tests",
     "agc_driver_recorder_tests",
     "guest_formatting_tests",
@@ -68,10 +67,14 @@ if __name__ == "__main__":
         raise SystemExit(1)
     for name in sorted(set(unrun) & KNOWN_UNRUN):
         print(f"note: {name} is built and not run, as recorded")
+    stale = sorted(KNOWN_UNRUN & run)
+    for name in stale:
+        print(f"error: {name} is run by ctest now; remove it from KNOWN_UNRUN")
     fresh = sorted(set(unrun) - KNOWN_UNRUN)
     for name in fresh:
         print(f"error: {name} is built but no ctest test runs it")
     if fresh:
         print(f"{len(fresh)} test executable(s) would never run: ctest reports a full pass over what it knows, so a test nobody registered is invisible in CI")
+    if stale or fresh:
         raise SystemExit(1)
     print(f"{len(every)} test executable(s), {len(unrun)} built and not run as recorded, none new")
