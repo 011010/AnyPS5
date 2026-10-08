@@ -6,7 +6,7 @@ import sys
 import tempfile
 
 from test_guest_intel_trampolines import main_fixture
-from test_guest_module_directories import module_with_symbol
+from test_guest_module_directories import module_with_symbol, needed_libraries
 
 
 def dynamic(image, offset, phoff, tags):
@@ -112,6 +112,45 @@ def main():
             if os.name == 'nt':
                 run = subprocess.run([str(output)], capture_output=True, text=True, timeout=30)
                 assert run.returncode == 22, (run.returncode, run.stdout, run.stderr)
+
+        for index, filename in enumerate(('party.prx', 'party.PRX')):
+            result, output = convert('case-' + str(index), 'Party.prx', guest_owner='Party.prx', provider_name=filename)
+            assert result.returncode == 0, (result.stdout, result.stderr)
+            if os.name == 'nt':
+                run = subprocess.run([str(output)], capture_output=True, text=True, timeout=30)
+                assert run.returncode == 22, (run.returncode, run.stdout, run.stderr)
+
+        case = work / 'exact-soname-before-filename-case'
+        modules = case / 'prx'
+        modules.mkdir(parents=True)
+        (modules / 'party.prx').write_bytes(provider(11))
+        (modules / 'other.prx').write_bytes(provider(22, 'Party.prx'))
+        (modules / 'consumer.prx').write_bytes(consumer('Party.prx'))
+        source = case / 'input.elf'
+        source.write_bytes(executable('Party.prx'))
+        output = case / 'output.exe'
+        result = subprocess.run([str(relinker), '--windows', str(source), str(output)], capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        if os.name == 'nt':
+            run = subprocess.run([str(output)], capture_output=True, text=True, timeout=30)
+            assert run.returncode == 22, (run.returncode, run.stdout, run.stderr)
+
+        result, output = convert('wrong-case-soname', 'ALIAS.prx')
+        assert result.returncode == 0, result.stderr
+        if os.name == 'nt':
+            run = subprocess.run([str(output)], capture_output=True, text=True, timeout=30)
+            assert run.returncode != 0 and 'Failed to load module:' in run.stderr and 'ALIAS.prx' in run.stderr, (run.returncode, run.stderr)
+
+        case = work / 'linux-filename-case'
+        modules = case / 'prx'
+        modules.mkdir(parents=True)
+        (modules / 'party.prx').write_bytes(provider(22))
+        source = case / 'input.elf'
+        source.write_bytes(executable('Party.prx'))
+        output = case / 'output.elf'
+        result = subprocess.run([str(relinker), str(source), str(output)], capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        assert 'Party.prx' in needed_libraries(output.read_bytes())
 
         result, output = convert('ambiguous-alias', 'foo.native.prx', module_name='foo_native',
                                  provider_name='foo.native.prx', extra_dependencies=('foo.native-module.prx',))
