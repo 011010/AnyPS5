@@ -1123,7 +1123,8 @@ struct NetResolverInfo {
     std::int32_t count4;
     std::int32_t reserved[14];
 };
-static_assert(sizeof(NetResolverInfo) == 384);
+static_assert(sizeof(NetResolverRecord) == 32 && offsetof(NetResolverRecord, family) == 16);
+static_assert(sizeof(NetResolverInfo) == 384 && offsetof(NetResolverInfo, count) == 320 && offsetof(NetResolverInfo, count4) == 324);
 
 int APS5_VABI sceNetResolverStartNtoaMultipleRecordsEx(int rid, const char* hostname, NetResolverInfo* info, int timeout,
     int retry, int flags) {
