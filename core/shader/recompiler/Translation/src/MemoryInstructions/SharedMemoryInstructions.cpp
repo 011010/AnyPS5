@@ -232,15 +232,15 @@ bool TranslationContext::dsCondxchg32(const RdnaInstruction& inst) {
     memory.dataDwords = 1u;
     memory.componentCount = 1u;
     const auto data = readU32Pair(inst.source1);
-    IrValue& address = ir.BitwiseAnd(ir.IAdd(readU32(inst.source0).Value(), ir.Constant(inst.memoryOffset)), ir.Constant(0xfff8u));
+    const IrU32 address = readU32(inst.source0);
     IrValue& active = ir.GetExec();
     std::array<IrValue*, 2> old{};
     for (std::uint32_t index = 0u; index < 2u; ++index) {
         IrValue& enabled = ir.UGreaterThan(data[index].Value(), ir.Constant(0x7fffffffu));
         IrValue& mask = ir.Select(enabled, ir.Constant(0xffffffffu), ir.Constant(0u));
         IrValue& value = ir.Select(enabled, ir.BitwiseAnd(data[index].Value(), ir.Constant(0x7fffffffu)), ir.Constant(0u));
-        memory.offset = index * 4u;
-        old[index] = &ir.Emit(IrOpcode::SharedAtomicMskor32, IrType::U32, {&address, &mask, &value, &active}, addMemoryInfo(memory, inst.programCounter));
+        memory.offset = inst.memoryOffset + index * 4u;
+        old[index] = &ir.Emit(IrOpcode::SharedAtomicMskor32, IrType::U32, {&address.Value(), &mask, &value, &active}, addMemoryInfo(memory, inst.programCounter));
     }
     writeOperand(inst.destination, old[0]);
     writeOperand(offsetOperand(inst.destination, 1u), old[1]);

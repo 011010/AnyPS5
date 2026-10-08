@@ -103,8 +103,9 @@ void Fill(std::uint32_t threads, std::uint32_t offset, bool contended) {
         in[1] = contended ? 0xfffffffeu : static_cast<std::uint32_t>(seed >> 32u);
         in[2] = contended ? Sign | (tid + 1u) : ((tid & 1u) != 0u ? Sign : 0u) | ((tid / 4u) % 2u != 0u ? 0x7fffffffu : 0u);
         in[3] = contended ? Sign | (tid + 1u) : ((tid & 2u) != 0u ? Sign : 0u) | ((tid / 8u) % 2u != 0u ? 0x13579bdfu : 0u);
-        in[4] = contended ? 0u : LdsDwords * 4u - 24u - tid * 32u;
-        in[5] = in[4] - offset + (tid & 7u) + ((tid & 8u) != 0u ? 0u : 0x10000u);
+        const bool outOfRange = !contended && ((tid & 8u) == 0u || offset >= LdsDwords * 4u);
+        in[4] = contended ? 0u : outOfRange ? tid * 32u : LdsDwords * 4u - 24u - tid * 32u;
+        in[5] = in[4] + (outOfRange ? 0x10000u : 0u) - offset;
         in[6] = 0xa5a5a5a5u;
         in[7] = 0x5a5a5a5au;
     }
@@ -138,10 +139,11 @@ void Run(AgcDriver::VulkanDevice& device, std::uint32_t waveSize, const ShaderRe
         const auto* in = &Input[tid * Words];
         if (!contended) {
             const bool active = !inactive || tid % 2u == 0u;
-            Expect(tid, 0u, active ? in[0] : destination == 12u ? in[3] : in[5]);
-            Expect(tid, 1u, active ? in[1] : destination == 12u ? Sentinel : in[6]);
-            Expect(tid, 2u, active && (in[2] & Sign) != 0u ? in[2] & ~Sign : in[0]);
-            Expect(tid, 3u, active && (in[3] & Sign) != 0u ? in[3] & ~Sign : in[1]);
+            const bool inBounds = in[5] + offset < LdsDwords * 4u;
+            Expect(tid, 0u, active ? inBounds ? in[0] : 0u : destination == 12u ? in[3] : in[5]);
+            Expect(tid, 1u, active ? inBounds ? in[1] : 0u : destination == 12u ? Sentinel : in[6]);
+            Expect(tid, 2u, active && inBounds && (in[2] & Sign) != 0u ? in[2] & ~Sign : in[0]);
+            Expect(tid, 3u, active && inBounds && (in[3] & Sign) != 0u ? in[3] & ~Sign : in[1]);
         }
         for (std::uint32_t index = 4u; index < Words; ++index) Expect(tid, index, in[6u + index % 2u]);
     }
@@ -149,10 +151,10 @@ void Run(AgcDriver::VulkanDevice& device, std::uint32_t waveSize, const ShaderRe
 }
 
 void CheckExecution(AgcDriver::VulkanDevice& device, std::uint32_t waveSize, const ShaderRecompiler::SpirvTarget& target) {
-    for (const auto offset : {0u, 0x123u, 0xffffu}) Run(device, waveSize, target, offset, 12u, false, false);
-    Run(device, waveSize, target, 0x123u, 12u, true, false);
-    Run(device, waveSize, target, 0xffffu, 7u, true, false);
-    Run(device, waveSize, target, 0x123u, 12u, false, true);
+    for (const auto offset : {0u, 0x120u, 0xfff8u}) Run(device, waveSize, target, offset, 12u, false, false);
+    Run(device, waveSize, target, 0x120u, 12u, true, false);
+    Run(device, waveSize, target, 0xfff8u, 7u, true, false);
+    Run(device, waveSize, target, 0x120u, 12u, false, true);
 }
 
 }
