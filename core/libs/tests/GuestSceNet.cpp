@@ -276,6 +276,9 @@ int main() {
     NetMsghdr reply_receive{reply_name.data(), 16, reply_in, 1, nullptr, 0, -1};
     Require(sceNetRecvmsg(client, &reply_receive, 0) == sizeof(reply));
     Require(std::strcmp(reply, reply_result) == 0 && reply_receive.flags == 0 && reply_receive.name_length == 0);
+    Require(sceNetSend(client, request, sizeof(request), 0) == sizeof(request));
+    ready = {};
+    Require(sceNetEpollWait(epoll, &ready, 1, 1000000) == 1 && (ready.events & 1) && ready.ident == static_cast<std::uint64_t>(accepted));
     Require(sceNetEpollDestroy(epoll) == 0);
     Require(sceNetSocketClose(accepted) == 0);
     bool send_failed = false;
