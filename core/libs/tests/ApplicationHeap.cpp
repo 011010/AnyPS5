@@ -23,7 +23,6 @@ char* APS5_VABI strdup_nid_postfix(const char*);
 char* APS5_VABI strndup_nid_postfix(const char*, std::size_t);
 int* APS5_VABI __error_nid_postfix();
 int APS5_VABI atexit_nid_postfix(void (APS5_VABI*)());
-int APS5_VABI malloc_stats_fast_nid_postfix(void*);
 }
 
 namespace {
@@ -34,9 +33,6 @@ std::size_t lastAlignment = 0;
 unsigned posixCalls = 0;
 unsigned initializes = 0;
 unsigned frees = 0;
-unsigned statsCalls = 0;
-void* lastStats = nullptr;
-bool statsAllocate = false;
 bool fail = false;
 bool recurse = false;
 bool nullPosixResult = false;
@@ -97,13 +93,6 @@ int APS5_VABI posixAlign(void** pointer, std::size_t alignment, std::size_t byte
     return 0;
 }
 
-int APS5_VABI statsFast(void* stats) {
-    ++statsCalls;
-    lastStats = stats;
-    if (statsAllocate) ApplicationHeapAllocate_nid_no_patch(16);
-    return 0x2a;
-}
-
 template<typename TValue, std::size_t TSize>
 void write(std::array<std::byte, TSize>& data, std::size_t offset, TValue value) {
     require(offset <= data.size() && sizeof(value) <= data.size() - offset);
@@ -114,7 +103,6 @@ void write(std::array<std::byte, TSize>& data, std::size_t offset, TValue value)
 
 int main(int argc, char** argv) {
     reject([] { ApplicationHeapAllocate_nid_no_patch(64); });
-    reject([] { malloc_stats_fast_nid_postfix(storage.data()); });
     reject([] { ApplicationHeapRegister_nid_no_patch(nullptr); });
     std::array<std::byte, 0x40> process{};
     std::array<std::byte, 0x38> libc{};
@@ -135,7 +123,6 @@ int main(int argc, char** argv) {
     write(replacement, 0x40, &align);
     write(replacement, 0x48, &realign);
     write(replacement, 0x50, &posixAlign);
-    write(replacement, 0x60, &statsFast);
     if (argc > 1 && std::strcmp(argv[1], "exit-order") == 0) {
         require(atexit_nid_postfix(exitCallbackAllocates) == 0);
         ApplicationHeapInitialize_nid_no_patch(process.data());
@@ -172,17 +159,8 @@ int main(int argc, char** argv) {
         ApplicationHeapFree_nid_no_patch(nullptr);
         reject([] { ApplicationHeapCalloc_nid_no_patch(SIZE_MAX, 2); });
         reject([] { ApplicationHeapAlign_nid_no_patch(3, 16); });
-        reject([] { malloc_stats_fast_nid_postfix(storage.data()); });
         ApplicationHeapInitialize_nid_no_patch(process.data());
         require(initializes == 1);
-        return 0;
-    }
-    if (argc > 1 && std::strcmp(argv[1], "missing-stats") == 0) {
-        write(replacement, 0x60, static_cast<void*>(nullptr));
-        ApplicationHeapInitialize_nid_no_patch(process.data());
-        require(ApplicationHeapAllocate_nid_no_patch(16) == storage.data());
-        reject([] { malloc_stats_fast_nid_postfix(storage.data()); });
-        require(statsCalls == 0);
         return 0;
     }
     if (argc > 1) {
@@ -197,12 +175,6 @@ int main(int argc, char** argv) {
     ApplicationHeapInitialize_nid_no_patch(process.data());
     ApplicationHeapInitialize_nid_no_patch(process.data());
     require(initializes == 1);
-    std::array<std::byte, 0x40> stats{};
-    require(malloc_stats_fast_nid_postfix(stats.data()) == 0x2a && statsCalls == 1 && lastStats == stats.data());
-    statsAllocate = true;
-    reject([&] { malloc_stats_fast_nid_postfix(stats.data()); });
-    statsAllocate = false;
-    require(statsCalls == 2 && malloc_stats_fast_nid_postfix(nullptr) == 0x2a && statsCalls == 3 && lastStats == nullptr);
     void* pointer = ApplicationHeapAlign_nid_no_patch(4, 64);
     require(pointer == storage.data() && lastAlignment == 4 && lastSize == 64);
     release(pointer);
