@@ -5,7 +5,6 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
-#include <limits>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -224,14 +223,14 @@ static std::vector<float> MatrixLevelFrame(const std::vector<float>& levels, boo
 }
 
 static void TestMatrixLevelClamp() {
-    const float inf = std::numeric_limits<float>::infinity();
+    const float inf = INFINITY;
     for (bool command : {false, true}) {
         Require(MatrixLevelFrame({4.0f, -4.0f}, command) == (std::vector<float>{2.0f, -2.0f}));
         Require(MatrixLevelFrame({4.0001f, -4.5f}, command) == (std::vector<float>{2.0f, -2.0f}));
         Require(MatrixLevelFrame({100.0f, -100.0f}, command) == (std::vector<float>{2.0f, -2.0f}));
         Require(MatrixLevelFrame({inf, -inf}, command) == (std::vector<float>{2.0f, -2.0f}));
         Require(MatrixLevelFrame({3.5f, -0.25f}, command) == (std::vector<float>{1.75f, -0.125f}));
-        const auto nan = MatrixLevelFrame({std::numeric_limits<float>::quiet_NaN(), 0.5f}, command);
+        const auto nan = MatrixLevelFrame({NAN, 0.5f}, command);
         Require(std::isnan(nan[0]) && nan[1] == 0.25f);
     }
 
@@ -494,10 +493,10 @@ int main() {
     TestPcmBlockEnd();
     TestPitchAndRepeat();
     TestSubmixerMatrix();
-    TestMatrixLevelClamp();
     TestSampleRate();
     TestUserData();
     TestMasteringGain();
+    TestMatrixLevelClamp();
     TestStereoIntoSurround();
     TestLock();
     TestAllocator();
