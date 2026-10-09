@@ -136,7 +136,7 @@ int APS5_VABI sceSystemServiceLaunchPlayerDialog(const void* param) {
  return SYSTEM_SERVICE_OK;
 }
 
-int APS5_VABI sceSystemServiceLaunchWebBrowser(const char* uri, const void* param) {
+int APS5_VABI sceSystemServiceLaunchWebBrowser(const char* uri, void* param) {
  (void)uri;
  (void)param;
  return SCE_KERNEL_ERROR_EOPNOTSUPP;
