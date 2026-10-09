@@ -58,7 +58,7 @@ jobs:
               }
             }
             await github.rest.issues.addLabels({ owner, repo, issue_number: pull_number, labels: [name] });
-            const body = `Thank you for your interest in the project! We are sorry, but there are too many open PRs for us to review right now. While we work through the backlog, we are temporarily only accepting PRs from authors with at least ${minimumMergedPRs} PRs merged into main in this repository. Your account has fewer than ${minimumMergedPRs} such PRs, so this PR has been automatically closed and labeled "intake paused". This is not a judgment of the quality of your changes.`;
+            const body = 'Thank you for your interest in the project! We are sorry, but we cannot accept more PRs while we work through the existing backlog. This PR has been automatically closed and labeled "intake paused". This is not a judgment of the quality of your changes.';
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner, repo, issue_number: pull_number, per_page: 100
             });
