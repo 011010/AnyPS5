@@ -43,7 +43,9 @@ int main(int argc, char** argv) {
     constexpr char otherArguments[] = "sceSystemServiceKillApp: arguments other than -1, 0 and 0";
     Require(Rejects(appId + 1, -1, 0, 0, otherApp));
     Require(Rejects(-1, -1, 0, 0, otherApp));
+    Require(Rejects(0, -1, 0, 0, otherApp));
     Require(Rejects(appId, 0, 0, 0, otherArguments));
+    Require(Rejects(appId, -2, 0, 0, otherArguments));
     Require(Rejects(appId, -1, 1, 0, otherArguments));
     Require(Rejects(appId, -1, 0, 1, otherArguments));
     finished = true;
