@@ -1,15 +1,19 @@
 #include "SceTypes.hpp"
 #include "prx/libkernel/KernelErrors.hpp"
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <string>
+#include <vector>
 extern "C" {
 void* APS5_VABI dlopen_nid_postfix(const char*, int);
 void* APS5_VABI dlsym_nid_postfix(void*, const char*);
 int APS5_VABI dlclose_nid_postfix(void*);
 int APS5_VABI sceKernelGetModuleInfoFromAddr(std::uint64_t, int, ModuleInfoEx*);
+int APS5_VABI sceKernelGetModuleList(KernelModule*, std::size_t, std::size_t*);
 }
 static void Require(bool value) { if (!value) std::abort(); }
 template<typename TFunction>
@@ -55,6 +59,24 @@ int main(int argc, char** argv) {
     void* second = dlopen_nid_postfix(argv[1], 2);
     Require(second && Query(add, 0).id == info.id);
     Require(dlclose_nid_postfix(second) == 0);
+    std::vector<KernelModule> handles(512, -1);
+    std::size_t count = 0;
+    Require(sceKernelGetModuleList(handles.data(), handles.size(), &count) == 0);
+    Require(count >= 2 && count < handles.size() && handles[count] == -1);
+    handles.resize(count);
+    Require(handles.front() == self.id);
+    const auto kernel = Query(reinterpret_cast<const void*>(&sceKernelGetModuleList), 0).id;
+    Require(std::count(handles.begin(), handles.end(), kernel) == 1);
+    Require(std::count(handles.begin(), handles.end(), info.id) == 0);
+    auto sorted = handles;
+    std::sort(sorted.begin(), sorted.end());
+    Require(std::adjacent_find(sorted.begin(), sorted.end()) == sorted.end());
+    std::vector<KernelModule> shorter(count, -1);
+    std::size_t untouched = 99;
+    Require(sceKernelGetModuleList(shorter.data(), count - 1, &untouched) == SCE_KERNEL_ERROR_ENOMEM);
+    Require(untouched == 99 && shorter.back() == -1 && std::equal(handles.begin(), handles.end() - 1, shorter.begin()));
+    Require(sceKernelGetModuleList(nullptr, 0, &untouched) == SCE_KERNEL_ERROR_EFAULT);
+    Require(sceKernelGetModuleList(handles.data(), handles.size(), nullptr) == SCE_KERNEL_ERROR_EFAULT);
     int local = 0;
     Query(&local, SCE_KERNEL_ERROR_ESRCH);
     Require(sceKernelGetModuleInfoFromAddr(reinterpret_cast<std::uintptr_t>(add), 2, nullptr) == SCE_KERNEL_ERROR_EFAULT);

@@ -5,6 +5,8 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <vector>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libkernel/KernelErrors.hpp"
@@ -14,6 +16,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <psapi.h>
 #include <filesystem>
 #else
 #include <dlfcn.h>
@@ -118,6 +121,32 @@ int FindImage(dl_phdr_info* image, std::size_t, void* data) {
     search.found = true;
     return 1;
 }
+
+int CollectGuestImage(dl_phdr_info* image, std::size_t, void* data) {
+    const std::string_view name = image->dlpi_name ? image->dlpi_name : "";
+    if (!name.empty() && !name.ends_with(".prx")) return 0;
+    for (std::uint16_t i = 0; i < image->dlpi_phnum; ++i) {
+        const auto& header = image->dlpi_phdr[i];
+        if (header.p_type != PT_LOAD) continue;
+        static_cast<std::vector<std::uintptr_t>*>(data)->push_back(image->dlpi_addr + header.p_vaddr);
+        return 0;
+    }
+    return 0;
+}
+
+std::vector<const void*> GuestImages() {
+    std::vector<std::uintptr_t> addresses;
+    dl_iterate_phdr(CollectGuestImage, &addresses);
+    std::vector<const void*> images;
+    for (const auto address : addresses) {
+        Dl_info symbol{};
+        link_map* native = nullptr;
+        if (!dladdr1(reinterpret_cast<const void*>(address), &symbol, reinterpret_cast<void**>(&native), RTLD_DL_LINKMAP) || !native)
+            throw std::runtime_error("sceKernelGetModuleList: no link map for a loaded image");
+        images.push_back(native);
+    }
+    return images;
+}
 #else
 bool SectionNamed(const IMAGE_SECTION_HEADER& section, const char* name) {
     return std::strncmp(reinterpret_cast<const char*>(section.Name), name, IMAGE_SIZEOF_SHORT_NAME) == 0;
@@ -128,17 +157,21 @@ std::int32_t SectionProtection(const IMAGE_SECTION_HEADER& section) {
     return ((characteristics & IMAGE_SCN_MEM_READ) ? ProtRead : 0) | ((characteristics & IMAGE_SCN_MEM_WRITE) ? ProtWrite : 0) | ((characteristics & IMAGE_SCN_MEM_EXECUTE) ? ProtExecute : 0);
 }
 
-std::string ImageName(HMODULE module) {
+std::wstring ModulePath(HMODULE module) {
     std::wstring path(MAX_PATH, L'\0');
     for (;;) {
         const auto length = GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size()));
-        if (length == 0) throw std::runtime_error("sceKernelGetModuleInfoFromAddr: cannot resolve the module path");
+        if (length == 0) throw std::runtime_error("module info: GetModuleFileNameW failed with error " + std::to_string(GetLastError()));
         if (length < path.size()) {
             path.resize(length);
-            break;
+            return path;
         }
         path.resize(path.size() * 2);
     }
+}
+
+std::string ImageName(HMODULE module) {
+    const auto path = ModulePath(module);
     const auto fileName = std::filesystem::path(path).filename().u8string();
     return ModuleName(std::string(fileName.begin(), fileName.end()));
 }
@@ -187,6 +220,31 @@ bool Fill(std::uintptr_t address, ModuleInfoEx& info) {
     info.ref_count = 1;
     return true;
 }
+
+std::vector<const void*> GuestImages() {
+    const HANDLE process = GetCurrentProcess();
+    std::vector<HMODULE> modules(64);
+    for (;;) {
+        DWORD needed = 0;
+        const auto size = static_cast<DWORD>(modules.size() * sizeof(HMODULE));
+        if (!EnumProcessModules(process, modules.data(), size, &needed))
+            throw std::runtime_error("sceKernelGetModuleList: EnumProcessModules failed with error " + std::to_string(GetLastError()));
+        modules.resize(needed / sizeof(HMODULE));
+        if (needed <= size) break;
+    }
+    const HMODULE executable = GetModuleHandleW(nullptr);
+    constexpr std::wstring_view suffix = L".prx";
+    std::vector<const void*> images;
+    for (const auto module : modules) {
+        if (module != executable) {
+            const auto path = ModulePath(module);
+            if (path.size() < suffix.size() || CompareStringOrdinal(path.data() + path.size() - suffix.size(), static_cast<int>(suffix.size()), suffix.data(), static_cast<int>(suffix.size()), TRUE) != CSTR_EQUAL)
+                continue;
+        }
+        images.push_back(module);
+    }
+    return images;
+}
 #endif
 
 }
@@ -213,6 +271,15 @@ int APS5_VABI sceKernelGetModuleInfoFromAddr(std::uint64_t address, int flags, M
     result.id = ModuleIdForImage_nid_no_patch(native);
 #endif
     *info = result;
+    return 0;
+}
+
+int APS5_VABI sceKernelGetModuleList(KernelModule* handles, std::size_t count, std::size_t* actual) {
+    if (!handles || !actual) return SCE_KERNEL_ERROR_EFAULT;
+    const auto images = GuestImages();
+    for (std::size_t i = 0; i < images.size() && i < count; ++i) handles[i] = ModuleIdForImage_nid_no_patch(images[i]);
+    if (images.size() > count) return SCE_KERNEL_ERROR_ENOMEM;
+    *actual = images.size();
     return 0;
 }
 
