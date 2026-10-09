@@ -141,12 +141,37 @@ int APS5_VABI getpid_nid_postfix(void) {
     return static_cast<int>(pid);
 }
 
+int APS5_VABI getuid_nid_postfix(void) {
+    return 0;
+}
+
+int APS5_VABI geteuid_nid_postfix(void) {
+    return 0;
+}
+
+int APS5_VABI getgid_nid_postfix(void) {
+    return 0;
+}
+
+int APS5_VABI getegid_nid_postfix(void) {
+    return 0;
+}
+
+int APS5_VABI issetugid_nid_postfix(void) {
+    return 0;
+}
+
 void APS5_VABI exit_nid_postfix(int code) {
     LibcExit_nid_no_patch(code);
 }
 
 [[noreturn]] void APS5_VABI _exit_nid_postfix(int status) {
     std::_Exit(status);
+}
+
+int APS5_VABI system_nid_postfix(const char* command) {
+    constexpr int shellNotExecuted = 127 << 8;
+    return command == nullptr ? 1 : shellNotExecuted;
 }
 
 int APS5_VABI sceKernelGetCurrentCpu(void) {
@@ -290,6 +315,18 @@ int APS5_VABI sceKernelGetOperationMode(int* mode, int* submode) {
         throw std::invalid_argument("sceKernelGetOperationMode: null output");
     *mode = 0;
     *submode = 0;
+    return 0;
+}
+
+int APS5_VABI seteuid_nid_postfix(std::uint32_t euid) {
+    if (euid != 0)
+        throw std::runtime_error("seteuid: unsupported user id " + std::to_string(euid));
+    return 0;
+}
+
+int APS5_VABI setegid_nid_postfix(std::uint32_t egid) {
+    if (egid != 0)
+        throw std::runtime_error("setegid: unsupported group id " + std::to_string(egid));
     return 0;
 }
 
