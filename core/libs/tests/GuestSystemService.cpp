@@ -1,4 +1,5 @@
 #include "SceTypes.hpp"
+#include "prx/libkernel/KernelErrors.hpp"
 #include "prx/libSceSystemService/SystemService.hpp"
 #include <cstddef>
 #include <cstdlib>
@@ -27,6 +28,7 @@ extern "C" int APS5_VABI sceSystemServicePowerTick(void);
 extern "C" int APS5_VABI sceSystemServiceReportAbnormalTermination(const void* info);
 extern "C" int APS5_VABI sceSystemServiceDisableMusicPlayer(void);
 extern "C" int APS5_VABI sceSystemServiceReenableMusicPlayer(void);
+extern "C" int APS5_VABI sceSystemServiceLaunchWebBrowser(const char* uri, const void* param);
 
 int main() {
     Require(sceSystemServicePowerTick() == SYSTEM_SERVICE_OK);
@@ -38,6 +40,8 @@ int main() {
     Require(sceSystemServiceDisableMusicPlayer() == SYSTEM_SERVICE_OK);
     Require(sceSystemServiceReenableMusicPlayer() == SYSTEM_SERVICE_OK);
     Require(sceSystemServiceReenableMusicPlayer() == SYSTEM_SERVICE_OK);
+    Require(sceSystemServiceLaunchWebBrowser("http://127.0.0.1:8780/video?v=0", nullptr) == SCE_KERNEL_ERROR_EOPNOTSUPP);
+    Require(sceSystemServiceLaunchWebBrowser("https://example.com/", &info) == SCE_KERNEL_ERROR_EOPNOTSUPP);
     Require(sceSystemServiceGetHdrToneMapLuminance(nullptr) == SYSTEM_SERVICE_ERROR_PARAMETER);
     SystemServiceHdrToneMapLuminance luminance{-1.0f, -1.0f, -1.0f};
     Require(sceSystemServiceGetHdrToneMapLuminance(&luminance) == SYSTEM_SERVICE_OK);
