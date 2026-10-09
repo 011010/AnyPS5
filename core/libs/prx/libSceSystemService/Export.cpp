@@ -158,4 +158,19 @@ int APS5_VABI sceSystemServiceShowControllerSettings(void) {
  return 0;
 }
 
+int APS5_VABI sceSystemServiceGetAppIdOfRunningBigApp(void) {
+ return SYSTEM_SERVICE_RUNNING_APP_ID;
+}
+
+int APS5_VABI sceSystemServiceKillApp(int appId, int how, int reason, int coreDump) {
+ if (appId != SYSTEM_SERVICE_RUNNING_APP_ID) {
+  NotImplemented_nid_no_patch("sceSystemServiceKillApp: application other than the running title");
+ }
+ if (how != -1 || reason != 0 || coreDump != 0) {
+  NotImplemented_nid_no_patch("sceSystemServiceKillApp: arguments other than -1, 0 and 0");
+ }
+ LibcRunShutdown_nid_postfix();
+ std::exit(0);
+}
+
 }
