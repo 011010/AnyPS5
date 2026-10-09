@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <numbers>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "prx/libc/include/General.hpp"
@@ -215,7 +217,9 @@ static void ApplyParams(Ngs2ReverbState& reverb, float rate) {
     for (std::uint32_t channel = 0; channel < 8; channel++) {
         for (std::uint32_t stage = 0; stage < ALLPASSES; stage++) {
             auto& allpass = reverb.channels[channel].allpasses[stage];
-            const auto length = static_cast<std::uint32_t>(static_cast<std::int32_t>(Samples(ALLPASS_TIMES[stage], rate)) + ALLPASS_OFFSETS[channel][stage]);
+            const auto signedLength = static_cast<std::int32_t>(Samples(ALLPASS_TIMES[stage], rate)) + ALLPASS_OFFSETS[channel][stage];
+            if (signedLength < 1) throw std::runtime_error("NGS2: reverb at a sample rate of " + std::to_string(reverb.sampleRate) + " Hz is not implemented");
+            const auto length = static_cast<std::uint32_t>(signedLength);
             if (allpass.buffer.size() != length) allpass.buffer.assign(length, 0.0f);
             if (allpass.cursor >= length) allpass.cursor = 0;
         }

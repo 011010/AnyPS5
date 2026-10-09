@@ -370,7 +370,29 @@ static void TestReverbSetup() {
     Require(loudest > 0.0f && loudest < 1e-8f);
     Ngs2VoiceState state{};
     Require(sceNgs2VoiceGetState(reverb, &state, sizeof(state)) == SCE_NGS2_OK && (state.state_flags & SCE_NGS2_VOICE_STATE_FLAG_INUSE) != 0);
+    Require(sceNgs2SystemSetSampleRate(system, 7000) == SCE_NGS2_OK);
+    bool lowRate = false;
+    try { sceNgs2SystemRender(system, &info, 1); } catch (const std::runtime_error&) { lowRate = true; }
+    Require(lowRate);
     Require(sceNgs2SystemDestroy(system, nullptr) == SCE_NGS2_OK);
+
+    Ngs2ReverbRackOption option{};
+    option.rack_option.size = sizeof(option);
+    option.rack_option.max_grain_samples = 512;
+    option.rack_option.max_voices = 1;
+    option.rack_option.max_input_delay_blocks = 1;
+    option.rack_option.max_matrices = 1;
+    option.rack_option.max_ports = 8;
+    option.max_channels = 8;
+    option.reverb_size = 1;
+    Ngs2ContextBufferInfo query{};
+    Require(sceNgs2RackQueryBufferSize(SCE_NGS2_RACK_ID_REVERB, &option.rack_option, &query) == SCE_NGS2_OK);
+    for (std::uint32_t size : {0u, 2u}) {
+        option.reverb_size = size;
+        bool unsupported = false;
+        try { sceNgs2RackQueryBufferSize(SCE_NGS2_RACK_ID_REVERB, &option.rack_option, &query); } catch (const std::runtime_error&) { unsupported = true; }
+        Require(unsupported);
+    }
 }
 
 static void TestSampleRate() {
