@@ -257,7 +257,7 @@ public:
         if (offset > bytes || length > bytes - offset) return nullptr;
         if (hostWriteView == nullptr) {
             auto* mapped = ::mmap(nullptr, bytes, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
-            if (mapped == MAP_FAILED) return nullptr;
+            if (mapped == MAP_FAILED) throw std::system_error(errno, std::generic_category(), "Direct memory write view mmap failed");
             hostWriteView = mapped;
         }
         return static_cast<std::byte*>(hostWriteView) + offset;
