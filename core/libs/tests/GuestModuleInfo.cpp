@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -14,6 +15,7 @@ void* APS5_VABI dlsym_nid_postfix(void*, const char*);
 int APS5_VABI dlclose_nid_postfix(void*);
 int APS5_VABI sceKernelGetModuleInfoFromAddr(std::uint64_t, int, ModuleInfoEx*);
 int APS5_VABI sceKernelGetModuleList(KernelModule*, std::size_t, std::size_t*);
+int APS5_VABI sceKernelGetModuleInfo(KernelModule, ModuleInfo*);
 }
 static void Require(bool value) { if (!value) std::abort(); }
 template<typename TFunction>
@@ -77,6 +79,32 @@ int main(int argc, char** argv) {
     Require(untouched == 99 && shorter.back() == -1 && std::equal(handles.begin(), handles.end() - 1, shorter.begin()));
     Require(sceKernelGetModuleList(nullptr, 0, &untouched) == SCE_KERNEL_ERROR_EFAULT);
     Require(sceKernelGetModuleList(handles.data(), handles.size(), nullptr) == SCE_KERNEL_ERROR_EFAULT);
+    const auto kernelEx = Query(reinterpret_cast<const void*>(&sceKernelGetModuleInfo), 0);
+    ModuleInfo kernelInfo{};
+    kernelInfo.st_size = sizeof(ModuleInfo);
+    Require(sceKernelGetModuleInfo(kernel, &kernelInfo) == 0);
+    Require(kernelInfo.st_size == sizeof(ModuleInfo) && std::string(kernelInfo.name) == kernelEx.name);
+    Require(kernelInfo.segment_count == kernelEx.segment_count && kernelInfo.segment_count > 0);
+    for (std::uint32_t i = 0; i < kernelInfo.segment_count; ++i)
+        Require(kernelInfo.segments[i].address == kernelEx.segments[i].address && kernelInfo.segments[i].size == kernelEx.segments[i].size && kernelInfo.segments[i].prot == kernelEx.segments[i].prot);
+    Require(std::all_of(std::begin(kernelInfo.fingerprint), std::end(kernelInfo.fingerprint), [](std::uint8_t byte) { return byte == 0; }));
+    for (const auto handle : handles) {
+        ModuleInfo listed{};
+        listed.st_size = sizeof(ModuleInfo);
+        Require(sceKernelGetModuleInfo(handle, &listed) == 0 && listed.name[0] != '\0');
+        if (handle == self.id) Require(std::string(listed.name) == self.name);
+    }
+    for (const std::uint64_t size : {0x158, 0x1a8, 0x1b0, 0x200, 0}) {
+        ModuleInfo sized{};
+        sized.st_size = size;
+        sized.name[0] = 'x';
+        Require(sceKernelGetModuleInfo(kernel, &sized) == SCE_KERNEL_ERROR_EINVAL && sized.st_size == size && sized.name[0] == 'x');
+    }
+    Require(sceKernelGetModuleInfo(kernel, nullptr) == SCE_KERNEL_ERROR_EFAULT);
+    ModuleInfo unknown{};
+    unknown.st_size = sizeof(ModuleInfo);
+    Require(sceKernelGetModuleInfo(info.id, &unknown) == SCE_KERNEL_ERROR_ESRCH);
+    Require(sceKernelGetModuleInfo(-1, &unknown) == SCE_KERNEL_ERROR_ESRCH && unknown.name[0] == '\0');
     int local = 0;
     Query(&local, SCE_KERNEL_ERROR_ESRCH);
     Require(sceKernelGetModuleInfoFromAddr(reinterpret_cast<std::uintptr_t>(add), 2, nullptr) == SCE_KERNEL_ERROR_EFAULT);
