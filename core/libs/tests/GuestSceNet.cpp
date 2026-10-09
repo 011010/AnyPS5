@@ -1,5 +1,6 @@
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include "SceTypes.hpp"
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -32,6 +33,7 @@ int APS5_VABI sceNetEpollDestroy(int);
 extern const std::uint32_t sce_net_in6addr_any[4];
 int APS5_VABI sceNetResolverCreate(const char*, int, int);
 int APS5_VABI sceNetResolverStartNtoa(int, const char*, void*, int, int, int);
+int APS5_VABI sceNetResolverStartNtoaMultipleRecordsEx(int, const char*, void*, int, int, int);
 int APS5_VABI sceNetResolverDestroy(int);
 int APS5_VABI sceNetResolverGetError(int, int*);
 int APS5_VABI sceNetCtlGetState(int*);
@@ -306,11 +308,38 @@ int main() {
     Require(sceNetResolverStartNtoa(resolver, "localhost", ipv4.data(), 5000000, 1, 0) == 0);
     Require(ipv4[0] == 127);
     Require(sceNetResolverGetError(resolver, &resolver_error) == 0 && resolver_error == 0);
+    std::array<std::uint8_t, 512> records{};
+    records.fill(0xA5);
+    Require(sceNetResolverStartNtoaMultipleRecordsEx(resolver, "localhost", records.data(), 5000000, 1, 0) == 0);
+    std::int32_t record_family = 0;
+    std::int32_t record_count = 0;
+    std::int32_t record_count4 = 0;
+    std::memcpy(&record_family, records.data() + 16, sizeof(record_family));
+    std::memcpy(&record_count, records.data() + 320, sizeof(record_count));
+    std::memcpy(&record_count4, records.data() + 324, sizeof(record_count4));
+    Require(records[0] == 127 && record_family == 2 && record_count >= 1 && record_count <= 10 && record_count4 == record_count);
+    Require(std::all_of(records.begin() + 32 * record_count, records.begin() + 320, [](std::uint8_t byte) { return byte == 0; }));
+    Require(std::all_of(records.begin() + 328, records.begin() + 384, [](std::uint8_t byte) { return byte == 0; }));
+    Require(std::all_of(records.begin() + 384, records.end(), [](std::uint8_t byte) { return byte == 0xA5; }));
+    for (int first = 0; first < record_count; ++first) {
+        for (int second = first + 1; second < record_count; ++second) {
+            Require(std::memcmp(records.data() + 32 * first, records.data() + 32 * second, 4) != 0);
+        }
+    }
+    const auto resolved = records;
+    Require(sceNetResolverStartNtoaMultipleRecordsEx(resolver, nullptr, records.data(), 5000000, 1, 0) ==
+        static_cast<int>(0x80410116) && *sceNetErrnoLoc() == 22 && records == resolved);
+    Require(sceNetResolverStartNtoaMultipleRecordsEx(resolver, "localhost", nullptr, 5000000, 1, 0) ==
+        static_cast<int>(0x80410116) && *sceNetErrnoLoc() == 22);
+    Require(sceNetResolverStartNtoaMultipleRecordsEx(resolver, "guest-sce-net.invalid", records.data(), 5000000, 1, 0) ==
+        static_cast<int>(0x804101E1) && records == resolved);
     Require(sceNetResolverGetError(resolver, nullptr) == static_cast<int>(0x80410116) && *sceNetErrnoLoc() == 22);
     Require(sceNetResolverDestroy(resolver) == 0);
     resolver_error = -1;
     Require(sceNetResolverGetError(resolver, &resolver_error) == static_cast<int>(0x80410109) &&
         *sceNetErrnoLoc() == 9 && resolver_error == -1);
+    Require(sceNetResolverStartNtoaMultipleRecordsEx(resolver, "localhost", records.data(), 5000000, 1, 0) ==
+        static_cast<int>(0x80410109) && *sceNetErrnoLoc() == 9 && records == resolved);
 
     std::array<std::uint8_t, 16> ipv6{};
     Require(sceNetInetPton(28, "::1", ipv6.data()) == 1);
