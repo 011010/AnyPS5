@@ -36,12 +36,15 @@ def oracle():
     if binary.exists() and binary.stat().st_mtime >= source.stat().st_mtime:
         return binary
     CACHE.mkdir(parents=True, exist_ok=True)
-    command = [os.environ.get("CC", "cc"), "-O1", str(source), "-o", str(binary)]
-    root = rocm_root()
-    if root:
-        lib = root / "lib"
-        command += [f"-I{root / 'include'}", f"-L{lib}", f"-Wl,-rpath,{lib}"]
-    subprocess.run(command + ["-lhsa-runtime64"], check=True)
+    with tempfile.TemporaryDirectory(dir=CACHE) as tmp:
+        output = Path(tmp) / "oracle"
+        command = [os.environ.get("CC", "cc"), "-O1", str(source), "-o", str(output)]
+        root = rocm_root()
+        if root:
+            lib = root / "lib"
+            command += [f"-I{root / 'include'}", f"-L{lib}", f"-Wl,-rpath,{lib}"]
+        subprocess.run(command + ["-lhsa-runtime64"], check=True)
+        output.replace(binary)
     return binary
 
 
