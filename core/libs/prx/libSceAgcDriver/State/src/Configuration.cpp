@@ -10,7 +10,7 @@
 namespace {
 
 struct TessellationFactorRing {
- uintptr_t base = 0xff00000000;
+ uintptr_t base = 0xff0000000;
  uint32_t size = 0x20000;
 };
 
