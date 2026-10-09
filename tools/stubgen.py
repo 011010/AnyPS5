@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 import argparse
-import hashlib
 import re
 import sys
+from pathlib import Path
 
-
-CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-"
-SUFFIX = bytes([0x51, 0x8D, 0x64, 0xA6, 0x35, 0xDE, 0xD8, 0xC1,
-                0xE6, 0xB0, 0x39, 0xB1, 0xC3, 0xE5, 0x52, 0x30])
+try:
+    from tools.nid_names import CHARSET, SUFFIX, compute_nid
+except ImportError:
+    from nid_names import CHARSET, SUFFIX, compute_nid
 
 
 def strip_nid_token(raw):
@@ -74,20 +74,6 @@ def module_prefix(module):
     return sanitize_identifier(base)
 
 
-def compute_nid(symbol):
-    digest = hashlib.sha1(symbol.encode() + SUFFIX).digest()
-    rev = bytes(digest[7 - i] for i in range(8))
-    out = []
-    for i in range(0, 6, 3):
-        triple = (rev[i] << 16) | (rev[i + 1] << 8) | rev[i + 2]
-        out += [CHARSET[(triple >> 18) & 63], CHARSET[(triple >> 12) & 63],
-                CHARSET[(triple >> 6) & 63], CHARSET[triple & 63]]
-    tail = (rev[6] << 16) | (rev[7] << 8)
-    out += [CHARSET[(tail >> 18) & 63], CHARSET[(tail >> 12) & 63],
-            CHARSET[(tail >> 6) & 63]]
-    return "".join(out)
-
-
 def is_runtime_name(name):
     if name.startswith("_"):
         return True
@@ -100,21 +86,27 @@ def is_valid_ident(name):
     return re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name) is not None
 
 
+def _default_td_path(module):
+    candidates = [
+        "core/libs/prx/" + module + "/Export.cpp",
+        "core/libs/prx/" + module + "/Unimplemented.cpp",
+        "core/libs/prx/" + module + "/src/Unimplemented.cpp",
+    ]
+    root = Path(__file__).resolve().parent.parent
+    for cand in candidates:
+        try:
+            if (root / cand).is_file():
+                return cand
+        except OSError:
+            continue
+    return candidates[0]
+
+
 def td_target(module, td_path, td_lib):
     if td_path is None:
-        if module == "libc":
-            td_path = "core/libs/prx/libc/Export.cpp"
-        elif module == "libkernel":
-            td_path = "core/libs/prx/libkernel/Export.cpp"
-        else:
-            td_path = "core/libs/prx/" + module + "/Export.cpp"
+        td_path = _default_td_path(module)
     if td_lib is None:
-        if module == "libc":
-            td_lib = "libc"
-        elif module == "libkernel":
-            td_lib = "libkernel"
-        else:
-            td_lib = module
+        td_lib = module
     return (td_path, td_lib)
 
 
