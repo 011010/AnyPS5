@@ -28,12 +28,15 @@ int APS5_VABI sceHttpsSetSslVersion(int, int);
 int APS5_VABI sceHttpsGetSslError(int, int*, std::uint32_t*);
 int APS5_VABI sceHttpSetRedirectCallback(int, HttpRedirectCallback, void*);
 int APS5_VABI sceHttpSetCookieRecvCallback(int, HttpCookieRecvCallback, void*);
+int APS5_VABI sceHttpSetAuthInfoCallback(int, HttpAuthInfoCallback, void*);
 int APS5_VABI sceHttpParseStatusLine(const char*, std::size_t, std::int32_t*, std::int32_t*, std::int32_t*, const char**, std::size_t*);
 }
 
 static void Require(bool value) { if (!value) std::abort(); }
 
 static bool Equal(const char* left, const char* right) { return std::strcmp(left, right) == 0; }
+
+static int AuthInfo(int, int, const char*, char*, char*, int, std::uint8_t**, std::uint64_t*, int*, void*) { std::abort(); }
 
 int main() {
     constexpr int outOfMemory = static_cast<int>(0x80431022);
@@ -207,6 +210,9 @@ int main() {
     Require(sceHttpsUnloadCert(1) == 0);
     Require(sceHttpSetResponseHeaderMaxSize(1, 8192) == 0);
     Require(sceHttpRedirectCacheFlush(1) == 0);
+    int authUserArg = 0;
+    Require(sceHttpSetAuthInfoCallback(1, AuthInfo, &authUserArg) == 0);
+    Require(sceHttpReadData(1, data, sizeof(data)) == network);
     int httpErrno = -1;
     Require(sceHttpGetLastErrno(1, &httpErrno) == 0);
     Require(httpErrno == 0);
