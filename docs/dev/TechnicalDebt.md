@@ -95,6 +95,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [sce::Json::Parser::parse](../../core/libs/prx/libSceJson2/Export.cpp) (libSceJson2) - a number that overflows a double (e.g. `1e309`) throws: whether the console rejects the document or stores an infinite real is unknown
 - [sceUserServiceGetNpAccountId](../../core/libs/prx/libSceUserService/Export.cpp) (libSceUserService) - the account id for a user with no linked PSN account is assumed to be 0 with success; libSceNpManager's `sceNpGetAccountIdA` answers the same question with `SCE_NP_ERROR_SIGNED_OUT`
 - [sceUserServiceGetUserColor](../../core/libs/prx/libSceUserService/Export.cpp) (libSceUserService) - the default profile colour is assumed to be blue (0)
+- [libSceVdecsw](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - structure layouts follow shadPS4's `vdecsw.h` and were checked against PPSA05684's movie decoder (`movie-decoder-vdecsw.cpp`), which asserts `pictureCount == 1` at offset 0xb of `OutputInfo` and reads `InputResult` offset 0x10 as the number of frames an access unit produced. The compute, decoder memory and decode input structures and the first 0x28 bytes of the 0x50-byte decoder config are those of libSceVideodec2, and decoding goes through it. The 0x78-byte AVC picture info is filled with Videodec2's leading fields and the cropping fields only. OUTPUT_PENDING (0x81510115), INPUT_QUEUE_EMPTY (0x81510116) and DECODE_PENDING (0x81510117) follow from the codes each call's assert accepts. At most four decoded pictures are queued and the last one is held until `sceVdecswFinalizeDecodeSequence`; the console's queue depth is unknown
 - [kP2L8t3j-aM](../../core/libs/prx/libSceVideoOut/src/Output.cpp) (libSceVideoOut) - unknown name, signature
 - [LibwuIonIBw](../../core/libs/prx/libSceVideoOut/src/Output.cpp) (libSceVideoOut) - unknown name, signature
 - [sceAgcDriverGetEqContextId](../../core/libs/prx/libSceAgcDriver/Eq/src/Query.cpp) (libSceAgcDriver) - returns `ident`: an end-of-pipe interrupt is delivered only to the registration whose id equals the raising queue, so `ident` is that context's id (titles register 0 or 1 for graphics and `0x20 + 8 * pipe + queue` for compute). The console's value is not known; KytyPS5 returns the event's `data`, which it fills with the interrupt's context id, whereas `data` here is the EV_CLEAR trigger count. Other event filters throw
@@ -211,17 +212,6 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceSaveDataInitialize3](../../core/libs/prx/libSceSaveData.native/Export.cpp) (libSceSaveData.native) - a repeated initialize succeeds: PPSA12544's executable and its Unity SaveData plugin both initialize, and the plugin fails on any error. Initializations are counted and `sceSaveDataTerminate` ends the session at the last one; how the console pairs them is unknown
 - [sceVoiceSetMuteFlag](../../core/libs/prx/libSceVoice/Export.cpp) (libSceVoice) - unknown signature
 - [sceTextToSpeech2GetSystemStatus](../../core/libs/prx/libSceTextToSpeech2/Export.cpp) (libSceTextToSpeech2) - unknown signature
-- [sceVdecswQueryComputeMemoryInfo](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
-- [sceVdecswFinalizeDecodeSequence](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
-- [sceVdecswQueryDecoderMemoryInfo](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
-- [sceVdecswSetDecodeInput](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
-- [sceVdecswReleaseComputeQueue](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
-- [sceVdecswAllocateComputeQueue](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
-- [sceVdecswGetAvcPictureInfo](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
-- [sceVdecswTrySyncDecodeOutput](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
-- [sceVdecswTrySyncDecodeInput](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
-- [sceVdecswSetDecodeOutput](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
-- [sceVdecswResetDecoder](../../core/libs/prx/libSceVdecsw/Export.cpp) (libSceVdecsw) - unknown signature
 - [sceCoredumpAttachUserMemoryFile](../../core/libs/prx/libkernel/System/src/Coredump.cpp) (libkernel) - unknown signature
 - [sceCoredumpAttachMemoryRegion](../../core/libs/prx/libkernel/System/src/Coredump.cpp) (libkernel) - unknown signature
 - [sceKernelAddTimerEvent](../../core/libs/prx/libkernel/Equeue/Equeue.cpp) (libkernel) - `usec` is taken as the period in microseconds; re-adding an existing timer keeps its pending expiration count and restarts the period from the time of the call, where FreeBSD 12+ `filt_timertouch` clears pending expirations on `EV_ADD`; `usec == 0` fires on every wait. None of this is confirmed on a PS5 title
