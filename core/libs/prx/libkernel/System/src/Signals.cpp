@@ -27,7 +27,7 @@ constexpr int GuestSigkill = 9;
 constexpr int GuestSigstop = 17;
 constexpr int SaRestart = 0x2;
 constexpr int SaSiginfo = 0x40;
-std::atomic<GuestHandler> handlers[32]{};
+std::atomic<GuestHandler> handlers[MaxSignal + 1]{};
 static_assert(std::atomic<GuestHandler>::is_always_lock_free);
 std::atomic<std::uint32_t> blockedMask{0};
 static_assert(std::atomic<std::uint32_t>::is_always_lock_free);
