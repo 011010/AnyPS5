@@ -737,37 +737,7 @@ if(AGC_BUILD_VISUAL_TEST)
 
     add_test_executable(agc_driver_visual_test EXCLUDE_FROM_ALL
             tests/Visual.cpp
-            Execution/src/VulkanDevice.cpp
-            Execution/src/DisplayFormat.cpp
-            Execution/src/AspectFit.cpp
-            Execution/src/PresentationScaler.cpp
-            Execution/src/GuestMemory.cpp
-            Execution/src/BdaFeatures.cpp
-            Execution/src/SubgroupClock.cpp
-            Execution/src/ShaderDeviceProfile.cpp
-            Graphics/src/Draw.cpp
-            Graphics/src/DepthSurface.cpp
-            Graphics/src/ColorTargetLayout.cpp
-            Graphics/src/ColorTargetTransfer.cpp
-            Graphics/src/Pipeline.cpp
-            Graphics/src/PipelineCache.cpp
-            Graphics/src/Resources.cpp
-            Graphics/src/ShaderResources.cpp
-            Graphics/src/ShaderAddressResources.cpp
-            Graphics/src/GuestBufferMemory.cpp
-            Graphics/src/BdaResources.cpp
-            Graphics/src/BufferAddress.cpp
-            Graphics/src/ShaderValidation.cpp
-            Graphics/src/GuestTextureResource.cpp
-            Graphics/src/GuestSamplerResource.cpp
-            Graphics/src/TextureFormat.cpp
-            Graphics/src/DccMetadata.cpp
-            Graphics/src/TextureTiling.cpp
-            Graphics/src/TextureDetiler.cpp
-            Graphics/src/Texture.cpp
-            Graphics/src/UnitShadow.cpp
-            Graphics/src/Sampler.cpp
-            ${agcTextureDetileShaderHeader}
+            ${agcDriverSources}
             ${visualShaders}
     )
 
@@ -783,15 +753,17 @@ if(AGC_BUILD_VISUAL_TEST)
     )
 
     target_link_libraries(agc_driver_visual_test PRIVATE
+            shader_recompiler_agc_driver
             SDL2-static
             libc
+            libkernel
     )
 
     set_target_properties(agc_driver_visual_test PROPERTIES CXX_EXTENSIONS OFF)
     configure_windows_unwind(agc_driver_visual_test)
 
     if(WIN32)
-        set(visualRuntimeFiles "$<TARGET_FILE:libc>")
+        set(visualRuntimeFiles "$<TARGET_FILE:libc>" "$<TARGET_FILE:libkernel>")
 
         if(MINGW)
             get_filename_component(visualCompilerDirectory "${CMAKE_CXX_COMPILER}" DIRECTORY)
@@ -815,7 +787,7 @@ if(AGC_BUILD_VISUAL_TEST)
                 COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                 ${visualRuntimeFiles}
                 "$<TARGET_FILE_DIR:agc_driver_visual_test>"
-                DEPENDS libc
+                DEPENDS libc libkernel
                 COMMAND_EXPAND_LISTS
                 VERBATIM
         )
