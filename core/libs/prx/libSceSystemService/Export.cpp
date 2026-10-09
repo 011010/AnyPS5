@@ -169,8 +169,7 @@ int APS5_VABI sceSystemServiceKillApp(int appId, int how, int reason, int coreDu
  if (how != -1 || reason != 0 || coreDump != 0) {
   NotImplemented_nid_no_patch("sceSystemServiceKillApp: arguments other than -1, 0 and 0");
  }
- LibcRunShutdown_nid_postfix();
- std::exit(0);
+ LibcExit_nid_no_patch(0);
 }
 
 }

@@ -35,10 +35,11 @@ if(BUILD_TESTING)
     configure_windows_unwind(guest_system_kill_app_tests)
     add_test(NAME guest_system_kill_app_parameters COMMAND guest_system_kill_app_tests)
     add_test(NAME guest_system_kill_app COMMAND guest_system_kill_app_tests --kill)
+    add_test(NAME guest_system_kill_app_status COMMAND guest_system_kill_app_tests --kill)
     set_tests_properties(guest_system_kill_app PROPERTIES
         PASS_REGULAR_EXPRESSION "Guest shutdown and atexit completed")
     if(WIN32)
-        set_tests_properties(guest_system_kill_app guest_system_kill_app_parameters PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(guest_system_kill_app guest_system_kill_app_status guest_system_kill_app_parameters PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()
