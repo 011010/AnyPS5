@@ -62,5 +62,23 @@ class FloatModeTests(unittest.TestCase):
         self.assertEqual(assemble.call_args.kwargs, MODES)
 
 
+class AssemblyTests(unittest.TestCase):
+    def test_condition_operands_match_wave_size(self):
+        for name in ("clang", "ld.lld"):
+            try:
+                hw_oracle.tool(name)
+            except SystemExit as error:
+                self.skipTest(str(error))
+        for wave64, vcc, sgpr in ((False, "vcc_lo", "s8"), (True, "vcc", "s[8:9]")):
+            body = (f"  v_cmp_lt_f32 {vcc}, v4, v5\n"
+                    f"  v_cndmask_b32 v10, v6, v7, {vcc}\n"
+                    f"  v_cmp_lt_f32 {sgpr}, v4, v5\n"
+                    f"  v_cndmask_b32 v11, v6, v7, {sgpr}\n")
+            with self.subTest(wave64=wave64), tempfile.TemporaryDirectory() as tmp:
+                with patch.object(hw_oracle, "target", return_value="gfx1036"):
+                    code = hw_oracle.assemble(body, Path(tmp), wave64, **MODES)
+                self.assertTrue(code.is_file())
+
+
 if __name__ == "__main__":
     unittest.main()
