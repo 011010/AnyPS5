@@ -1157,8 +1157,7 @@ std::optional<std::vector<std::uint32_t>> RetargetDriverBlockPointers(std::span<
 }
 #endif
 
-std::shared_ptr<const ShaderRecompiler::LinkedCalls> LinkUserDataCallees(const ShaderRecompiler::RecompileRequest& request, const ShaderSnapshot& snapshot, std::size_t codeOffset) {
-
+std::shared_ptr<const PreparedShaderState::UserDataLink> LinkUserDataCallees(const ShaderRecompiler::RecompileRequest& request, const ShaderSnapshot& snapshot, std::size_t codeOffset) {
     const bool gcnVertex = ShaderRecompiler::GcnGuestShaders() && request.shader.stage == ShaderRecompiler::ShaderStage::Vertex;
     if (request.shader.stage != ShaderRecompiler::ShaderStage::Compute && !gcnVertex) return nullptr;
     const auto code = request.shader.code;
